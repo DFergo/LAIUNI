@@ -1,0 +1,11 @@
+{
+  "role": "frontend",
+  "frontend_type": "organizer",
+  "session_resume_window_hours": 120,
+  "auth_required": true,
+  "disclaimer_enabled": true,
+  "output_worker_summary": false,
+  "output_full_report": true,
+  "speech_to_text_enabled": false,
+  "captcha_enabled": false
+}
