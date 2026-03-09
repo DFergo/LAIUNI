@@ -2,35 +2,53 @@
 
 **Last Updated:** 2026-03-09
 
-## Current State: v2 Rewrite — Sprint 0 (Setup)
+## Current State: v2 Rewrite — Sprint 1 (Scaffolding)
 
-Starting fresh rewrite based on SPEC-v2.md. Previous v1 codebase (Sprints 8-11f) had accumulated technical debt and a chat regression that couldn't be cleanly bisected.
-
-### Sprint 0 — Project Setup
+### Sprint 0 — Project Setup ✅
 - [x] Product specification written (SPEC-v2.md)
 - [x] Project structure created
 - [x] Claude Code configuration ready
 - [x] GitHub repo created (https://github.com/DFergo/LAIUNI)
-- [ ] Initial project scaffolding (package.json, requirements.txt, Dockerfiles)
-- [ ] Backend skeleton (FastAPI + admin auth)
-- [ ] Frontend skeleton (React + Tailwind + Vite)
-- [ ] Docker compose files
-- [ ] Deployment configs
+- [x] Deployment configs created
+- [x] Nginx config created
 
-### What Works
-- Nothing yet — clean slate
+### Sprint 1 — Project Scaffolding ✅
+
+**Goal:** Both containers build and run (empty shells)
+
+#### Deliverables
+- [x] `Dockerfile.backend` — Python 3.11 + FastAPI
+- [x] `Dockerfile.frontend` — Node 20 build + Nginx + Python sidecar (supervisord)
+- [x] `docker-compose.backend.yml` — port 8000, hrdd-data volume
+- [x] `docker-compose.frontworker.yml` — port 8091, hrdd-fw-data volume
+- [x] `docker-compose.frontorganizer.yml` — port 8090, hrdd-fo-data volume
+- [x] `src/backend/main.py` — FastAPI app with health endpoint
+- [x] `src/backend/requirements.txt` — dependencies
+- [x] `src/frontend/package.json` — React 18 + Vite 6 + Tailwind 3.4
+- [x] `src/frontend/tailwind.config.js` — UNI colors configured
+- [x] `src/frontend/vite.config.ts`
+- [x] `src/frontend/src/App.tsx` — "Hello HRDD" placeholder
+- [x] Frontend sidecar (`src/frontend/sidecar/main.py`) — minimal FastAPI
+- [x] `config/supervisord.conf` — runs Nginx + sidecar in frontend container
+
+#### Acceptance Criteria
+- [x] `docker compose -f docker-compose.backend.yml build` succeeds
+- [x] `docker compose -f docker-compose.frontworker.yml build` succeeds
+- [x] Backend responds to `GET http://localhost:8000/health` → `{"status": "ok"}`
+- [x] Frontend loads React app at `http://localhost:8091`
+- [x] Frontend Nginx proxies `/internal/` to sidecar (returns 404, not 502)
+- [x] Data directories exist inside containers at `/app/data`
 
 ### What's Needed Next
-1. **Sprint 1:** Project scaffolding — Dockerfiles, compose files, deployment configs, build pipeline
-2. **Sprint 2:** Backend core — FastAPI app, admin auth (first-run setup + JWT), config loader
-3. **Sprint 3:** Frontend core — React app with full user flow (language → disclaimer → session → survey → chat shell)
-4. **Sprint 4:** Message queue + polling — the pull-inverse architecture
-5. **Sprint 5:** LLM integration — LM Studio/Ollama provider, prompt assembly, streaming
-6. **Sprint 6:** Admin panel — all 6 tabs (Frontends, Prompts, LLM, RAG, Sessions, SMTP)
-7. **Sprint 7:** RAG + MemGPT/Letta integration
-8. **Sprint 8:** Session management, recovery, finalization (summary + report)
-9. **Sprint 9:** SMTP integration (auth codes, report forwarding, notifications)
-10. **Sprint 10:** Polish, testing, production deployment
+- **Sprint 2:** Backend core — admin auth (first-run setup + JWT), config loader
+- **Sprint 3:** Frontend user flow — language → disclaimer → session → survey → chat shell
+- **Sprint 4:** Message queue + polling — pull-inverse architecture
+- **Sprint 5:** LLM integration
+- **Sprint 6:** Admin panel (all 6 tabs)
+- **Sprint 7:** RAG + MemGPT/Letta
+- **Sprint 8:** Session management + finalization
+- **Sprint 9:** SMTP integration
+- **Sprint 10:** Polish + production deployment
 
 ---
 

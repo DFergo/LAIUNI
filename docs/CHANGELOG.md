@@ -2,6 +2,17 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 1 — Project Scaffolding (2026-03-09)
+- `Dockerfile.backend`: Python 3.11-slim + FastAPI + uvicorn
+- `Dockerfile.frontend`: Multi-stage (Node 20 build → Python 3.11-slim runtime with Nginx + supervisord)
+- 3 Docker Compose files: backend (8000), frontworker (8091), frontorganizer (8090)
+- Backend: FastAPI skeleton with `/health` endpoint
+- Frontend: React 18 + Vite 6 + Tailwind 3.4 with UNI color palette
+- Frontend sidecar: FastAPI skeleton with `/internal/health`
+- Nginx config: SSE streaming headers, SPA fallback, sidecar proxy
+- supervisord manages Nginx + sidecar in frontend container
+- All containers verified: build, run, health checks, /app/data volumes
+
 ### Sprint 0 — Project Setup (2026-03-09)
 - Created product specification (SPEC-v2.md)
 - Set up project structure for Claude Code

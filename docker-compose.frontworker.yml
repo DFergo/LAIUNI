@@ -1,0 +1,14 @@
+services:
+  hrdd-frontend-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "8091:80"
+    volumes:
+      - hrdd-fw-data:/app/data
+    environment:
+      - DEPLOYMENT_JSON_PATH=/app/config/deployment_frontend_worker.json
+
+volumes:
+  hrdd-fw-data:
