@@ -2,6 +2,15 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 2 — Backend Core: Admin Auth + Config (2026-03-09)
+- `src/backend/core/config.py`: Pydantic config loader for `deployment_backend.json`
+- `src/backend/api/v1/admin/auth.py`: Admin setup, login, JWT auth (HS256, bcrypt)
+- Admin React app (`src/admin/`): SetupPage, LoginPage, Dashboard with UNI colors
+- First-run flow: "Create Admin Account" → bcrypt hash → `/app/data/.admin_hash`
+- JWT: 24h default expiry, 30d with "remember me", verify endpoint
+- Backend Dockerfile: multi-stage (Node build for admin SPA + Python runtime)
+- Backend serves admin SPA at `/` root via FastAPI catch-all route
+
 ### Sprint 1 — Project Scaffolding (2026-03-09)
 - `Dockerfile.backend`: Python 3.11-slim + FastAPI + uvicorn
 - `Dockerfile.frontend`: Multi-stage (Node 20 build → Python 3.11-slim runtime with Nginx + supervisord)

@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-09
 
-## Current State: v2 Rewrite — Sprint 1 (Scaffolding)
+## Current State: v2 Rewrite — Sprint 2 (Backend Core)
 
 ### Sprint 0 — Project Setup ✅
 - [x] Product specification written (SPEC-v2.md)
@@ -39,8 +39,29 @@
 - [x] Frontend Nginx proxies `/internal/` to sidecar (returns 404, not 502)
 - [x] Data directories exist inside containers at `/app/data`
 
+### Sprint 2 — Backend Core: Admin Auth + Config ✅
+
+**Goal:** Backend admin login works. Config loader ready.
+
+#### Deliverables
+- [x] `src/backend/core/config.py` — Pydantic config loader (BackendConfig)
+- [x] `src/backend/api/v1/admin/auth.py` — Setup, login, JWT (HS256, no external deps)
+- [x] Admin React app (`src/admin/`) — SetupPage, LoginPage, Dashboard
+- [x] First-run flow: create password → bcrypt hash to `/app/data/.admin_hash`
+- [x] JWT auth: 24h default, 30 days with "remember me"
+- [x] Backend serves admin SPA at `/` (root) via FastAPI catch-all
+
+#### Acceptance Criteria
+- [x] First visit to `http://localhost:8000` shows "Create Admin Account"
+- [x] After creating password, shows login form
+- [x] Login returns JWT, redirects to admin dashboard
+- [x] Invalid password shows error message
+- [x] JWT persists across page reloads (stored in localStorage)
+- [x] "Remember me" extends JWT expiry (24h → 30d)
+- [x] `deployment_backend.json` loaded and validated by Pydantic
+- [x] Deleting `.admin_hash` resets to first-run setup
+
 ### What's Needed Next
-- **Sprint 2:** Backend core — admin auth (first-run setup + JWT), config loader
 - **Sprint 3:** Frontend user flow — language → disclaimer → session → survey → chat shell
 - **Sprint 4:** Message queue + polling — pull-inverse architecture
 - **Sprint 5:** LLM integration
