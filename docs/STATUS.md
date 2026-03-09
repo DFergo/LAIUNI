@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-09
 
-## Current State: v2 Rewrite — Sprint 2 (Backend Core)
+## Current State: v2 Rewrite — Sprint 3 (Frontend User Flow)
 
 ### Sprint 0 — Project Setup ✅
 - [x] Product specification written (SPEC-v2.md)
@@ -61,8 +61,38 @@
 - [x] `deployment_backend.json` loaded and validated by Pydantic
 - [x] Deleting `.admin_hash` resets to first-run setup
 
+### Sprint 3 — Frontend User Flow ✅
+
+**Goal:** Complete user journey from language selection to survey submission.
+
+#### Deliverables
+- [x] `LanguageSelector.tsx` — 16 languages in responsive 4-column grid
+- [x] `DisclaimerPage.tsx` — translated purpose statement + accept button
+- [x] `SessionPage.tsx` — new session (WORD-NUMBER token) + recover
+- [x] `AuthPage.tsx` — email verification (organizer only, mock until Sprint 9)
+- [x] `SurveyPage.tsx` — role-dependent fields per §3.4 matrix
+- [x] `ChatShell.tsx` — placeholder with session token
+- [x] `App.tsx` — phase state machine (loading → language → ... → chat)
+- [x] `i18n.ts` — 16 languages with all UI strings
+- [x] `types.ts` — TypeScript types for Phase, Role, DeploymentConfig, SurveyData
+- [x] `token.ts` — WORD-NUMBER generator (24 nature words + 4-digit random)
+- [x] Frontend sidecar: `GET /internal/config` reads deployment JSON
+
+#### Acceptance Criteria
+- [x] Language selector shows 16 languages in responsive grid
+- [x] Clicking a language → disclaimer page in that language
+- [x] Accept disclaimer → session page
+- [x] "New session" generates `WORD-NUMBER` token and displays it
+- [x] Worker: session → survey (skip auth)
+- [x] Organizer: session → auth → survey
+- [x] Survey shows correct fields per role (§3.4 matrix)
+- [x] Survey submit → chat placeholder
+- [x] Session recovery: entering valid token loads previous state (mock, full in Sprint 8)
+- [x] Colors match: header #003087, cards white/rounded-xl, buttons uni-blue
+- [x] Footer shows disclaimer text, hidden during chat phase
+- [x] Sidecar returns correct config per deployment JSON
+
 ### What's Needed Next
-- **Sprint 3:** Frontend user flow — language → disclaimer → session → survey → chat shell
 - **Sprint 4:** Message queue + polling — pull-inverse architecture
 - **Sprint 5:** LLM integration
 - **Sprint 6:** Admin panel (all 6 tabs)

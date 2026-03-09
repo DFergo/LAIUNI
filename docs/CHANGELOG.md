@@ -2,6 +2,19 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 3 — Frontend User Flow (2026-03-09)
+- Complete phase state machine: loading → language → disclaimer → session → auth? → survey → chat
+- 16 languages with full UI translations (EN, ES, FR, DE, PT, AR, ZH, HI, ID, JA, KO, RU, TR, VI, TH, SW)
+- LanguageSelector: responsive 4-column grid with native language names
+- DisclaimerPage: translated purpose statement per language
+- SessionPage: WORD-NUMBER token generation (24 nature words + 4-digit random)
+- AuthPage: email verification flow (mock, SMTP in Sprint 9)
+- SurveyPage: role-dependent fields matching §3.4 matrix exactly
+- ChatShell: placeholder with session token display
+- Frontend sidecar: `/internal/config` endpoint reads deployment JSON
+- Organizer frontend shows auth step, worker skips it
+- Footer with disclaimer, hidden during chat phase
+
 ### Sprint 2 — Backend Core: Admin Auth + Config (2026-03-09)
 - `src/backend/core/config.py`: Pydantic config loader for `deployment_backend.json`
 - `src/backend/api/v1/admin/auth.py`: Admin setup, login, JWT auth (HS256, bcrypt)
