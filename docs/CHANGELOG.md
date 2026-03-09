@@ -2,6 +2,19 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 4 — Message Queue + Polling (2026-03-09)
+- Full pull-inverse pipeline: React → sidecar queue → backend poll → mock LLM → SSE stream → React
+- Frontend sidecar: `POST /internal/queue`, `GET /internal/queue`, `POST /internal/stream/{token}/chunk`, `GET /internal/stream/{token}` (SSE)
+- Backend polling loop with sequential processing (one message at a time for LLM constraint)
+- Queue position feedback via SSE (`queue_position` event)
+- Frontend registry: persistent JSON with atomic writes (lesson #5), auto-discovery via `/internal/config`
+- Admin Frontends tab: register by URL, enable/disable, remove, status indicators (green/red/gray), auto-refresh
+- `ChatShell.tsx`: real chat with EventSource streaming, user bubbles right/blue, assistant left/white
+- EventSource error handling: UI unblocks after 3 consecutive failures (lesson #1)
+- Message TTL: 300s expiry in sidecar queue
+- 31 languages supported (15 new with English fallback via `Partial<Record>` pattern)
+- Survey fields: all visible on both frontends, required varies by frontend type
+
 ### Sprint 3 — Frontend User Flow (2026-03-09)
 - Complete phase state machine: loading → language → disclaimer → session → auth? → survey → chat
 - 16 languages with full UI translations (EN, ES, FR, DE, PT, AR, ZH, HI, ID, JA, KO, RU, TR, VI, TH, SW)

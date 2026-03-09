@@ -13,7 +13,7 @@ function App() {
   const [lang, setLang] = useState<LangCode>('en')
   const [config, setConfig] = useState<DeploymentConfig | null>(null)
   const [sessionToken, setSessionToken] = useState('')
-  const [_survey, setSurvey] = useState<SurveyData | null>(null)
+  const [survey, setSurvey] = useState<SurveyData | null>(null)
 
   useEffect(() => {
     fetchConfig()
@@ -94,7 +94,7 @@ function App() {
         {phase === 'session' && <SessionPage lang={lang} onNewSession={handleNewSession} onRecover={handleRecover} />}
         {phase === 'auth' && <AuthPage lang={lang} onVerified={handleAuth} />}
         {phase === 'survey' && config && <SurveyPage lang={lang} config={config} onSubmit={handleSurvey} />}
-        {phase === 'chat' && <ChatShell lang={lang} sessionToken={sessionToken} />}
+        {phase === 'chat' && survey && <ChatShell lang={lang} sessionToken={sessionToken} survey={survey} />}
       </main>
 
       {showFooter && (

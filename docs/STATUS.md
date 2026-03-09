@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-09
 
-## Current State: v2 Rewrite — Sprint 3 (Frontend User Flow)
+## Current State: v2 Rewrite — Sprint 4 Complete, Sprint 5 Next
 
 ### Sprint 0 — Project Setup ✅
 - [x] Product specification written (SPEC-v2.md)
@@ -92,8 +92,30 @@
 - [x] Footer shows disclaimer text, hidden during chat phase
 - [x] Sidecar returns correct config per deployment JSON
 
+### Sprint 4 — Message Queue + Polling ✅
+
+**Goal:** Pull-inverse pipeline works end-to-end with mock responses.
+
+#### Deliverables
+- [x] Frontend sidecar: `POST /internal/queue`, `GET /internal/queue`, `POST /internal/stream/{token}/chunk`, `GET /internal/stream/{token}` (SSE)
+- [x] Backend: `services/polling.py` — background polling loop with sequential processing
+- [x] Backend: `services/frontend_registry.py` — persistent JSON registry (atomic writes)
+- [x] Backend: admin frontends tab (register via /internal/config discovery, enable/disable, remove)
+- [x] `ChatShell.tsx` — real chat with EventSource SSE streaming
+- [x] Queue position feedback to user
+- [x] 31 languages supported (15 new with English fallback)
+
+#### Acceptance Criteria
+- [x] User sends message → sidecar queue → backend polls → mock response streams back
+- [x] SSE events: token, done, error, queue_position
+- [x] EventSource onerror unblocks UI after 3 failures
+- [x] Message TTL: 300s
+- [x] Frontend registry persists to JSON (atomic write)
+- [x] Admin can register/enable/disable frontends
+- [x] Chat bubbles: user right/blue, assistant left/white
+- [x] Queue position shown while waiting
+
 ### What's Needed Next
-- **Sprint 4:** Message queue + polling — pull-inverse architecture
 - **Sprint 5:** LLM integration
 - **Sprint 6:** Admin panel (all 6 tabs)
 - **Sprint 7:** RAG + MemGPT/Letta

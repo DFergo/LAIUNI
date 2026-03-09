@@ -38,3 +38,38 @@ export async function loginAdmin(password: string, rememberMe: boolean): Promise
 export async function verifyToken(): Promise<{ valid: boolean }> {
   return request('/admin/verify');
 }
+
+// --- Frontends API ---
+
+export interface Frontend {
+  id: string
+  url: string
+  frontend_type: string
+  name: string
+  enabled: boolean
+  status: string
+  last_seen: string | null
+  created_at: string
+}
+
+export async function listFrontends(): Promise<{ frontends: Frontend[] }> {
+  return request('/admin/frontends');
+}
+
+export async function registerFrontend(url: string, name: string = ''): Promise<{ frontend: Frontend }> {
+  return request('/admin/frontends', {
+    method: 'POST',
+    body: JSON.stringify({ url, name }),
+  });
+}
+
+export async function updateFrontend(id: string, data: { enabled?: boolean; name?: string }): Promise<{ frontend: Frontend }> {
+  return request(`/admin/frontends/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function removeFrontend(id: string): Promise<void> {
+  return request(`/admin/frontends/${id}`, { method: 'DELETE' });
+}
