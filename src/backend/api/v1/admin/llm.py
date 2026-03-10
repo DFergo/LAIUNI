@@ -25,13 +25,14 @@ _DEFAULTS = {
     "inference_model": config.lm_studio_model,
     "inference_temperature": 0.7,
     "inference_max_tokens": 2048,
-    "inference_num_ctx": config.ollama_num_ctx,
+    "inference_num_ctx": 32768,
     "summariser_enabled": False,
     "summariser_provider": "ollama",
     "summariser_model": config.ollama_summariser_model,
     "summariser_temperature": 0.3,
     "summariser_max_tokens": 1024,
     "summariser_num_ctx": config.ollama_num_ctx,
+    "compression_threshold": 0.75,
 }
 
 
@@ -75,6 +76,7 @@ class LLMSettingsRequest(BaseModel):
     summariser_temperature: float | None = None
     summariser_max_tokens: int | None = None
     summariser_num_ctx: int | None = None
+    compression_threshold: float | None = None
 
 
 @router.get("/health")

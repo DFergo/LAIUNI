@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-09
 
-## Current State: v2 Rewrite — Sprint 7a Complete, Sprint 7b Next
+## Current State: v2 Rewrite — Sprint 7b Complete, Sprint 8 Next
 
 ### Sprint 0 — Project Setup ✅
 - [x] Product specification written (SPEC-v2.md)
@@ -194,12 +194,32 @@
 - [x] Index loads from disk on restart (no re-embedding needed)
 - [x] Dependencies: `llama-index-core`, `llama-index-readers-file`, `llama-index-embeddings-huggingface`, `sentence-transformers`
 
+### Sprint 7b — Context Compression ✅
+
+**Goal:** Prevent context overflow in long conversations via token counting + LLM-based compression.
+
+**Decision:** Simple compression with existing LLM instead of Letta (see ADR-009). Letta deferred to Sprint 12.
+
+#### Deliverables
+- [x] `services/context_compressor.py` — token counter + incremental compression with running summary
+- [x] `prompts/context_compression.md` — dedicated compression prompt (preserves names, dates, facts, case data)
+- [x] Token estimation before each LLM call (logged per message)
+- [x] Compression at configurable threshold (slider 50-90%, default 75%)
+- [x] Progressive: oldest messages compressed first, recent 4 kept intact
+- [x] Integration in `polling.py` — compress after RAG injection, before inference
+- [x] Uses summariser model/provider from admin LLM settings
+- [x] Logging with before/after token counts
+- [x] Admin LLM tab: context window for all providers, threshold slider, model auto-correction
+- [x] ADR-009 documented, Sprint 12 (Letta) planned
+- [x] `/git` command for dual-remote push (GitHub + Gitea)
+
 ### What's Needed Next
-- **Sprint 7b:** Context compression (Letta or simpler approach)
-- **Sprint 8:** Session management + finalization
+- **Sprint 8:** Session management + finalization + evidence document upload (summary + session RAG)
+- **Sprint 8b:** Campaign-specific RAG (documents tied to individual frontends)
 - **Sprint 9:** SMTP integration
 - **Sprint 10:** Ethical guardrails
-- **Sprint 11:** Polish + production deployment
+- **Sprint 11:** Polish + production deployment + repetition detection
+- **Sprint 12:** Letta/MemGPT integration (experimental)
 
 ---
 

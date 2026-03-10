@@ -93,6 +93,7 @@ export interface LLMSettings {
   summariser_temperature: number
   summariser_max_tokens: number
   summariser_num_ctx: number
+  compression_threshold: number
 }
 
 export async function getLLMHealth(): Promise<LLMHealth> {

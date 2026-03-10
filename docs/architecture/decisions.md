@@ -85,6 +85,32 @@
 - Stored as markdown files in Docker volume
 - Version history not tracked (future improvement)
 
+## ADR-009: Context Compression Without Letta
+
+**Decision:** Implement context compression using the existing LLM with a dedicated summary prompt, instead of integrating Letta/MemGPT.
+
+**Context:** Long conversations can exceed the model's context window. Letta/MemGPT provides sophisticated memory management but requires a separate server (PostgreSQL + Letta container), takes over conversation management, and introduces a fragile external dependency with a fast-moving API.
+
+Our context budget analysis (March 2026):
+- Fixed context (system + role + mode + survey + knowledge): ~4,100 tokens
+- RAG chunks per message: ~500-1,500 tokens
+- Available for conversation at 32K num_ctx: ~26,000 tokens (~40+ exchanges)
+- Available at 8K num_ctx: ~2,400 tokens (3-4 exchanges — too tight)
+
+**Approach:**
+- Token counter tracks total context size before each LLM call
+- When context reaches threshold (configurable, default 70% of num_ctx), compress oldest conversation messages using a dedicated summary prompt
+- Summary prompt designed to preserve names, dates, facts, and case data — not the same as end-of-session summary
+- System prompt, knowledge base, and recent messages never compressed
+- Clean interface (`compress_if_needed`) allows future Letta integration by swapping one function
+
+**Consequences:**
+- Zero new dependencies or containers
+- Works with any LLM provider already configured
+- Compression quality depends on the LLM's summarization ability
+- Risk of losing details in compression (mitigated by preservation-focused prompt)
+- Letta can be integrated later via Sprint 12 without architectural changes
+
 ## ADR-008: Hash-Based Routing (No React Router)
 
 **Decision:** Use `window.location.hash` for routing instead of React Router.

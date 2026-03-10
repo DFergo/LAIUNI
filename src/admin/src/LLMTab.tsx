@@ -105,9 +105,17 @@ export default function LLMTab() {
     if (!settings) return null
     const provider = settings[providerKey]
     const models = allModels(provider)
+    const currentModel = settings[modelKey]
+
+    // If current model isn't in the provider's list, auto-correct to first available
+    if (models.length > 0 && !models.includes(currentModel)) {
+      // Schedule update for next render to avoid updating during render
+      setTimeout(() => updateField(modelKey, models[0]), 0)
+    }
+
     return models.length > 0 ? (
       <select
-        value={settings[modelKey]}
+        value={models.includes(currentModel) ? currentModel : models[0]}
         onChange={e => updateField(modelKey, e.target.value)}
         className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
       >
@@ -118,7 +126,7 @@ export default function LLMTab() {
     ) : (
       <input
         type="text"
-        value={settings[modelKey]}
+        value={currentModel}
         onChange={e => updateField(modelKey, e.target.value)}
         placeholder="e.g. qwen3-235b-a22b"
         className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
@@ -194,7 +202,7 @@ export default function LLMTab() {
               </div>
             </div>
 
-            <div className={`grid ${settings.inference_provider === 'ollama' ? 'grid-cols-3' : 'grid-cols-2'} gap-4`}>
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Temperature ({settings.inference_temperature})
@@ -220,25 +228,26 @@ export default function LLMTab() {
                 />
                 {hint('Max response length. 1 page ≈ 400 tokens. 2048 ≈ 5 pages.')}
               </div>
-              {settings.inference_provider === 'ollama' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Context Window</label>
-                  <input
-                    type="number"
-                    value={settings.inference_num_ctx}
-                    onChange={e => updateField('inference_num_ctx', parseInt(e.target.value) || 8192)}
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                  />
-                  {hint('Total tokens the model can see (prompt + history + response). Default: 8192. Increase for longer conversations.')}
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Context Window</label>
+                <input
+                  type="number"
+                  value={settings.inference_num_ctx}
+                  onChange={e => updateField('inference_num_ctx', parseInt(e.target.value) || 32768)}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                />
+                {hint(settings.inference_provider === 'ollama'
+                  ? 'Overrides Ollama default. Verify your model supports this context length.'
+                  : 'Set this to match the context length configured in LM Studio for the loaded model.'
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Summariser Panel */}
+          {/* Context Compression Panel */}
           <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
             <div className="flex items-center justify-between mb-1">
-              <h3 className="text-lg font-semibold text-gray-800">Context Compression (Letta)</h3>
+              <h3 className="text-lg font-semibold text-gray-800">Context Compression</h3>
               <label className="flex items-center gap-2 cursor-pointer">
                 <span className="text-xs text-gray-500">
                   {settings.summariser_enabled ? 'Enabled' : 'Disabled'}
@@ -254,9 +263,9 @@ export default function LLMTab() {
               </label>
             </div>
             <p className="text-xs text-gray-400 mb-4">
-              Letta/MemGPT compresses conversation history to prevent context overflow in the inference model.
-              Requires a separate LLM — typically a smaller, faster model (e.g. 7B).
-              {!settings.summariser_enabled && ' When disabled, long conversations may be truncated.'}
+              Incrementally compresses conversation history to prevent context overflow in the inference model.
+              Uses a separate, smaller LLM to summarize older messages while preserving all names, dates, and case facts.
+              {!settings.summariser_enabled && ' When disabled, long conversations may be truncated by the inference model.'}
             </p>
 
             {settings.summariser_enabled && (
@@ -276,10 +285,11 @@ export default function LLMTab() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Model</label>
                     {modelSelector('summariser_provider', 'summariser_model')}
+                    {hint('Recommended: qwen2.5:3b, phi-3.5-mini, gemma3:4b — small and fast.')}
                   </div>
                 </div>
 
-                <div className={`grid ${settings.summariser_provider === 'ollama' ? 'grid-cols-3' : 'grid-cols-2'} gap-4`}>
+                <div className="grid grid-cols-3 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Temperature ({settings.summariser_temperature})
@@ -287,36 +297,42 @@ export default function LLMTab() {
                     <input
                       type="range"
                       min="0"
-                      max="2"
+                      max="1"
                       step="0.1"
                       value={settings.summariser_temperature}
                       onChange={e => updateField('summariser_temperature', parseFloat(e.target.value))}
                       className="w-full"
                     />
-                    {hint('Lower = more factual summaries. Recommended: 0.2-0.4')}
+                    {hint('Lower = more factual. Recommended: 0.2-0.3')}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Max Tokens</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Context Window</label>
                     <input
                       type="number"
-                      value={settings.summariser_max_tokens}
-                      onChange={e => updateField('summariser_max_tokens', parseInt(e.target.value) || 1024)}
+                      value={settings.summariser_num_ctx}
+                      onChange={e => updateField('summariser_num_ctx', parseInt(e.target.value) || 8192)}
                       className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
                     />
-                    {hint('Summary length. 1024 ≈ 2-3 pages. Shorter summaries save context space.')}
+                    {hint(settings.summariser_provider === 'ollama'
+                      ? 'Overrides Ollama default. Verify your model supports this context length.'
+                      : 'Set this to match the context length configured in LM Studio for the compression model.'
+                    )}
                   </div>
-                  {settings.summariser_provider === 'ollama' && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Context Window</label>
-                      <input
-                        type="number"
-                        value={settings.summariser_num_ctx}
-                        onChange={e => updateField('summariser_num_ctx', parseInt(e.target.value) || 8192)}
-                        className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                      />
-                      {hint('Ollama context window. 8192 default. Must fit the conversation being summarised.')}
-                    </div>
-                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Compression Threshold ({Math.round(settings.compression_threshold * 100)}%)
+                    </label>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="0.9"
+                      step="0.05"
+                      value={settings.compression_threshold}
+                      onChange={e => updateField('compression_threshold', parseFloat(e.target.value))}
+                      className="w-full"
+                    />
+                    {hint(`Compress when inference context reaches this %. At ${settings.inference_num_ctx} ctx = triggers at ~${Math.round(settings.inference_num_ctx * settings.compression_threshold).toLocaleString()} tokens.`)}
+                  </div>
                 </div>
               </>
             )}

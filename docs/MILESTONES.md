@@ -205,27 +205,51 @@ Each sprint has explicit acceptance criteria. A sprint is NOT done until ALL cri
 
 ---
 
-## Sprint 7 — RAG + MemGPT/Letta
+## Sprint 7a — RAG (LlamaIndex) ✅
 
-**Goal:** AI uses uploaded documents for context. Long conversations compressed.
+**Goal:** AI uses uploaded documents for context via vector retrieval.
 
 ### Deliverables
-- [ ] `services/rag_service.py` — LlamaIndex indexing + retrieval
-- [ ] RAG integrated into prompt assembly
-- [ ] Letta/MemGPT context compression for long conversations
-- [ ] RAG config: chunk_size, similarity_top_k, embedding_model
-
-### Acceptance Criteria
-- [ ] Upload document via admin → appears in RAG index
-- [ ] Ask question about uploaded document → AI references it
-- [ ] RAG context injected into prompt (visible in debug logs)
-- [ ] Reindex rebuilds the full index
-- [ ] Long conversation (>10 exchanges) → Letta compresses context
-- [ ] Compression threshold configurable via admin LLM tab
-- [ ] AI responses remain coherent after compression
+- [x] `services/rag_service.py` — LlamaIndex indexing + retrieval with sentence-transformers
+- [x] RAG integrated into polling (per-message chunk injection)
+- [x] Knowledge base: glossary + organizations (direct injection, not RAG)
+- [x] Admin: download/upload JSON for glossary and organizations
+- [x] Glossary optimized: only injected for non-English sessions, compact format
 
 ### Spec Sections Covered
 - §4.2.4 (RAG Tab), §9.1 (Backend Config — RAG settings)
+
+---
+
+## Sprint 7b — Context Compression
+
+**Goal:** Prevent context overflow in long conversations. Token counting + intelligent compression.
+
+### Deliverables
+- [ ] `services/context_compressor.py` — token counter + LLM-based compression
+- [ ] Dedicated compression prompt: `context_compression.md` (preserves names, dates, facts, case data)
+- [ ] Token estimation for conversation history before each LLM call
+- [ ] Compression triggers at configurable threshold (default 70% of num_ctx)
+- [ ] Progressive compression: oldest messages summarized first, recent messages kept intact
+- [ ] Integration in `polling.py`: compress before LLM call if needed
+- [ ] Compression uses summariser model/provider from admin LLM settings
+- [ ] Logging: compression events logged with before/after token counts
+
+### Acceptance Criteria
+- [ ] Token counter accurately estimates context size (system + history + RAG)
+- [ ] Compression activates when context exceeds threshold
+- [ ] Compressed summary preserves: all names, dates, companies, countries, union names, specific facts, case details
+- [ ] Compressed summary discards: pleasantries, repeated information, verbose explanations
+- [ ] System prompt and knowledge base never compressed
+- [ ] Recent messages (configurable, default last 6) never compressed
+- [ ] Conversation remains coherent after compression — user can reference earlier details
+- [ ] Compression threshold configurable via admin LLM tab (`summariser_enabled` toggle)
+- [ ] Works with both LM Studio and Ollama providers
+- [ ] If summariser is disabled, no compression happens (context simply grows until model limit)
+- [ ] Compression event logged: "Compressed messages 1-N: X tokens → Y tokens"
+
+### Spec Sections Covered
+- §4.2.3 (LLM Tab — summariser settings), §9.1 (Backend Config)
 
 ---
 
@@ -244,6 +268,10 @@ Each sprint has explicit acceptance criteria. A sprint is NOT done until ALL cri
 - [ ] Inactivity timeout auto-closure (configurable, e.g. 2h)
 - [ ] Admin "Generate Report" / "Generate Summary" buttons per session
 - [ ] Session state: active, completed, flagged
+- [ ] Evidence document upload: user uploads documents during session
+- [ ] Summariser creates structured summary of evidence → injected as fixed context
+- [ ] Evidence document indexed in session-specific RAG for detailed queries
+- [ ] Security layer: summariser reviews documents instead of injecting raw text (prevents prompt injection)
 
 ### Acceptance Criteria
 - [ ] Session data persists to `/app/data/sessions/{token}/` directory
@@ -268,6 +296,27 @@ Each sprint has explicit acceptance criteria. A sprint is NOT done until ALL cri
 - §3.3 (Session Management), §3.5 (Chat — End Session), §3.6 (Session Closure)
 - §4.2.5 (Sessions Tab — report generation), §8.1 (SubmitMessageRequest — finalize)
 - §11 (Persistent Storage — session directory structure)
+
+---
+
+## Sprint 8b — Campaign-Specific RAG
+
+**Goal:** Allow campaign-specific documents to be attached to individual frontend deployments.
+
+### Deliverables
+- [ ] Campaign documents tied to specific frontend IDs
+- [ ] Admin RAG tab: frontend selector to assign documents per deployment
+- [ ] Campaign RAG injected alongside global RAG for sessions on that frontend
+- [ ] Frontend-specific document management (upload/delete per frontend)
+
+### Acceptance Criteria
+- [ ] Admin can assign documents to a specific frontend
+- [ ] Sessions on that frontend receive campaign-specific RAG context
+- [ ] Global RAG documents still apply to all frontends
+- [ ] Documents persist across container restarts
+
+### Spec Sections Covered
+- §4.2.4 (RAG Tab — extended)
 
 ---
 
@@ -337,6 +386,7 @@ Each sprint has explicit acceptance criteria. A sprint is NOT done until ALL cri
 - [ ] Performance check (streaming latency, poll interval)
 - [ ] Security audit (CORS, input validation, guardrails)
 - [ ] Documentation update (all docs current)
+- [ ] Model repetition detection: detect and cut generation loops (repeated phrases/sentences)
 
 ### Acceptance Criteria
 - [ ] Full flow works on Mac Studio (both containers): language → chat → summary
@@ -352,9 +402,41 @@ Each sprint has explicit acceptance criteria. A sprint is NOT done until ALL cri
 - [ ] Docker containers restart cleanly (data persists)
 - [ ] Response streaming is smooth (no batching)
 - [ ] Poll interval ≤ 2s response time
+- [ ] Repetition loop detected and stopped gracefully (model doesn't output same phrase indefinitely)
 
 ### Spec Sections Covered
 - All sections — full product verification
+
+---
+
+## Sprint 12 — Letta/MemGPT Integration (Experimental)
+
+**Goal:** Replace simple context compression with Letta for advanced memory management.
+
+### Prerequisites
+- Sprint 7b complete (simple compression working as baseline)
+- All other sprints complete (production-stable app)
+- Letta server deployed as separate container in OrbStack
+
+### Deliverables
+- [ ] Letta server container (Docker Compose file)
+- [ ] Replace `context_compressor.py` internals with Letta API calls
+- [ ] Letta agent per session (maps to our session tokens)
+- [ ] Memory persistence via Letta (conversation + working memory)
+- [ ] Admin LLM tab: Letta connection status + configuration
+- [ ] Fallback: if Letta is unavailable, revert to simple compression
+
+### Acceptance Criteria
+- [ ] Letta container runs alongside backend in OrbStack
+- [ ] Context compression via Letta produces equal or better results than simple compression
+- [ ] Session memory survives container restarts
+- [ ] No changes to frontend, polling, or prompt assembly (only compressor internals change)
+- [ ] Clean rollback: removing Letta container reverts to simple compression automatically
+
+### Notes
+- This is an experimental sprint. Clone the repo before starting.
+- ADR-009 documents why simple compression was chosen first.
+- The `compress_if_needed()` interface in Sprint 7b is designed for this swap.
 
 ---
 

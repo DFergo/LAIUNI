@@ -2,6 +2,23 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 7b — Context Compression (2026-03-10)
+- `services/context_compressor.py`: Incremental compression with running summary per session
+- `prompts/context_compression.md`: Dedicated compression prompt preserving names, dates, facts, case data
+- Token estimation before every LLM call (logged: token count + message count)
+- Two-phase compression: incremental summary updates + injection when inference hits threshold
+- Configurable threshold via admin panel slider (50-90% of context window)
+- Direct HTTP calls to summariser (avoids stream conflicts with inference)
+- `<think>` block stripping for Qwen3 summariser responses
+- Admin LLM tab redesigned:
+  - Context Window field visible for all providers (not just Ollama)
+  - Provider-specific hints (Ollama override vs LM Studio manual match)
+  - Compression Threshold slider with calculated trigger point display
+  - Removed summariser max_tokens from UI (internal detail)
+- Fix: model selector auto-corrects when switching provider (was keeping old provider's model name)
+- ADR-009: Documented decision to use simple compression over Letta (Sprint 12 for future swap)
+- `/git` command: generates commit + push to GitHub and Gitea
+
 ### Sprint 7a — RAG with LlamaIndex (2026-03-10)
 - `services/rag_service.py`: LlamaIndex vector index with sentence-transformers embeddings
 - Embedding model: `all-MiniLM-L6-v2` (80MB, CPU-only, auto-downloaded from HuggingFace)

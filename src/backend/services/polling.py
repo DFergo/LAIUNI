@@ -10,6 +10,7 @@ from src.services.llm_provider import llm
 from src.services.prompt_assembler import assemble_system_prompt
 from src.services.rag_service import get_relevant_chunks
 from src.services.session_history import history
+from src.services.context_compressor import compress_if_needed, estimate_messages_tokens
 from src.api.v1.admin.llm import get_llm_settings
 
 logger = logging.getLogger("backend.polling")
@@ -130,11 +131,16 @@ async def _safe_process(msg: dict[str, Any]):
             llm_messages.insert(-1, {"role": "system", "content": rag_context})
             logger.debug(f"Injected {len(rag_chunks)} RAG chunks for session {session_token}")
 
+        # Compress context if approaching limit (ADR-009)
+        settings = get_llm_settings()
+        context_tokens = estimate_messages_tokens(llm_messages)
+        logger.info(f"[{session_token}] Context size: {context_tokens} tokens ({len(llm_messages)} messages)")
+        llm_messages = await compress_if_needed(llm_messages, settings, session_token)
+
         # Try LLM inference, fall back to mock if unavailable
         raw_response = ""
         visible_response = ""
         in_think = False
-        settings = get_llm_settings()
         try:
             async for token in llm.stream_chat(
                 messages=llm_messages,
