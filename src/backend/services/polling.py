@@ -8,6 +8,7 @@ import httpx
 from src.services.frontend_registry import registry
 from src.services.llm_provider import llm
 from src.services.prompt_assembler import assemble_system_prompt
+from src.services.rag_service import get_relevant_chunks
 from src.services.session_history import history
 from src.api.v1.admin.llm import get_llm_settings
 
@@ -115,6 +116,19 @@ async def _safe_process(msg: dict[str, Any]):
 
         # Build messages for LLM (system + conversation history)
         llm_messages = history.get_llm_messages(session_token)
+
+        # Inject RAG context — retrieve relevant document chunks for this message
+        rag_chunks = get_relevant_chunks(content)
+        if rag_chunks:
+            rag_context = (
+                "The following excerpts from reference documents may be relevant "
+                "to the user's message. Use them to ground your response where applicable. "
+                "Cite the source if you reference specific provisions.\n\n"
+                + "\n\n---\n\n".join(rag_chunks)
+            )
+            # Insert RAG context as a system message before the last user message
+            llm_messages.insert(-1, {"role": "system", "content": rag_context})
+            logger.debug(f"Injected {len(rag_chunks)} RAG chunks for session {session_token}")
 
         # Try LLM inference, fall back to mock if unavailable
         raw_response = ""

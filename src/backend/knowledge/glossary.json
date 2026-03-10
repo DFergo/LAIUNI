@@ -2,8 +2,7 @@
   "terms": [
     {
       "term": "Freedom of Association",
-      "short_definition": "The right of workers to form and join organizations of their choosing without prior authorization.",
-      "related_standards": ["ILO Convention 87", "ILO Convention 98"],
+      "definition": "The right of workers to form and join organizations of their choosing without prior authorization.",
       "translations": {
         "es": "Libertad sindical",
         "fr": "Liberté syndicale",
@@ -15,8 +14,7 @@
     },
     {
       "term": "Collective Bargaining",
-      "short_definition": "The process of negotiation between employers and workers' representatives to determine conditions of employment.",
-      "related_standards": ["ILO Convention 98", "ILO Convention 154"],
+      "definition": "The process of negotiation between employers and workers' representatives to determine conditions of employment.",
       "translations": {
         "es": "Negociación colectiva",
         "fr": "Négociation collective",
@@ -28,8 +26,7 @@
     },
     {
       "term": "Forced Labour",
-      "short_definition": "All work or service exacted from any person under the menace of any penalty and for which the person has not offered themselves voluntarily.",
-      "related_standards": ["ILO Convention 29", "ILO Convention 105"],
+      "definition": "All work or service exacted from any person under the menace of any penalty and for which the person has not offered themselves voluntarily.",
       "translations": {
         "es": "Trabajo forzoso",
         "fr": "Travail forcé",
@@ -41,8 +38,7 @@
     },
     {
       "term": "Child Labour",
-      "short_definition": "Work that deprives children of their childhood, potential, and dignity, and that is harmful to their physical and mental development.",
-      "related_standards": ["ILO Convention 138", "ILO Convention 182"],
+      "definition": "Work that deprives children of their childhood, potential, and dignity, and that is harmful to their physical and mental development.",
       "translations": {
         "es": "Trabajo infantil",
         "fr": "Travail des enfants",
@@ -54,8 +50,7 @@
     },
     {
       "term": "Discrimination",
-      "short_definition": "Any distinction, exclusion, or preference that has the effect of nullifying or impairing equality of opportunity or treatment in employment or occupation.",
-      "related_standards": ["ILO Convention 100", "ILO Convention 111"],
+      "definition": "Any distinction, exclusion, or preference that has the effect of nullifying or impairing equality of opportunity or treatment in employment or occupation.",
       "translations": {
         "es": "Discriminación",
         "fr": "Discrimination",
@@ -67,8 +62,7 @@
     },
     {
       "term": "Human Rights Due Diligence",
-      "short_definition": "The process through which enterprises identify, prevent, mitigate, and account for how they address their adverse human rights impacts.",
-      "related_standards": ["OECD Guidelines", "UN Guiding Principles", "EU CSDDD"],
+      "definition": "The process through which enterprises identify, prevent, mitigate, and account for how they address their adverse human rights impacts.",
       "translations": {
         "es": "Debida diligencia en derechos humanos",
         "fr": "Devoir de vigilance en matière de droits humains",
@@ -80,8 +74,7 @@
     },
     {
       "term": "Anti-Union Discrimination",
-      "short_definition": "Any act prejudicing a worker because of union membership or participation in union activities, including dismissal, demotion, transfer, or denial of benefits.",
-      "related_standards": ["ILO Convention 98", "ILO Convention 135"],
+      "definition": "Any act prejudicing a worker because of union membership or participation in union activities, including dismissal, demotion, transfer, or denial of benefits.",
       "translations": {
         "es": "Discriminación antisindical",
         "fr": "Discrimination antisyndicale",
@@ -93,8 +86,7 @@
     },
     {
       "term": "Occupational Safety and Health",
-      "short_definition": "The discipline dealing with the prevention of work-related injuries and diseases, and the protection and promotion of workers' health.",
-      "related_standards": ["ILO Convention 155", "ILO Convention 187"],
+      "definition": "The discipline dealing with the prevention of work-related injuries and diseases, and the protection and promotion of workers' health.",
       "translations": {
         "es": "Seguridad y salud en el trabajo",
         "fr": "Sécurité et santé au travail",
@@ -106,8 +98,7 @@
     },
     {
       "term": "Global Framework Agreement",
-      "short_definition": "An agreement negotiated between a multinational enterprise and a Global Union Federation to establish a framework for labor relations across the company's global operations.",
-      "related_standards": ["OECD Guidelines"],
+      "definition": "An agreement negotiated between a multinational enterprise and a Global Union Federation to establish a framework for labor relations across the company's global operations.",
       "translations": {
         "es": "Acuerdo Marco Global",
         "fr": "Accord-cadre mondial",
@@ -119,8 +110,7 @@
     },
     {
       "term": "National Contact Point",
-      "short_definition": "Government-established body responsible for promoting the OECD Guidelines and handling complaints (specific instances) about multinational enterprises.",
-      "related_standards": ["OECD Guidelines"],
+      "definition": "Government-established body responsible for promoting the OECD Guidelines and handling complaints (specific instances) about multinational enterprises.",
       "translations": {
         "es": "Punto Nacional de Contacto",
         "fr": "Point de contact national",
@@ -132,8 +122,7 @@
     },
     {
       "term": "Supply Chain Due Diligence",
-      "short_definition": "The process of identifying and addressing human rights and environmental risks throughout a company's supply chain, including suppliers and subcontractors.",
-      "related_standards": ["EU CSDDD", "OECD Guidelines", "UN Guiding Principles"],
+      "definition": "The process of identifying and addressing human rights and environmental risks throughout a company's supply chain, including suppliers and subcontractors.",
       "translations": {
         "es": "Debida diligencia en la cadena de suministro",
         "fr": "Devoir de vigilance dans la chaîne d'approvisionnement",
@@ -145,8 +134,7 @@
     },
     {
       "term": "Workers' Representatives",
-      "short_definition": "Persons recognized as such under national law or practice, whether trade union representatives or elected representatives of the workers.",
-      "related_standards": ["ILO Convention 135", "ILO Convention 98"],
+      "definition": "Persons recognized as such under national law or practice, whether trade union representatives or elected representatives of the workers.",
       "translations": {
         "es": "Representantes de los trabajadores",
         "fr": "Représentants des travailleurs",
@@ -158,8 +146,7 @@
     },
     {
       "term": "Precarious Work",
-      "short_definition": "Employment that is uncertain, unpredictable, and risky from the point of view of the worker, including temporary contracts, subcontracting, and informal employment.",
-      "related_standards": ["ILO Recommendation 198"],
+      "definition": "Employment that is uncertain, unpredictable, and risky from the point of view of the worker, including temporary contracts, subcontracting, and informal employment.",
       "translations": {
         "es": "Trabajo precario",
         "fr": "Travail précaire",
@@ -171,8 +158,7 @@
     },
     {
       "term": "Grievance Mechanism",
-      "short_definition": "A formal process through which individuals or groups can raise concerns about the human rights impacts of a business and seek remedy.",
-      "related_standards": ["UN Guiding Principles", "OECD Guidelines"],
+      "definition": "A formal process through which individuals or groups can raise concerns about the human rights impacts of a business and seek remedy.",
       "translations": {
         "es": "Mecanismo de reclamación",
         "fr": "Mécanisme de réclamation",
@@ -184,8 +170,7 @@
     },
     {
       "term": "FSC Certification",
-      "short_definition": "A voluntary certification scheme for forest products that includes core labour requirements based on ILO fundamental conventions.",
-      "related_standards": ["FSC Core Labour Requirements", "FSC Motion 50", "FSC Motion 51"],
+      "definition": "A voluntary certification scheme for forest products that includes core labour requirements based on ILO fundamental conventions.",
       "translations": {
         "es": "Certificación FSC",
         "fr": "Certification FSC",

@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-09
 
-## Current State: v2 Rewrite — Sprint 5 Complete, Sprint 6 Next
+## Current State: v2 Rewrite — Sprint 7a Complete, Sprint 7b Next
 
 ### Sprint 0 — Project Setup ✅
 - [x] Product specification written (SPEC-v2.md)
@@ -171,11 +171,35 @@
 - `POST /admin/rag/upload`, `GET /admin/rag/documents`, `DELETE /admin/rag/documents/{name}`, `POST /admin/rag/reindex`
 - `GET/PUT /admin/smtp`, `POST /admin/smtp/test`
 
+### Sprint 6b — Knowledge Base ✅
+
+- [x] `glossary.json` — 15 domain terms with translations in 6 languages
+- [x] `organizations.json` — 14 unions, federations, and institutions
+- [x] Backend endpoints: `/admin/knowledge/glossary`, `/admin/knowledge/organizations` (GET/PUT)
+- [x] Prompt assembler: glossary + organizations injected as layer 5 in every session
+- [x] Admin panel: Glossary and Organizations Directory sections in RAG tab with inline editors
+- [x] Default files installed on first startup
+- [x] Spec updated: §4.2.4, §11, §13.1-13.4 (guardrails, session integrity, internal assessment, phase-based prompts)
+- [x] Milestones updated: Sprint 8 includes internal assessment, Sprint 10 = guardrails
+- [x] `docs/knowledge/prompt-assembly-flow.md` — full prompt architecture documentation
+- [x] `docs/INSTALL.md` — installation and usage guide
+
+### Sprint 7a — RAG (LlamaIndex) ✅
+
+- [x] `services/rag_service.py` — LlamaIndex indexing + retrieval with sentence-transformers
+- [x] Embedding model: `all-MiniLM-L6-v2` (downloaded from HuggingFace on first run)
+- [x] Index built from `/app/data/documents/` and persisted to `/app/data/rag_index/`
+- [x] Reindex endpoint connected to real indexing (was stub)
+- [x] RAG chunks injected per-message in polling (not in system prompt)
+- [x] Index loads from disk on restart (no re-embedding needed)
+- [x] Dependencies: `llama-index-core`, `llama-index-readers-file`, `llama-index-embeddings-huggingface`, `sentence-transformers`
+
 ### What's Needed Next
-- **Sprint 7:** RAG + MemGPT/Letta
+- **Sprint 7b:** Context compression (Letta or simpler approach)
 - **Sprint 8:** Session management + finalization
 - **Sprint 9:** SMTP integration
-- **Sprint 10:** Polish + production deployment
+- **Sprint 10:** Ethical guardrails
+- **Sprint 11:** Polish + production deployment
 
 ---
 

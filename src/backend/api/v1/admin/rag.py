@@ -76,9 +76,16 @@ async def delete_document(name: str, _: dict = Depends(require_admin)):
 
 
 @router.post("/reindex")
-async def reindex(_: dict = Depends(require_admin)):
-    """Trigger RAG reindex (stub — actual indexing in Sprint 7)."""
-    docs_dir = _docs_dir()
-    count = sum(1 for f in docs_dir.iterdir() if f.is_file() and f.suffix in ALLOWED_EXTENSIONS)
-    logger.info(f"Reindex requested ({count} documents)")
-    return {"status": "reindex_requested", "document_count": count}
+async def reindex_documents(_: dict = Depends(require_admin)):
+    """Rebuild RAG index from all documents."""
+    from src.services.rag_service import reindex as rag_reindex
+    result = rag_reindex()
+    logger.info(f"Reindex completed: {result}")
+    return result
+
+
+@router.get("/stats")
+async def index_stats(_: dict = Depends(require_admin)):
+    """Get RAG index statistics."""
+    from src.services.rag_service import get_index_stats
+    return get_index_stats()

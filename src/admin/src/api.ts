@@ -207,7 +207,7 @@ export async function deleteRAGDocument(name: string): Promise<void> {
   return request(`/admin/rag/documents/${name}`, { method: 'DELETE' });
 }
 
-export async function reindexRAG(): Promise<{ status: string; document_count: number }> {
+export async function reindexRAG(): Promise<{ status: string; document_count: number; node_count?: number }> {
   return request('/admin/rag/reindex', { method: 'POST' });
 }
 
@@ -242,24 +242,15 @@ export async function testSMTP(): Promise<{ status: string; message: string }> {
 
 export interface GlossaryTerm {
   term: string
-  short_definition: string
-  related_standards?: string[]
+  definition?: string
   translations?: Record<string, string>
 }
 
 export interface Organization {
-  id: string
   name: string
-  acronym?: string
   type: string
-  scope: string
-  region?: string
-  countries?: string[]
-  sectors?: string[]
-  description: string
-  contact_url?: string
-  contact_email?: string
-  note?: string
+  country: string
+  description?: string
 }
 
 export async function getGlossary(): Promise<{ terms: GlossaryTerm[] }> {

@@ -29,6 +29,9 @@ async def lifespan(app: FastAPI):
     # Install default prompt files and knowledge base if missing
     ensure_defaults()
     ensure_knowledge_defaults()
+    # Initialize RAG index (loads from disk or builds from documents)
+    from src.services.rag_service import initialize as init_rag
+    init_rag()
     # Start polling loop on startup
     task = asyncio.create_task(polling_loop(config.poll_interval_seconds))
     logger.info("Backend started, polling loop running")

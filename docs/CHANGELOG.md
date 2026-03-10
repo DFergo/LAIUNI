@@ -2,6 +2,27 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 7a — RAG with LlamaIndex (2026-03-10)
+- `services/rag_service.py`: LlamaIndex vector index with sentence-transformers embeddings
+- Embedding model: `all-MiniLM-L6-v2` (80MB, CPU-only, auto-downloaded from HuggingFace)
+- Documents indexed from `/app/data/documents/`, index persisted to `/app/data/rag_index/`
+- RAG chunks injected per-message as system context before the user's latest message
+- Admin Reindex button now triggers real re-indexing (was stub)
+- Index loads from disk on container restart — no re-embedding needed
+- Lazy initialization: embedding model only loaded when first needed
+- Dependencies: `llama-index-core`, `llama-index-readers-file`, `llama-index-embeddings-huggingface`, `sentence-transformers`
+
+### Sprint 6b — Knowledge Base + Documentation (2026-03-10)
+- Knowledge base: `glossary.json` (15 domain terms, 6 languages) + `organizations.json` (14 entries)
+- Backend endpoints: `/admin/knowledge/glossary`, `/admin/knowledge/organizations` (GET/PUT)
+- Prompt assembler: glossary + organizations injected as layer 5 in every session context
+- Admin RAG tab: Glossary editor (add/edit/delete terms with translations) + Organizations Directory editor
+- Default knowledge files installed on first startup, atomic writes
+- Spec §13: Added guardrails (§13.1), session integrity (§13.2), internal UNI assessment (§13.3), phase-based prompt loading (§13.4)
+- Milestones: Sprint 8 updated with internal assessment, new Sprint 10 for guardrails
+- `docs/knowledge/prompt-assembly-flow.md`: Complete prompt architecture documentation
+- `docs/INSTALL.md`: Installation and usage guide
+
 ### Sprint 6 — Admin Panel Complete (2026-03-10)
 - **Prompts tab**: two-column editor with 5 categories (System, User, Use Cases, Context, Post-Processing), save with dirty tracking
 - **RAG tab**: upload documents (.md/.txt/.json, 10MB limit), list with size/date, delete, reindex stub

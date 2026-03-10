@@ -16,12 +16,10 @@ export default function RAGTab() {
   // Knowledge Base state
   const [glossary, setGlossary] = useState<GlossaryTerm[]>([])
   const [organizations, setOrganizations] = useState<Organization[]>([])
-  const [glossaryDirty, setGlossaryDirty] = useState(false)
-  const [orgsDirty, setOrgsDirty] = useState(false)
-  const [savingGlossary, setSavingGlossary] = useState(false)
-  const [savingOrgs, setSavingOrgs] = useState(false)
-  const [editingTerm, setEditingTerm] = useState<GlossaryTerm | null>(null)
-  const [editingOrg, setEditingOrg] = useState<Organization | null>(null)
+  const glossaryUploadRef = useRef<HTMLInputElement>(null)
+  const orgsUploadRef = useRef<HTMLInputElement>(null)
+  const [glossaryExpanded, setGlossaryExpanded] = useState(false)
+  const [orgsExpanded, setOrgsExpanded] = useState(false)
 
   const refresh = async () => {
     try {
@@ -42,6 +40,7 @@ export default function RAGTab() {
 
   useEffect(() => { refresh() }, [])
 
+  // --- RAG handlers ---
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -76,75 +75,78 @@ export default function RAGTab() {
     setSuccess('')
     try {
       const result = await reindexRAG()
-      setSuccess(`Reindex requested (${result.document_count} documents)`)
-      setTimeout(() => setSuccess(''), 3000)
+      const msg = result.node_count
+        ? `Indexed: ${result.document_count} documents → ${result.node_count} chunks`
+        : `Reindex: ${result.document_count} documents`
+      setSuccess(msg)
+      setTimeout(() => setSuccess(''), 5000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Reindex failed')
     }
   }
 
-  // --- Glossary handlers ---
-  const handleSaveGlossary = async () => {
-    setSavingGlossary(true)
+  // --- Knowledge Base handlers ---
+  const downloadJSON = (data: unknown, filename: string) => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleGlossaryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
     setError('')
     try {
-      const result = await updateGlossary(glossary)
+      const text = await file.text()
+      const data = JSON.parse(text)
+      // Validate structure
+      if (!Array.isArray(data.terms)) {
+        throw new Error('Invalid format: JSON must have a "terms" array. Download the template for reference.')
+      }
+      for (const t of data.terms) {
+        if (!t.term) {
+          throw new Error(`Invalid term: each entry needs at least a "term" field. Problem with: ${JSON.stringify(t).slice(0, 80)}`)
+        }
+      }
+      const result = await updateGlossary(data.terms)
       setGlossary(result.terms)
-      setGlossaryDirty(false)
-      setSuccess('Glossary saved')
+      setSuccess(`Glossary updated: ${result.terms.length} terms`)
       setTimeout(() => setSuccess(''), 3000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save glossary')
+      setError(err instanceof Error ? err.message : 'Invalid JSON file')
     } finally {
-      setSavingGlossary(false)
+      if (glossaryUploadRef.current) glossaryUploadRef.current.value = ''
     }
   }
 
-  const deleteTerm = (term: string) => {
-    setGlossary(prev => prev.filter(t => t.term !== term))
-    setGlossaryDirty(true)
-  }
-
-  const saveTerm = (term: GlossaryTerm, isNew: boolean) => {
-    if (isNew) {
-      setGlossary(prev => [...prev, term])
-    } else {
-      setGlossary(prev => prev.map(t => t.term === term.term ? term : t))
-    }
-    setGlossaryDirty(true)
-    setEditingTerm(null)
-  }
-
-  // --- Organizations handlers ---
-  const handleSaveOrgs = async () => {
-    setSavingOrgs(true)
+  const handleOrgsUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
     setError('')
     try {
-      const result = await updateOrganizations(organizations)
+      const text = await file.text()
+      const data = JSON.parse(text)
+      if (!Array.isArray(data.organizations)) {
+        throw new Error('Invalid format: JSON must have an "organizations" array. Download the template for reference.')
+      }
+      for (const o of data.organizations) {
+        if (!o.name || !o.type || !o.country) {
+          throw new Error(`Invalid entry: each organization needs "name", "type", and "country". Problem with: ${JSON.stringify(o).slice(0, 80)}`)
+        }
+      }
+      const result = await updateOrganizations(data.organizations)
       setOrganizations(result.organizations)
-      setOrgsDirty(false)
-      setSuccess('Organizations saved')
+      setSuccess(`Organizations updated: ${result.organizations.length} entries`)
       setTimeout(() => setSuccess(''), 3000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save organizations')
+      setError(err instanceof Error ? err.message : 'Invalid JSON file')
     } finally {
-      setSavingOrgs(false)
+      if (orgsUploadRef.current) orgsUploadRef.current.value = ''
     }
-  }
-
-  const deleteOrg = (id: string) => {
-    setOrganizations(prev => prev.filter(o => o.id !== id))
-    setOrgsDirty(true)
-  }
-
-  const saveOrg = (org: Organization, isNew: boolean) => {
-    if (isNew) {
-      setOrganizations(prev => [...prev, org])
-    } else {
-      setOrganizations(prev => prev.map(o => o.id === org.id ? org : o))
-    }
-    setOrgsDirty(true)
-    setEditingOrg(null)
   }
 
   const formatSize = (bytes: number) => {
@@ -190,9 +192,7 @@ export default function RAGTab() {
           Upload .md, .txt, or .json files. These documents are indexed and retrieved via RAG to provide context during conversations.
         </p>
         {documents.length === 0 ? (
-          <p className="text-gray-400 text-sm text-center py-6">
-            No documents uploaded yet.
-          </p>
+          <p className="text-gray-400 text-sm text-center py-6">No documents uploaded yet.</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -224,332 +224,131 @@ export default function RAGTab() {
       {/* Glossary */}
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-1">
-          <h3 className="text-lg font-semibold text-gray-800">Glossary</h3>
-          <div className="flex items-center gap-3">
-            {glossaryDirty && (
-              <button
-                onClick={handleSaveGlossary}
-                disabled={savingGlossary}
-                className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50"
-              >
-                {savingGlossary ? 'Saving...' : 'Save Glossary'}
-              </button>
-            )}
+          <h3 className="text-lg font-semibold text-gray-800">
+            Glossary
+            <span className="text-sm font-normal text-gray-400 ml-2">({glossary.length} terms)</span>
+          </h3>
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setEditingTerm({ term: '', short_definition: '', related_standards: [], translations: {} })}
-              className="border border-gray-300 text-gray-600 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50"
+              onClick={() => downloadJSON({ terms: glossary }, 'glossary.json')}
+              className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50"
             >
-              Add Term
+              Download JSON
             </button>
+            <label className="bg-uni-blue text-white rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:opacity-90 cursor-pointer">
+              Upload JSON
+              <input
+                ref={glossaryUploadRef}
+                type="file"
+                accept=".json"
+                onChange={handleGlossaryUpload}
+                className="hidden"
+              />
+            </label>
           </div>
         </div>
-        <p className="text-xs text-gray-400 mb-4">
-          Curated domain terms injected directly into the LLM context. Ensures consistent terminology and translations across sessions.
+        <p className="text-xs text-gray-400 mb-3">
+          Domain terms injected into every session for consistent terminology and translations.
+          Download the current file, edit it, and upload the updated version.
         </p>
 
-        {editingTerm && (
-          <TermEditor
-            term={editingTerm}
-            isNew={!glossary.some(t => t.term === editingTerm.term)}
-            onSave={saveTerm}
-            onCancel={() => setEditingTerm(null)}
-          />
-        )}
-
-        {glossary.length === 0 ? (
-          <p className="text-gray-400 text-sm text-center py-6">No terms defined yet.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left px-2 py-2 font-medium text-gray-600">Term</th>
-                <th className="text-left px-2 py-2 font-medium text-gray-600">Definition</th>
-                <th className="text-left px-2 py-2 font-medium text-gray-600">Standards</th>
-                <th className="text-center px-2 py-2 font-medium text-gray-600">Langs</th>
-                <th className="text-right px-2 py-2 font-medium text-gray-600"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {glossary.map(t => (
-                <tr key={t.term} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="px-2 py-2 font-medium text-gray-800">{t.term}</td>
-                  <td className="px-2 py-2 text-gray-600 max-w-xs truncate">{t.short_definition}</td>
-                  <td className="px-2 py-2 text-gray-500 text-xs">{(t.related_standards || []).join(', ')}</td>
-                  <td className="px-2 py-2 text-center text-gray-500 text-xs">
-                    {Object.keys(t.translations || {}).length}
-                  </td>
-                  <td className="px-2 py-2 text-right space-x-2">
-                    <button onClick={() => setEditingTerm(t)} className="text-xs text-uni-blue hover:underline">
-                      Edit
-                    </button>
-                    <button onClick={() => deleteTerm(t.term)} className="text-xs text-uni-red hover:underline">
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {glossary.length > 0 && (
+          <>
+            <button
+              onClick={() => setGlossaryExpanded(!glossaryExpanded)}
+              className="text-xs text-uni-blue hover:underline mb-2"
+            >
+              {glossaryExpanded ? 'Hide terms' : `Show all ${glossary.length} terms`}
+            </button>
+            {glossaryExpanded && (
+              <table className="w-full text-sm mt-2">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left px-2 py-2 font-medium text-gray-600">Term</th>
+                    <th className="text-left px-2 py-2 font-medium text-gray-600">Definition</th>
+                    <th className="text-left px-2 py-2 font-medium text-gray-600">Translations</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {glossary.map(t => (
+                    <tr key={t.term} className="border-b border-gray-100">
+                      <td className="px-2 py-2 font-medium text-gray-800 whitespace-nowrap">{t.term}</td>
+                      <td className="px-2 py-2 text-gray-600 text-xs">{t.definition || ''}</td>
+                      <td className="px-2 py-2 text-gray-500 text-xs">
+                        {Object.entries(t.translations || {}).map(([lang, val]) => `${lang}: ${val}`).join(', ')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
         )}
       </div>
 
       {/* Organizations Directory */}
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-1">
-          <h3 className="text-lg font-semibold text-gray-800">Organizations Directory</h3>
-          <div className="flex items-center gap-3">
-            {orgsDirty && (
-              <button
-                onClick={handleSaveOrgs}
-                disabled={savingOrgs}
-                className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50"
-              >
-                {savingOrgs ? 'Saving...' : 'Save Organizations'}
-              </button>
-            )}
+          <h3 className="text-lg font-semibold text-gray-800">
+            Organizations Directory
+            <span className="text-sm font-normal text-gray-400 ml-2">({organizations.length} entries)</span>
+          </h3>
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setEditingOrg({ id: '', name: '', type: 'GUF', scope: 'global', description: '' })}
-              className="border border-gray-300 text-gray-600 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50"
+              onClick={() => downloadJSON({ organizations }, 'organizations.json')}
+              className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50"
             >
-              Add Organization
+              Download JSON
             </button>
+            <label className="bg-uni-blue text-white rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:opacity-90 cursor-pointer">
+              Upload JSON
+              <input
+                ref={orgsUploadRef}
+                type="file"
+                accept=".json"
+                onChange={handleOrgsUpload}
+                className="hidden"
+              />
+            </label>
           </div>
         </div>
-        <p className="text-xs text-gray-400 mb-4">
-          Curated list of unions, federations, and institutions. The LLM uses this for referrals — it does not invent organization names.
+        <p className="text-xs text-gray-400 mb-3">
+          Curated list of unions, federations, and institutions. The AI only references organizations from this list.
+          Download the current file, edit it, and upload the updated version.
         </p>
 
-        {editingOrg && (
-          <OrgEditor
-            org={editingOrg}
-            isNew={!organizations.some(o => o.id === editingOrg.id)}
-            onSave={saveOrg}
-            onCancel={() => setEditingOrg(null)}
-          />
+        {organizations.length > 0 && (
+          <>
+            <button
+              onClick={() => setOrgsExpanded(!orgsExpanded)}
+              className="text-xs text-uni-blue hover:underline mb-2"
+            >
+              {orgsExpanded ? 'Hide organizations' : `Show all ${organizations.length} organizations`}
+            </button>
+            {orgsExpanded && (
+              <table className="w-full text-sm mt-2">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left px-2 py-2 font-medium text-gray-600">Name</th>
+                    <th className="text-left px-2 py-2 font-medium text-gray-600">Type</th>
+                    <th className="text-left px-2 py-2 font-medium text-gray-600">Country</th>
+                    <th className="text-left px-2 py-2 font-medium text-gray-600">Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {organizations.map((o, i) => (
+                    <tr key={i} className="border-b border-gray-100">
+                      <td className="px-2 py-2 font-medium text-gray-800">{o.name}</td>
+                      <td className="px-2 py-2 text-gray-500 text-xs">{o.type}</td>
+                      <td className="px-2 py-2 text-gray-500 text-xs">{o.country}</td>
+                      <td className="px-2 py-2 text-gray-600 text-xs">{o.description || ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
         )}
-
-        {organizations.length === 0 ? (
-          <p className="text-gray-400 text-sm text-center py-6">No organizations defined yet.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left px-2 py-2 font-medium text-gray-600">Name</th>
-                <th className="text-left px-2 py-2 font-medium text-gray-600">Type</th>
-                <th className="text-left px-2 py-2 font-medium text-gray-600">Scope</th>
-                <th className="text-left px-2 py-2 font-medium text-gray-600">Sectors</th>
-                <th className="text-right px-2 py-2 font-medium text-gray-600"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {organizations.map(o => (
-                <tr key={o.id} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="px-2 py-2 text-gray-800">
-                    <span className="font-medium">{o.name}</span>
-                    {o.acronym && <span className="text-gray-400 ml-1">({o.acronym})</span>}
-                  </td>
-                  <td className="px-2 py-2 text-gray-500 text-xs uppercase">{o.type}</td>
-                  <td className="px-2 py-2 text-gray-500 text-xs">{o.scope}{o.region ? ` — ${o.region}` : ''}</td>
-                  <td className="px-2 py-2 text-gray-500 text-xs max-w-xs truncate">
-                    {(o.sectors || []).join(', ')}
-                  </td>
-                  <td className="px-2 py-2 text-right space-x-2">
-                    <button onClick={() => setEditingOrg(o)} className="text-xs text-uni-blue hover:underline">
-                      Edit
-                    </button>
-                    <button onClick={() => deleteOrg(o.id)} className="text-xs text-uni-red hover:underline">
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// --- Term Editor Modal ---
-function TermEditor({ term, isNew, onSave, onCancel }: {
-  term: GlossaryTerm
-  isNew: boolean
-  onSave: (t: GlossaryTerm, isNew: boolean) => void
-  onCancel: () => void
-}) {
-  const [data, setData] = useState<GlossaryTerm>({ ...term })
-  const [standards, setStandards] = useState((term.related_standards || []).join(', '))
-  const [transText, setTransText] = useState(
-    Object.entries(term.translations || {}).map(([k, v]) => `${k}: ${v}`).join('\n')
-  )
-
-  const handleSave = () => {
-    const parsed: GlossaryTerm = {
-      ...data,
-      related_standards: standards.split(',').map(s => s.trim()).filter(Boolean),
-      translations: Object.fromEntries(
-        transText.split('\n').filter(l => l.includes(':')).map(l => {
-          const [lang, ...rest] = l.split(':')
-          return [lang.trim(), rest.join(':').trim()]
-        })
-      ),
-    }
-    onSave(parsed, isNew)
-  }
-
-  return (
-    <div className="border border-uni-blue rounded-lg p-4 mb-4 bg-blue-50/30">
-      <h4 className="text-sm font-semibold text-gray-700 mb-3">{isNew ? 'Add Term' : 'Edit Term'}</h4>
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Term (English)</label>
-          <input type="text" value={data.term} disabled={!isNew}
-            onChange={e => setData({ ...data, term: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none disabled:bg-gray-100" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Related Standards (comma-separated)</label>
-          <input type="text" value={standards}
-            onChange={e => setStandards(e.target.value)}
-            placeholder="ILO Convention 87, ILO Convention 98"
-            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
-        </div>
-      </div>
-      <div className="mb-3">
-        <label className="block text-xs font-medium text-gray-600 mb-1">Definition</label>
-        <textarea value={data.short_definition}
-          onChange={e => setData({ ...data, short_definition: e.target.value })}
-          rows={2}
-          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none resize-none" />
-      </div>
-      <div className="mb-3">
-        <label className="block text-xs font-medium text-gray-600 mb-1">Translations (one per line: <code className="text-xs">lang: term</code>)</label>
-        <textarea value={transText}
-          onChange={e => setTransText(e.target.value)}
-          rows={3} placeholder={"es: Libertad sindical\nfr: Liberté syndicale"}
-          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none resize-none" />
-      </div>
-      <div className="flex gap-2">
-        <button onClick={handleSave}
-          className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90">
-          {isNew ? 'Add' : 'Update'}
-        </button>
-        <button onClick={onCancel}
-          className="border border-gray-300 text-gray-600 rounded-lg px-4 py-1.5 text-sm font-medium hover:bg-gray-50">
-          Cancel
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// --- Organization Editor Modal ---
-function OrgEditor({ org, isNew, onSave, onCancel }: {
-  org: Organization
-  isNew: boolean
-  onSave: (o: Organization, isNew: boolean) => void
-  onCancel: () => void
-}) {
-  const [data, setData] = useState<Organization>({ ...org })
-  const [sectors, setSectors] = useState((org.sectors || []).join(', '))
-
-  const handleSave = () => {
-    const parsed: Organization = {
-      ...data,
-      id: data.id || data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-      sectors: sectors.split(',').map(s => s.trim()).filter(Boolean),
-    }
-    onSave(parsed, isNew)
-  }
-
-  return (
-    <div className="border border-uni-blue rounded-lg p-4 mb-4 bg-blue-50/30">
-      <h4 className="text-sm font-semibold text-gray-700 mb-3">{isNew ? 'Add Organization' : 'Edit Organization'}</h4>
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Name</label>
-          <input type="text" value={data.name}
-            onChange={e => setData({ ...data, name: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Acronym</label>
-          <input type="text" value={data.acronym || ''}
-            onChange={e => setData({ ...data, acronym: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-3 mb-3">
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
-          <select value={data.type} onChange={e => setData({ ...data, type: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none">
-            <option value="GUF">GUF (Global Union Federation)</option>
-            <option value="ETUF">ETUF (European TU Federation)</option>
-            <option value="confederation">Confederation</option>
-            <option value="national_union">National Union</option>
-            <option value="sector">Sector</option>
-            <option value="international_body">International Body</option>
-            <option value="certification_body">Certification Body</option>
-            <option value="ngo">NGO</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Scope</label>
-          <select value={data.scope} onChange={e => setData({ ...data, scope: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none">
-            <option value="global">Global</option>
-            <option value="regional">Regional</option>
-            <option value="national">National</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Region</label>
-          <input type="text" value={data.region || ''}
-            onChange={e => setData({ ...data, region: e.target.value })}
-            placeholder="e.g. Europe, Latin America"
-            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Sectors (comma-separated)</label>
-          <input type="text" value={sectors}
-            onChange={e => setSectors(e.target.value)}
-            placeholder="manufacturing, forestry, paper"
-            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Contact URL</label>
-          <input type="url" value={data.contact_url || ''}
-            onChange={e => setData({ ...data, contact_url: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
-        </div>
-      </div>
-      <div className="mb-3">
-        <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
-        <textarea value={data.description}
-          onChange={e => setData({ ...data, description: e.target.value })}
-          rows={2}
-          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none resize-none" />
-      </div>
-      <div className="mb-3">
-        <label className="block text-xs font-medium text-gray-600 mb-1">Note (internal, not shown to users)</label>
-        <input type="text" value={data.note || ''}
-          onChange={e => setData({ ...data, note: e.target.value })}
-          placeholder="e.g. Do not recommend direct contact"
-          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
-      </div>
-      <div className="flex gap-2">
-        <button onClick={handleSave}
-          className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90">
-          {isNew ? 'Add' : 'Update'}
-        </button>
-        <button onClick={onCancel}
-          className="border border-gray-300 text-gray-600 rounded-lg px-4 py-1.5 text-sm font-medium hover:bg-gray-50">
-          Cancel
-        </button>
       </div>
     </div>
   )

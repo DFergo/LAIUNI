@@ -70,54 +70,38 @@ def _build_knowledge_section(survey: dict[str, Any] | None, language: str) -> st
 
     parts: list[str] = []
 
-    # Glossary — filter translations to session language for conciseness
-    glossary = load_glossary()
-    terms = glossary.get("terms", [])
-    if terms:
-        lines = ["## Glossary of Domain Terms", "",
-                 "Use these as the authoritative reference for terminology. "
-                 "Do not paraphrase or improvise definitions for terms present here.", ""]
-        for t in terms:
-            translation = t.get("translations", {}).get(language, "")
-            line = f"- **{t['term']}**"
-            if translation:
-                line += f" ({translation})"
-            line += f": {t.get('short_definition', '')}"
-            standards = t.get("related_standards", [])
-            if standards:
-                line += f" [{', '.join(standards)}]"
-            lines.append(line)
-        parts.append("\n".join(lines))
+    # Glossary — only inject for non-English sessions, compact format
+    if language and language != "en":
+        glossary = load_glossary()
+        terms = glossary.get("terms", [])
+        if terms:
+            lines = [f"## Terminology Reference ({language.upper()})", "",
+                     "Use these exact translations. Do not paraphrase or use alternatives.", ""]
+            for t in terms:
+                translation = t.get("translations", {}).get(language, "")
+                if translation:
+                    lines.append(f"- {t['term']} → {translation}")
+            if len(lines) > 4:  # only inject if we have at least one translation
+                parts.append("\n".join(lines))
 
-    # Organizations — filter by user's country/region if available
+    # Organizations directory
     orgs = load_organizations()
     org_list = orgs.get("organizations", [])
     if org_list:
-        user_country = ""
-        if survey:
-            user_country = survey.get("countryRegion", "").lower()
-
         lines = ["## Organizations Reference",  "",
-                 "When naming an organization, use the exact name and acronym from this list. "
+                 "When naming an organization, use the exact name from this list. "
                  "Do not invent or approximate organization names. "
                  "The correct escalation path is always: worker → national union → UNI Global Union.", ""]
 
-        # Show relevant orgs first (matching country/region), then global ones
         for org in org_list:
             name = org.get("name", "")
-            acronym = org.get("acronym", "")
-            desc = org.get("description", "")
-            note = org.get("note", "")
             org_type = org.get("type", "")
-            scope = org.get("scope", "")
+            country = org.get("country", "")
+            desc = org.get("description", "")
 
-            label = f"**{name}**"
-            if acronym and acronym != name:
-                label += f" ({acronym})"
-
-            line = f"- {label} — {desc}"
-            if note:
-                line += f" *Note: {note}*"
+            line = f"- **{name}** [{org_type}, {country}]"
+            if desc:
+                line += f" — {desc}"
             lines.append(line)
 
         parts.append("\n".join(lines))
