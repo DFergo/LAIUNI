@@ -1,12 +1,15 @@
 import asyncio
 import logging
-import time
 from collections import deque
 from typing import Any
 
 import httpx
 
 from src.services.frontend_registry import registry
+from src.services.llm_provider import llm
+from src.services.prompt_assembler import assemble_system_prompt
+from src.services.session_history import history
+from src.api.v1.admin.llm import get_llm_settings
 
 logger = logging.getLogger("backend.polling")
 
@@ -97,26 +100,76 @@ async def _safe_process(msg: dict[str, Any]):
     frontend_url = msg.get("_frontend_url", "")
     session_token = msg.get("session_token", "")
     content = msg.get("content", "")
+    survey = msg.get("survey")
+    language = msg.get("language", "en")
 
     client = httpx.AsyncClient(timeout=30.0)
     try:
-        # Mock LLM response — Sprint 5 will replace this with real LLM
-        mock_response = f"Thank you for your message. You said: \"{content}\"\n\nThis is a mock response. Real AI responses will be available after LLM integration (Sprint 5)."
+        # If first message with survey, build system prompt and store it
+        if survey:
+            system_prompt = assemble_system_prompt(survey, language)
+            history.init_session(session_token, system_prompt, survey)
 
-        # Stream mock response token by token
-        words = mock_response.split(" ")
-        for i, word in enumerate(words):
-            token = word if i == 0 else " " + word
-            await client.post(
-                f"{frontend_url}/internal/stream/{session_token}/chunk",
-                json={"event": "token", "data": token},
-            )
-            await asyncio.sleep(0.05)  # Simulate streaming delay
+        # Add user message to history
+        history.add_message(session_token, "user", content)
 
-        # Send done event with full text
+        # Build messages for LLM (system + conversation history)
+        llm_messages = history.get_llm_messages(session_token)
+
+        # Try LLM inference, fall back to mock if unavailable
+        raw_response = ""
+        visible_response = ""
+        in_think = False
+        settings = get_llm_settings()
+        try:
+            async for token in llm.stream_chat(
+                messages=llm_messages,
+                provider=settings.get("inference_provider"),
+                model=settings.get("inference_model"),
+                temperature=settings.get("temperature", 0.7),
+                max_tokens=settings.get("max_tokens", 2048),
+                num_ctx=settings.get("num_ctx"),
+            ):
+                raw_response += token
+
+                # Filter <think>...</think> blocks (Qwen3 reasoning tokens)
+                if "<think>" in raw_response and not in_think:
+                    in_think = True
+                if in_think:
+                    if "</think>" in raw_response:
+                        in_think = False
+                        # Skip everything up to after </think> + whitespace
+                        after = raw_response.split("</think>", 1)[-1]
+                        raw_response = after
+                    continue
+
+                # Stream visible tokens to frontend
+                visible_response += token
+                await client.post(
+                    f"{frontend_url}/internal/stream/{session_token}/chunk",
+                    json={"event": "token", "data": token},
+                )
+        except ConnectionError:
+            # No LLM provider available — use mock response
+            logger.warning(f"No LLM available for {session_token}, using mock")
+            full_response = _mock_response(content)
+            words = full_response.split(" ")
+            for i, word in enumerate(words):
+                t = word if i == 0 else " " + word
+                await client.post(
+                    f"{frontend_url}/internal/stream/{session_token}/chunk",
+                    json={"event": "token", "data": t},
+                )
+                await asyncio.sleep(0.05)
+
+        # Strip think blocks from final response for history and done event
+        clean_response = visible_response.strip() if visible_response else raw_response.strip()
+        history.add_message(session_token, "assistant", clean_response)
+
+        # Send done event
         await client.post(
             f"{frontend_url}/internal/stream/{session_token}/chunk",
-            json={"event": "done", "data": mock_response},
+            json={"event": "done", "data": clean_response},
         )
         logger.info(f"Processed message for session {session_token}")
 
@@ -131,6 +184,14 @@ async def _safe_process(msg: dict[str, Any]):
             pass
     finally:
         await client.aclose()
+
+
+def _mock_response(content: str) -> str:
+    return (
+        f'Thank you for your message. You said: "{content}"\n\n'
+        "This is a mock response. No LLM provider is currently available. "
+        "Please configure LM Studio or Ollama in the admin panel."
+    )
 
 
 async def polling_loop(interval: int = 2):

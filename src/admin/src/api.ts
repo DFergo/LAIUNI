@@ -73,3 +73,39 @@ export async function updateFrontend(id: string, data: { enabled?: boolean; name
 export async function removeFrontend(id: string): Promise<void> {
   return request(`/admin/frontends/${id}`, { method: 'DELETE' });
 }
+
+// --- LLM API ---
+
+export interface LLMHealth {
+  lm_studio: { status: string; models: string[]; error?: string }
+  ollama: { status: string; models: string[]; error?: string }
+}
+
+export interface LLMSettings {
+  inference_provider: string
+  inference_model: string
+  summariser_provider: string
+  summariser_model: string
+  temperature: number
+  max_tokens: number
+  num_ctx: number
+}
+
+export async function getLLMHealth(): Promise<LLMHealth> {
+  return request('/admin/llm/health');
+}
+
+export async function getLLMModels(): Promise<LLMHealth> {
+  return request('/admin/llm/models');
+}
+
+export async function getLLMSettings(): Promise<LLMSettings> {
+  return request('/admin/llm/settings');
+}
+
+export async function updateLLMSettings(data: Partial<LLMSettings>): Promise<LLMSettings> {
+  return request('/admin/llm/settings', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}

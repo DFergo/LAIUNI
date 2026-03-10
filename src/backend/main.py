@@ -9,8 +9,10 @@ from fastapi.staticfiles import StaticFiles
 
 from src.api.v1.admin.auth import router as auth_router
 from src.api.v1.admin.frontends import router as frontends_router
+from src.api.v1.admin.llm import router as llm_router
 from src.core.config import config
 from src.services.polling import polling_loop
+from src.services.prompt_assembler import ensure_defaults
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backend")
@@ -18,6 +20,8 @@ logger = logging.getLogger("backend")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Install default prompt files if missing
+    ensure_defaults()
     # Start polling loop on startup
     task = asyncio.create_task(polling_loop(config.poll_interval_seconds))
     logger.info("Backend started, polling loop running")
@@ -34,6 +38,7 @@ app = FastAPI(title="HRDD Helper Backend", version="2.0.0", lifespan=lifespan)
 # Register API routes
 app.include_router(auth_router)
 app.include_router(frontends_router)
+app.include_router(llm_router)
 
 # Admin SPA static files
 ADMIN_DIST = Path("/app/admin/dist")

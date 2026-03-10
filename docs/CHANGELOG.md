@@ -2,6 +2,20 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 5 — LLM Integration (2026-03-09)
+- `services/llm_provider.py`: LM Studio + Ollama via OpenAI-compatible API, streaming + non-streaming
+- `services/prompt_assembler.py`: Modular prompt assembly (core + role + mode + survey context)
+- `services/session_history.py`: In-memory conversation history per session token
+- 11 default prompt files: core.md, worker.md, worker_representative.md, organizer.md, officer.md, documentation.md, advisory.md, training.md, context_template.md, session_summary.md, internal_case_file.md
+- Auto-install defaults to `/app/data/prompts/` on first startup (won't overwrite edits)
+- `api/v1/admin/llm.py`: Health check, model listing, settings CRUD
+- Admin LLM tab: provider status (green/red), model dropdowns, temperature slider, max_tokens, num_ctx
+- LLM settings persist to `/app/data/llm_settings.json`
+- `<think>` block filtering: Qwen3 reasoning tokens stripped from user-visible response
+- Mock LLM fallback when no provider is available
+- Health checks wrapped in try-except (lesson #3)
+- All background processing wrapped in try-except with error push to stream (lesson #2)
+
 ### Sprint 4 — Message Queue + Polling (2026-03-09)
 - Full pull-inverse pipeline: React → sidecar queue → backend poll → mock LLM → SSE stream → React
 - Frontend sidecar: `POST /internal/queue`, `GET /internal/queue`, `POST /internal/stream/{token}/chunk`, `GET /internal/stream/{token}` (SSE)

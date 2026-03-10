@@ -127,7 +127,10 @@ async def stream_sse(session_token: str):
         while True:
             try:
                 event = await asyncio.wait_for(q.get(), timeout=30.0)
-                yield f"event: {event['event']}\ndata: {event['data']}\n\n"
+                # SSE multi-line: each line needs its own "data:" prefix
+                lines = event['data'].split('\n')
+                data_block = '\n'.join(f"data: {line}" for line in lines)
+                yield f"event: {event['event']}\n{data_block}\n\n"
                 if event["event"] in ("done", "error"):
                     break
             except asyncio.TimeoutError:

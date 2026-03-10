@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-09
 
-## Current State: v2 Rewrite — Sprint 4 Complete, Sprint 5 Next
+## Current State: v2 Rewrite — Sprint 5 Complete, Sprint 6 Next
 
 ### Sprint 0 — Project Setup ✅
 - [x] Product specification written (SPEC-v2.md)
@@ -115,8 +115,35 @@
 - [x] Chat bubbles: user right/blue, assistant left/white
 - [x] Queue position shown while waiting
 
+### Sprint 5 — LLM Integration ✅
+
+**Goal:** Real AI responses via LM Studio or Ollama.
+
+#### Deliverables
+- [x] `services/llm_provider.py` — LM Studio + Ollama abstraction (OpenAI-compatible API)
+- [x] `services/prompt_assembler.py` — system + role + mode + context(survey) assembly
+- [x] `services/session_history.py` — in-memory conversation history per session
+- [x] `api/v1/admin/llm.py` — health, models, settings endpoints
+- [x] 11 default prompt files (core, 4 roles, 3 modes, context template, 2 post-processing)
+- [x] Admin LLM tab (provider health, model select, parameters)
+- [x] `<think>` block filtering for Qwen3 reasoning tokens
+- [x] Mock LLM fallback when no provider available
+- [x] LLM settings persisted to `/app/data/llm_settings.json`
+
+#### Acceptance Criteria
+- [x] Backend connects to LM Studio — verified with qwen/qwen3-235b-a22b
+- [x] Backend connects to Ollama — verified online
+- [x] Admin LLM tab shows online/offline status for each provider
+- [x] Admin can select model, set temperature, num_ctx, max_tokens
+- [x] User message → real LLM response streams back to chat
+- [x] Prompt includes: system prompt + role prompt + mode prompt + survey context
+- [x] Conversation history maintained per session
+- [x] LLM failure → graceful error message to user (not crash)
+- [x] check_health() wrapped in try-except
+- [x] _safe_process wrapped in try-except, pushes error to stream
+- [x] Mock LLM fallback works when no provider available
+
 ### What's Needed Next
-- **Sprint 5:** LLM integration
 - **Sprint 6:** Admin panel (all 6 tabs)
 - **Sprint 7:** RAG + MemGPT/Letta
 - **Sprint 8:** Session management + finalization
