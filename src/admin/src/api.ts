@@ -117,3 +117,169 @@ export async function updateLLMSettings(data: Partial<LLMSettings>): Promise<LLM
 export async function resetLLMSettings(): Promise<LLMSettings> {
   return request('/admin/llm/settings/reset', { method: 'POST' });
 }
+
+// --- Prompts API ---
+
+export interface PromptFile {
+  name: string
+  size: number
+  modified: number | null
+}
+
+export interface PromptsResponse {
+  categories: Record<string, PromptFile[]>
+}
+
+export async function listPrompts(): Promise<PromptsResponse> {
+  return request('/admin/prompts');
+}
+
+export async function readPrompt(name: string): Promise<{ name: string; content: string }> {
+  return request(`/admin/prompts/${name}`);
+}
+
+export async function savePrompt(name: string, content: string): Promise<PromptFile> {
+  return request(`/admin/prompts/${name}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
+  });
+}
+
+// --- Sessions API ---
+
+export interface SessionSummary {
+  token: string
+  message_count: number
+  role: string
+  mode: string
+  flagged?: boolean
+}
+
+export interface SessionDetail {
+  token: string
+  survey: Record<string, unknown>
+  messages: { role: string; content: string }[]
+  system_prompt: string
+  flagged: boolean
+}
+
+export async function listSessions(): Promise<{ sessions: SessionSummary[] }> {
+  return request('/admin/sessions');
+}
+
+export async function getSession(token: string): Promise<SessionDetail> {
+  return request(`/admin/sessions/${token}`);
+}
+
+export async function toggleSessionFlag(token: string): Promise<{ token: string; flagged: boolean }> {
+  return request(`/admin/sessions/${token}/flag`, { method: 'PUT' });
+}
+
+// --- RAG API ---
+
+export interface RAGDocument {
+  name: string
+  size: number
+  modified: number
+}
+
+export async function listRAGDocuments(): Promise<{ documents: RAGDocument[] }> {
+  return request('/admin/rag/documents');
+}
+
+export async function uploadRAGDocument(file: File): Promise<{ name: string; size: number }> {
+  const token = localStorage.getItem('hrdd_admin_token');
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch('/admin/rag/upload', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: 'Upload failed' }));
+    throw new Error(body.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteRAGDocument(name: string): Promise<void> {
+  return request(`/admin/rag/documents/${name}`, { method: 'DELETE' });
+}
+
+export async function reindexRAG(): Promise<{ status: string; document_count: number }> {
+  return request('/admin/rag/reindex', { method: 'POST' });
+}
+
+// --- SMTP API ---
+
+export interface SMTPConfig {
+  host: string
+  port: number
+  username: string
+  password: string
+  use_tls: boolean
+  from_address: string
+  admin_notify_address: string
+}
+
+export async function getSMTPConfig(): Promise<SMTPConfig> {
+  return request('/admin/smtp');
+}
+
+export async function updateSMTPConfig(data: Partial<SMTPConfig>): Promise<SMTPConfig> {
+  return request('/admin/smtp', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function testSMTP(): Promise<{ status: string; message: string }> {
+  return request('/admin/smtp/test', { method: 'POST' });
+}
+
+// --- Knowledge Base API ---
+
+export interface GlossaryTerm {
+  term: string
+  short_definition: string
+  related_standards?: string[]
+  translations?: Record<string, string>
+}
+
+export interface Organization {
+  id: string
+  name: string
+  acronym?: string
+  type: string
+  scope: string
+  region?: string
+  countries?: string[]
+  sectors?: string[]
+  description: string
+  contact_url?: string
+  contact_email?: string
+  note?: string
+}
+
+export async function getGlossary(): Promise<{ terms: GlossaryTerm[] }> {
+  return request('/admin/knowledge/glossary');
+}
+
+export async function updateGlossary(terms: GlossaryTerm[]): Promise<{ terms: GlossaryTerm[] }> {
+  return request('/admin/knowledge/glossary', {
+    method: 'PUT',
+    body: JSON.stringify({ terms }),
+  });
+}
+
+export async function getOrganizations(): Promise<{ organizations: Organization[] }> {
+  return request('/admin/knowledge/organizations');
+}
+
+export async function updateOrganizations(organizations: Organization[]): Promise<{ organizations: Organization[] }> {
+  return request('/admin/knowledge/organizations', {
+    method: 'PUT',
+    body: JSON.stringify({ organizations }),
+  });
+}

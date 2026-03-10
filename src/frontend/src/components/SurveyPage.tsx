@@ -40,7 +40,7 @@ export default function SurveyPage({ lang, config, onSubmit }: Props) {
     const data: SurveyData = {
       role,
       description,
-      ...(showMode && { type: mode }),
+      type: showMode ? mode : 'documentation',
       ...(name && { name }),
       ...(position && { position }),
       ...(union && { union }),

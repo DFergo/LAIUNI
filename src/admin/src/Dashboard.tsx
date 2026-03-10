@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import FrontendsTab from './FrontendsTab'
+import PromptsTab from './PromptsTab'
 import LLMTab from './LLMTab'
+import RAGTab from './RAGTab'
+import SessionsTab from './SessionsTab'
+import SMTPTab from './SMTPTab'
 
 interface Props {
   onLogout: () => void
@@ -43,12 +47,11 @@ export default function Dashboard({ onLogout }: Props) {
 
       <main className="max-w-6xl mx-auto mt-6 p-6">
         {activeTab === 'Frontends' && <FrontendsTab />}
+        {activeTab === 'Prompts' && <PromptsTab />}
         {activeTab === 'LLM' && <LLMTab />}
-        {activeTab !== 'Frontends' && activeTab !== 'LLM' && (
-          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-            <p className="text-gray-400">{activeTab} tab coming in Sprint 6.</p>
-          </div>
-        )}
+        {activeTab === 'RAG' && <RAGTab />}
+        {activeTab === 'Sessions' && <SessionsTab />}
+        {activeTab === 'SMTP' && <SMTPTab />}
       </main>
     </div>
   )

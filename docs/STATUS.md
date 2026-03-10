@@ -143,8 +143,35 @@
 - [x] _safe_process wrapped in try-except, pushes error to stream
 - [x] Mock LLM fallback works when no provider available
 
+### Sprint 5b — LLM Tab Improvements ✅
+
+- [x] Split LLM tab into Inference and Context Compression (Letta) subpanels
+- [x] Toggle to enable/disable Letta summariser
+- [x] Context window (num_ctx) for Ollama on both panels
+- [x] Hints with recommended values and page equivalents
+- [x] Fix: health refresh no longer overwrites unsaved edits
+- [x] Discard Changes and Reset to Defaults buttons
+
+### Sprint 6 — Admin Panel Complete ✅
+
+**Goal:** All 6 admin tabs functional.
+
+#### Deliverables
+- [x] **Prompts tab**: two-column editor, 5 categories, save with dirty tracking
+- [x] **RAG tab**: upload docs (.md/.txt/.json), list, delete, reindex stub
+- [x] **Sessions tab**: list with All/Flagged filters, view conversation detail, flag/unflag
+- [x] **SMTP tab**: config form (host, port, user, pass, from, admin notify, TLS), test stub
+- [x] Backend endpoints: prompts CRUD, RAG file management, sessions list/detail/flag, SMTP config
+- [x] Fix: survey `type` always sent (was missing for worker/representative → caused "unknown" mode)
+- [x] Default mode fallback: "documentation" instead of "unknown"
+
+#### Backend Endpoints
+- `GET/PUT /admin/prompts`, `GET/PUT /admin/prompts/{name}` — prompts CRUD
+- `GET/PUT /admin/sessions`, `GET /admin/sessions/{token}`, `PUT /admin/sessions/{token}/flag`
+- `POST /admin/rag/upload`, `GET /admin/rag/documents`, `DELETE /admin/rag/documents/{name}`, `POST /admin/rag/reindex`
+- `GET/PUT /admin/smtp`, `POST /admin/smtp/test`
+
 ### What's Needed Next
-- **Sprint 6:** Admin panel (all 6 tabs)
 - **Sprint 7:** RAG + MemGPT/Letta
 - **Sprint 8:** Session management + finalization
 - **Sprint 9:** SMTP integration

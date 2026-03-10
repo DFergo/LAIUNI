@@ -1,0 +1,150 @@
+{
+  "organizations": [
+    {
+      "id": "uni-global",
+      "name": "UNI Global Union",
+      "acronym": "UNI",
+      "type": "GUF",
+      "scope": "global",
+      "sectors": ["commerce", "finance", "graphical", "packaging", "ICT", "media", "postal", "cleaning", "security", "sport", "tourism", "hair_beauty"],
+      "description": "Global Union Federation representing over 20 million workers in the skills and services sectors.",
+      "contact_url": "https://www.uniglobalunion.org",
+      "note": "Parent organization of this tool."
+    },
+    {
+      "id": "uni-europa",
+      "name": "UNI Europa",
+      "acronym": "UNI Europa",
+      "type": "ETUF",
+      "scope": "regional",
+      "region": "Europe",
+      "countries": ["all-EU", "all-EEA"],
+      "sectors": ["all-UNI"],
+      "description": "European regional organization of UNI Global Union.",
+      "contact_url": "https://www.uni-europa.org"
+    },
+    {
+      "id": "uni-graphical",
+      "name": "UNI Graphical & Packaging",
+      "acronym": "UNI G&P",
+      "type": "sector",
+      "scope": "global",
+      "sectors": ["graphical", "packaging", "printing", "paper", "forestry"],
+      "description": "UNI Global Union sector covering graphical, packaging, printing, paper, and forestry industries.",
+      "contact_url": "https://www.uniglobalunion.org/sectors/graphical-packaging"
+    },
+    {
+      "id": "industriall-global",
+      "name": "IndustriALL Global Union",
+      "acronym": "IndustriALL",
+      "type": "GUF",
+      "scope": "global",
+      "sectors": ["manufacturing", "mining", "energy", "textile", "garment", "chemical", "rubber", "automotive", "shipbuilding", "metalworking"],
+      "description": "Global Union Federation representing 50 million workers in mining, energy, and manufacturing sectors.",
+      "contact_url": "https://www.industriall-union.org"
+    },
+    {
+      "id": "itf",
+      "name": "International Transport Workers' Federation",
+      "acronym": "ITF",
+      "type": "GUF",
+      "scope": "global",
+      "sectors": ["transport", "maritime", "aviation", "road_transport", "railways", "logistics"],
+      "description": "Global Union Federation representing transport workers worldwide.",
+      "contact_url": "https://www.itfglobal.org"
+    },
+    {
+      "id": "iuf",
+      "name": "International Union of Food, Agricultural, Hotel, Restaurant, Catering, Tobacco and Allied Workers' Associations",
+      "acronym": "IUF",
+      "type": "GUF",
+      "scope": "global",
+      "sectors": ["food", "agriculture", "hotel", "restaurant", "catering", "tobacco"],
+      "description": "Global Union Federation representing workers in food, agriculture, and hospitality.",
+      "contact_url": "https://www.iuf.org"
+    },
+    {
+      "id": "bwi",
+      "name": "Building and Wood Workers' International",
+      "acronym": "BWI",
+      "type": "GUF",
+      "scope": "global",
+      "sectors": ["construction", "building_materials", "wood", "forestry"],
+      "description": "Global Union Federation for building and woodworkers.",
+      "contact_url": "https://www.bwint.org"
+    },
+    {
+      "id": "psi",
+      "name": "Public Services International",
+      "acronym": "PSI",
+      "type": "GUF",
+      "scope": "global",
+      "sectors": ["public_services", "healthcare", "education", "utilities", "government"],
+      "description": "Global Union Federation representing public sector workers.",
+      "contact_url": "https://publicservices.international"
+    },
+    {
+      "id": "ei",
+      "name": "Education International",
+      "acronym": "EI",
+      "type": "GUF",
+      "scope": "global",
+      "sectors": ["education"],
+      "description": "Global Union Federation representing education workers and their unions.",
+      "contact_url": "https://www.ei-ie.org"
+    },
+    {
+      "id": "ituc",
+      "name": "International Trade Union Confederation",
+      "acronym": "ITUC",
+      "type": "confederation",
+      "scope": "global",
+      "sectors": ["all"],
+      "description": "The world's largest trade union confederation, representing 200 million workers in 163 countries.",
+      "contact_url": "https://www.ituc-csi.org"
+    },
+    {
+      "id": "etuc",
+      "name": "European Trade Union Confederation",
+      "acronym": "ETUC",
+      "type": "confederation",
+      "scope": "regional",
+      "region": "Europe",
+      "countries": ["all-EU", "all-EEA"],
+      "sectors": ["all"],
+      "description": "Voice of European workers, representing 45 million members from 93 trade union organisations.",
+      "contact_url": "https://www.etuc.org"
+    },
+    {
+      "id": "ilo",
+      "name": "International Labour Organization",
+      "acronym": "ILO",
+      "type": "international_body",
+      "scope": "global",
+      "description": "United Nations agency for labour standards, social protection, and work opportunities. Sets and supervises international labour standards.",
+      "contact_url": "https://www.ilo.org",
+      "note": "Do not recommend direct contact. Escalation path: worker → national union → UNI Global Union."
+    },
+    {
+      "id": "fsc",
+      "name": "Forest Stewardship Council",
+      "acronym": "FSC",
+      "type": "certification_body",
+      "scope": "global",
+      "sectors": ["forestry", "paper", "packaging", "printing", "wood"],
+      "description": "International certification and labelling system for responsible forestry. Includes Core Labour Requirements based on ILO fundamental conventions.",
+      "contact_url": "https://www.fsc.org",
+      "note": "FSC-certified companies have specific labour obligations. Complaints can be filed through FSC's dispute resolution process, coordinated via UNI."
+    },
+    {
+      "id": "oecd",
+      "name": "Organisation for Economic Co-operation and Development",
+      "acronym": "OECD",
+      "type": "international_body",
+      "scope": "global",
+      "description": "Issues Guidelines for Multinational Enterprises. National Contact Points (NCPs) handle complaints about MNE conduct.",
+      "contact_url": "https://www.oecd.org",
+      "note": "NCP complaints should be coordinated through UNI, not filed directly by workers."
+    }
+  ]
+}

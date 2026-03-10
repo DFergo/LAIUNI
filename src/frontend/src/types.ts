@@ -14,7 +14,7 @@ export interface DeploymentConfig {
 
 export interface SurveyData {
   role: Role
-  type?: ConsultationMode
+  type: ConsultationMode
   name?: string
   position?: string
   union?: string

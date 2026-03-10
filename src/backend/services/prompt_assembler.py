@@ -1,5 +1,6 @@
-"""Assembles the system prompt from modular prompt files + survey context."""
+"""Assembles the system prompt from modular prompt files + survey context + knowledge base."""
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -59,6 +60,73 @@ def _render_context(survey: dict[str, Any] | None, language: str) -> str:
     return template
 
 
+def _build_knowledge_section(survey: dict[str, Any] | None, language: str) -> str:
+    """Build knowledge base section from glossary and organizations JSONs.
+
+    These are structured, curated data injected directly into context.
+    The LLM uses them for deterministic term lookups and organization referrals.
+    """
+    from src.api.v1.admin.knowledge import load_glossary, load_organizations
+
+    parts: list[str] = []
+
+    # Glossary — filter translations to session language for conciseness
+    glossary = load_glossary()
+    terms = glossary.get("terms", [])
+    if terms:
+        lines = ["## Glossary of Domain Terms", "",
+                 "Use these as the authoritative reference for terminology. "
+                 "Do not paraphrase or improvise definitions for terms present here.", ""]
+        for t in terms:
+            translation = t.get("translations", {}).get(language, "")
+            line = f"- **{t['term']}**"
+            if translation:
+                line += f" ({translation})"
+            line += f": {t.get('short_definition', '')}"
+            standards = t.get("related_standards", [])
+            if standards:
+                line += f" [{', '.join(standards)}]"
+            lines.append(line)
+        parts.append("\n".join(lines))
+
+    # Organizations — filter by user's country/region if available
+    orgs = load_organizations()
+    org_list = orgs.get("organizations", [])
+    if org_list:
+        user_country = ""
+        if survey:
+            user_country = survey.get("countryRegion", "").lower()
+
+        lines = ["## Organizations Reference",  "",
+                 "When naming an organization, use the exact name and acronym from this list. "
+                 "Do not invent or approximate organization names. "
+                 "The correct escalation path is always: worker → national union → UNI Global Union.", ""]
+
+        # Show relevant orgs first (matching country/region), then global ones
+        for org in org_list:
+            name = org.get("name", "")
+            acronym = org.get("acronym", "")
+            desc = org.get("description", "")
+            note = org.get("note", "")
+            org_type = org.get("type", "")
+            scope = org.get("scope", "")
+
+            label = f"**{name}**"
+            if acronym and acronym != name:
+                label += f" ({acronym})"
+
+            line = f"- {label} — {desc}"
+            if note:
+                line += f" *Note: {note}*"
+            lines.append(line)
+
+        parts.append("\n".join(lines))
+
+    if not parts:
+        return ""
+    return "\n\n".join(parts)
+
+
 def assemble_system_prompt(survey: dict[str, Any] | None, language: str = "en") -> str:
     """Build the full system prompt from modular files.
 
@@ -92,5 +160,10 @@ def assemble_system_prompt(survey: dict[str, Any] | None, language: str = "en") 
         context = _render_context(survey, language)
         if context:
             parts.append(context)
+
+    # 5. Knowledge base (glossary + organizations) — injected directly, not via RAG
+    kb = _build_knowledge_section(survey, language)
+    if kb:
+        parts.append(kb)
 
     return "\n\n---\n\n".join(parts)

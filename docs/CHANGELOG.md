@@ -2,6 +2,26 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 6 — Admin Panel Complete (2026-03-10)
+- **Prompts tab**: two-column editor with 5 categories (System, User, Use Cases, Context, Post-Processing), save with dirty tracking
+- **RAG tab**: upload documents (.md/.txt/.json, 10MB limit), list with size/date, delete, reindex stub
+- **Sessions tab**: list all sessions with All/Flagged filters, view conversation detail, flag/unflag toggle
+- **SMTP tab**: full config form (host, port, username, password, from address, admin notify, TLS toggle), test connection stub
+- Backend: 4 new router modules (`prompts.py`, `sessions.py`, `rag.py`, `smtp.py`) with 13 endpoints
+- SMTP config persists to `/app/data/smtp_config.json` with atomic writes
+- RAG documents stored in `/app/data/documents/` (indexing deferred to Sprint 7)
+- Fix: survey `type` field now always sent from frontend (was conditional on role, causing "unknown" mode for worker/representative sessions)
+- Fix: session mode default changed from "unknown" to "documentation"
+- Added `python-multipart` dependency for file upload support
+
+### Sprint 5b — LLM Tab Improvements (2026-03-09)
+- Split LLM admin tab into Inference and Context Compression (Letta) subpanels
+- Toggle to enable/disable Letta summariser
+- Context window (num_ctx) field for Ollama on both panels
+- Hints with recommended values and page equivalents for all parameters
+- Fix: health refresh no longer overwrites unsaved settings edits
+- Discard Changes and Reset to Defaults buttons
+
 ### Sprint 5 — LLM Integration (2026-03-09)
 - `services/llm_provider.py`: LM Studio + Ollama via OpenAI-compatible API, streaming + non-streaming
 - `services/prompt_assembler.py`: Modular prompt assembly (core + role + mode + survey context)

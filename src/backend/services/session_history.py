@@ -91,7 +91,7 @@ class SessionHistory:
                 "token": token,
                 "message_count": len(data["messages"]),
                 "role": data.get("survey", {}).get("role", "unknown"),
-                "mode": data.get("survey", {}).get("type", "unknown"),
+                "mode": data.get("survey", {}).get("type", "documentation"),
             })
         return result
 
