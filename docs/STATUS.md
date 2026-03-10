@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-09
 
-## Current State: v2 Rewrite — Sprint 7b Complete, Sprint 8 Next
+## Current State: v2 Rewrite — Sprint 7c Complete
 
 ### Sprint 0 — Project Setup ✅
 - [x] Product specification written (SPEC-v2.md)
@@ -212,6 +212,90 @@
 - [x] Admin LLM tab: context window for all providers, threshold slider, model auto-correction
 - [x] ADR-009 documented, Sprint 12 (Letta) planned
 - [x] `/git` command for dual-remote push (GitHub + Gitea)
+
+### Sprint 7c — User Flow Redesign + Monolithic Prompts ✅
+
+**Goal:** Reorganize the user flow sequence and replace modular prompt concatenation with monolithic per-profile+case prompts for higher precision.
+
+**Idea source:** `docs/ideas.md` — "Prompts monolíticos por perfil+caso"
+
+#### Part 1: New User Flow Sequence
+
+Current: language → disclaimer → session → auth → survey → chat
+New: language → disclaimer → session (new/recover) → **role selection** → auth (if required) → **instructions page** → survey → chat
+
+- [x] `types.ts` — Add new phases: `role_select`, `instructions`. Add new consultation modes: `interview`, `submit`
+- [x] `App.tsx` — Reorder phase state machine to new sequence. Pass selected role to subsequent phases
+- [x] `RoleSelectPage.tsx` (NEW) — Profile selection page
+  - frontworker: Worker, Representative (2 cards)
+  - frontorganizer: Organizer, Officer (2 cards) — Interview mode eliminates need for worker/rep here
+  - Clean card-based UI matching existing design (UNI blue, rounded-xl, shadow-md)
+- [x] `InstructionsPage.tsx` (NEW) — Hardcoded instructions per profile
+  - Brief explanation of what this profile does and what to expect
+  - Translated via i18n (all 31 languages)
+  - "Continue" button to proceed to survey
+- [x] `i18n.ts` — Add strings for role selection page + instructions page (all profiles, all languages)
+
+#### Part 2: Survey Adaptation
+
+- [x] `SurveyPage.tsx` — Role comes from previous phase (no longer selected in survey)
+  - Mode selector shown only for Organizer/Officer, options depend on profile:
+    - Organizer: Document, Interview, Advisory, Submit (pending confirmation), Training (pending confirmation)
+    - Officer: Document, Interview, Advisory, Submit (pending confirmation), Training
+  - Field requirements:
+    - Worker/Rep: company, country/region, description required. Identity optional (note: anonymous allowed, contact recommended)
+    - Organizer/Officer: all required, except company optional in advisory/training
+  - Privacy note for worker/rep: "Anonymous interactions are allowed to protect your privacy, but providing contact details is strongly recommended so we can follow up"
+
+#### Part 3: Prompt Restructure
+
+- [x] `prompt_assembler.py` — Replace modular assembly (core+role+mode) with:
+  1. System prompt (`core.md`) — universal instructions
+  2. Case prompt (`{profile}_{case}.md` or `{profile}.md`) — monolithic per combination
+  3. Context template (`context_template.md`) — survey data substitution
+  4. Knowledge base (glossary for non-EN + organizations)
+  - Prompt files needed:
+    - `worker.md` — single prompt for worker
+    - `worker_representative.md` — single prompt for representative
+    - `organizer_document.md`
+    - `organizer_interview.md`
+    - `organizer_advisory.md`
+    - `organizer_submit.md` (pending confirmation)
+    - `officer_document.md`
+    - `officer_interview.md`
+    - `officer_advisory.md`
+    - `officer_submit.md` (pending confirmation)
+    - `officer_training.md`
+  - Remove old role-only prompts: `organizer.md`, `officer.md`
+  - Remove old mode-only prompts: `documentation.md`, `advisory.md`, `training.md`
+- [x] Admin Prompts tab — Update categories to reflect new prompt structure
+
+#### Part 4: Backend Adjustments
+
+- [x] `polling.py` — No structural changes expected (prompt assembler handles the rest)
+- [x] `session_history.py` — Store selected role separately from survey (role now comes from earlier phase)
+- [x] Sidecar `/internal/queue` — Ensure role is passed in the message payload
+
+#### Acceptance Criteria
+- [x] New flow works on frontworker: language → disclaimer → session → role (worker/rep) → instructions → survey → chat
+- [x] New flow works on frontorganizer: language → disclaimer → session → role (organizer/officer) → auth → instructions → survey → chat
+- [x] Role selection page shows correct options per frontend type
+- [x] Instructions page shows profile-specific text in selected language
+- [x] Survey fields adapt correctly to role selected in previous phase
+- [x] Mode selector appears only for organizer/officer with correct options
+- [x] Worker/Rep: anonymous allowed, only company+country+description required
+- [x] Organizer/Officer: all fields required, company optional in advisory/training
+- [x] Monolithic case prompts load correctly for each profile+case combination
+- [x] System prompt structure: core + case prompt + context template + knowledge
+- [x] Chat responses are coherent and profile-appropriate
+- [x] Existing chat, polling, compression, RAG unaffected
+- [x] Mobile: full flow works on phone browsers without breaking
+
+#### Notes
+- Daniel will provide final prompt content for each case file
+- "Submit" mode pending confirmation — implement the slot, content TBD
+- SPEC-v2.md needs updating before starting (new modes, reordered flow)
+- Prompt files can start as placeholders with clear structure, Daniel fills content later
 
 ### What's Needed Next
 - **Sprint 8:** Session management + finalization + evidence document upload (summary + session RAG)

@@ -5,15 +5,23 @@ import type { LangCode, Role, ConsultationMode, SurveyData, DeploymentConfig } f
 interface Props {
   lang: LangCode
   config: DeploymentConfig
+  role: Role
   onSubmit: (data: SurveyData) => void
 }
 
-const ROLES: Role[] = ['worker', 'representative', 'organizer', 'officer']
-const MODES: ConsultationMode[] = ['documentation', 'advisory', 'training']
+// Modes available per profile
+const MODES_BY_ROLE: Record<Role, ConsultationMode[]> = {
+  worker: [],        // No mode selection — single prompt
+  representative: [], // No mode selection — single prompt
+  organizer: ['documentation', 'interview', 'advisory', 'submit'],
+  officer: ['documentation', 'interview', 'advisory', 'submit', 'training'],
+}
 
-export default function SurveyPage({ lang, config, onSubmit }: Props) {
-  const [role, setRole] = useState<Role>('worker')
-  const [mode, setMode] = useState<ConsultationMode>('documentation')
+export default function SurveyPage({ lang, config, role, onSubmit }: Props) {
+  const availableModes = MODES_BY_ROLE[role]
+  const showMode = availableModes.length > 0
+
+  const [mode, setMode] = useState<ConsultationMode>(showMode ? availableModes[0] : 'documentation')
   const [name, setName] = useState('')
   const [position, setPosition] = useState('')
   const [union, setUnion] = useState('')
@@ -22,18 +30,12 @@ export default function SurveyPage({ lang, config, onSubmit }: Props) {
   const [countryRegion, setCountryRegion] = useState('')
   const [description, setDescription] = useState('')
 
-  // Field visibility and required logic
-  const isOrganizer = config.frontend_type === 'organizer'
-  const showMode = role === 'organizer' || role === 'officer'
-  // Name, Position, Union, Email: always visible. Required on organizer frontend, optional on worker.
-  const identityRequired = isOrganizer
-  // Company, Country/Region: required except in training mode
-  const companyCountryRequired = !showMode || mode !== 'training'
+  const isOrganizerFrontend = config.frontend_type === 'organizer'
 
-  // Worker frontend: only worker/representative. Organizer frontend: all 4 roles.
-  const availableRoles = config.frontend_type === 'worker'
-    ? ROLES.filter(r => r === 'worker' || r === 'representative')
-    : ROLES
+  // Worker/Rep: only company, country, description required. Identity optional.
+  // Organizer/Officer: all required, except company optional in advisory/training
+  const identityRequired = isOrganizerFrontend
+  const companyRequired = mode !== 'advisory' && mode !== 'training'
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -57,33 +59,12 @@ export default function SurveyPage({ lang, config, onSubmit }: Props) {
         <h2 className="text-xl font-semibold text-gray-800 mb-6">{t('survey_title', lang)}</h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Role select — always shown */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('survey_role', lang)}</label>
-            <div className="grid grid-cols-2 gap-2">
-              {availableRoles.map(r => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => setRole(r)}
-                  className={`px-3 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
-                    role === r
-                      ? 'bg-uni-blue text-white border-uni-blue'
-                      : 'border-gray-300 text-gray-700 hover:border-uni-blue hover:bg-blue-50'
-                  }`}
-                >
-                  {t(`role_${r}` as Parameters<typeof t>[0], lang)}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Mode select — organizer/officer only */}
           {showMode && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t('survey_mode', lang)}</label>
-              <div className="grid grid-cols-3 gap-2">
-                {MODES.map(m => (
+              <div className={`grid gap-2 ${availableModes.length <= 3 ? 'grid-cols-3' : availableModes.length <= 4 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3'}`}>
+                {availableModes.map(m => (
                   <button
                     key={m}
                     type="button"
@@ -98,10 +79,20 @@ export default function SurveyPage({ lang, config, onSubmit }: Props) {
                   </button>
                 ))}
               </div>
+              <p className="mt-2 text-xs text-gray-500">
+                {t(`mode_${mode}_desc` as Parameters<typeof t>[0], lang)}
+              </p>
             </div>
           )}
 
-          {/* Name — always visible, required on organizer frontend */}
+          {/* Privacy note for worker/rep */}
+          {!isOrganizerFrontend && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-gray-600">
+              {t('survey_privacy_note', lang)}
+            </div>
+          )}
+
+          {/* Name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t('survey_name', lang)}{identityRequired && <span className="text-uni-red ml-0.5">*</span>}
@@ -111,7 +102,7 @@ export default function SurveyPage({ lang, config, onSubmit }: Props) {
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
           </div>
 
-          {/* Position — always visible, required on organizer frontend */}
+          {/* Position */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t('survey_position', lang)}{identityRequired && <span className="text-uni-red ml-0.5">*</span>}
@@ -121,7 +112,7 @@ export default function SurveyPage({ lang, config, onSubmit }: Props) {
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
           </div>
 
-          {/* Union — always visible, required on organizer frontend */}
+          {/* Union */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t('survey_union', lang)}{identityRequired && <span className="text-uni-red ml-0.5">*</span>}
@@ -131,7 +122,7 @@ export default function SurveyPage({ lang, config, onSubmit }: Props) {
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
           </div>
 
-          {/* Email — always visible, required on organizer frontend */}
+          {/* Email */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t('survey_email', lang)}{identityRequired && <span className="text-uni-red ml-0.5">*</span>}
@@ -141,29 +132,31 @@ export default function SurveyPage({ lang, config, onSubmit }: Props) {
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
           </div>
 
-          {/* Company — always visible, required except training mode */}
+          {/* Company */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('survey_company', lang)}{companyCountryRequired && <span className="text-uni-red ml-0.5">*</span>}
+              {t('survey_company', lang)}{companyRequired && <span className="text-uni-red ml-0.5">*</span>}
             </label>
             <input type="text" value={company} onChange={e => setCompany(e.target.value)}
-              required={companyCountryRequired}
+              required={companyRequired}
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
           </div>
 
-          {/* Country/Region — always visible, required except training mode */}
+          {/* Country/Region */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('survey_country', lang)}{companyCountryRequired && <span className="text-uni-red ml-0.5">*</span>}
+              {t('survey_country', lang)}<span className="text-uni-red ml-0.5">*</span>
             </label>
             <input type="text" value={countryRegion} onChange={e => setCountryRegion(e.target.value)}
-              required={companyCountryRequired}
+              required
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
           </div>
 
-          {/* Situation description — always shown */}
+          {/* Situation description */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('survey_description', lang)}</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {t('survey_description', lang)}<span className="text-uni-red ml-0.5">*</span>
+            </label>
             <textarea
               value={description}
               onChange={e => setDescription(e.target.value)}

@@ -2,6 +2,23 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 7c — User Flow Redesign + Monolithic Prompts (2026-03-11)
+- New user flow: language → disclaimer → session → **role selection** → auth (if required) → **instructions** → survey → chat
+- `RoleSelectPage.tsx`: Profile selection with 2 cards per frontend type (worker/rep or organizer/officer)
+- `InstructionsPage.tsx`: Hardcoded per-profile instructions before survey
+- `SurveyPage.tsx`: Role from previous phase, mode selector only for organizer/officer with descriptions
+- Mode options: Organizer (document, interview, advisory, submit), Officer (+training)
+- Company field required for all profiles except advisory/training modes
+- Privacy note for worker/rep: anonymous allowed, contact recommended
+- Monolithic case prompts replace modular core+role+mode concatenation:
+  - Worker/Rep: single prompt each (`worker.md`, `worker_representative.md`)
+  - Organizer/Officer: per-case prompts (`organizer_document.md`, `officer_training.md`, etc.)
+- 9 new prompt files (functional placeholders for Daniel to customize)
+- `prompt_assembler.py`: `_resolve_case_prompt()` maps role+mode to file, logs loaded prompt
+- Admin Prompts tab updated with new categories (Worker Profiles, Organizer Cases, Officer Cases)
+- i18n: ~25 new keys (role selection, instructions, mode descriptions) in EN and ES
+- Other languages use English fallback; translation sprint planned later
+
 ### Sprint 7b — Context Compression (2026-03-10)
 - `services/context_compressor.py`: Incremental compression with running summary per session
 - `prompts/context_compression.md`: Dedicated compression prompt preserving names, dates, facts, case data

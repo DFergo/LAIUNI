@@ -17,9 +17,17 @@ router = APIRouter(prefix="/admin/prompts", tags=["admin-prompts"])
 # Category mapping for UI grouping
 CATEGORIES: dict[str, list[str]] = {
     "System Prompt": ["core.md"],
-    "User Prompts": ["worker.md", "worker_representative.md", "organizer.md", "officer.md"],
-    "Use Cases": ["documentation.md", "advisory.md", "training.md"],
+    "Worker Profiles": ["worker.md", "worker_representative.md"],
+    "Organizer Cases": [
+        "organizer_document.md", "organizer_interview.md",
+        "organizer_advisory.md", "organizer_submit.md",
+    ],
+    "Officer Cases": [
+        "officer_document.md", "officer_interview.md",
+        "officer_advisory.md", "officer_submit.md", "officer_training.md",
+    ],
     "Context Template": ["context_template.md"],
+    "Compression": ["context_compression.md"],
     "Post-Processing": ["session_summary.md", "internal_case_file.md"],
 }
 

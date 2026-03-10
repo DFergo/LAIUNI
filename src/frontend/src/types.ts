@@ -1,8 +1,8 @@
-export type Phase = 'loading' | 'language' | 'disclaimer' | 'session' | 'auth' | 'survey' | 'chat'
+export type Phase = 'loading' | 'language' | 'disclaimer' | 'session' | 'role_select' | 'auth' | 'instructions' | 'survey' | 'chat'
 
 export type Role = 'worker' | 'representative' | 'organizer' | 'officer'
 
-export type ConsultationMode = 'documentation' | 'advisory' | 'training'
+export type ConsultationMode = 'documentation' | 'interview' | 'advisory' | 'submit' | 'training'
 
 export interface DeploymentConfig {
   role: string

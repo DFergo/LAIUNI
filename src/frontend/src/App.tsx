@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { t } from './i18n'
-import type { Phase, LangCode, DeploymentConfig, SurveyData } from './types'
+import type { Phase, LangCode, Role, DeploymentConfig, SurveyData } from './types'
 import LanguageSelector from './components/LanguageSelector'
 import DisclaimerPage from './components/DisclaimerPage'
 import SessionPage from './components/SessionPage'
+import RoleSelectPage from './components/RoleSelectPage'
 import AuthPage from './components/AuthPage'
+import InstructionsPage from './components/InstructionsPage'
 import SurveyPage from './components/SurveyPage'
 import ChatShell from './components/ChatShell'
 
@@ -13,6 +15,7 @@ function App() {
   const [lang, setLang] = useState<LangCode>('en')
   const [config, setConfig] = useState<DeploymentConfig | null>(null)
   const [sessionToken, setSessionToken] = useState('')
+  const [selectedRole, setSelectedRole] = useState<Role | null>(null)
   const [survey, setSurvey] = useState<SurveyData | null>(null)
 
   useEffect(() => {
@@ -32,6 +35,7 @@ function App() {
     setPhase('language')
   }
 
+  // language → disclaimer (or skip) → session
   const handleLanguage = (selected: LangCode) => {
     setLang(selected)
     if (config?.disclaimer_enabled === false) {
@@ -45,30 +49,38 @@ function App() {
     setPhase('session')
   }
 
+  // session → role_select
   const handleNewSession = (token: string) => {
     setSessionToken(token)
-    if (config?.auth_required) {
-      setPhase('auth')
-    } else {
-      setPhase('survey')
-    }
+    setPhase('role_select')
   }
 
   const handleRecover = async (token: string) => {
     // Sprint 8 will implement actual recovery via GET /internal/session/{token}/recover
-    // For now, treat as new session with provided token
     setSessionToken(token)
+    setPhase('role_select')
+  }
+
+  // role_select → auth (if required) → instructions
+  const handleRoleSelect = (role: Role) => {
+    setSelectedRole(role)
     if (config?.auth_required) {
       setPhase('auth')
     } else {
-      setPhase('survey')
+      setPhase('instructions')
     }
   }
 
   const handleAuth = () => {
+    setPhase('instructions')
+  }
+
+  // instructions → survey
+  const handleInstructions = () => {
     setPhase('survey')
   }
 
+  // survey → chat
   const handleSurvey = (data: SurveyData) => {
     setSurvey(data)
     setPhase('chat')
@@ -92,8 +104,10 @@ function App() {
         {phase === 'language' && <LanguageSelector onSelect={handleLanguage} />}
         {phase === 'disclaimer' && <DisclaimerPage lang={lang} onAccept={handleDisclaimer} />}
         {phase === 'session' && <SessionPage lang={lang} onNewSession={handleNewSession} onRecover={handleRecover} />}
+        {phase === 'role_select' && config && <RoleSelectPage lang={lang} config={config} onSelect={handleRoleSelect} />}
         {phase === 'auth' && <AuthPage lang={lang} onVerified={handleAuth} />}
-        {phase === 'survey' && config && <SurveyPage lang={lang} config={config} onSubmit={handleSurvey} />}
+        {phase === 'instructions' && selectedRole && <InstructionsPage lang={lang} role={selectedRole} onContinue={handleInstructions} />}
+        {phase === 'survey' && config && selectedRole && <SurveyPage lang={lang} config={config} role={selectedRole} onSubmit={handleSurvey} />}
         {phase === 'chat' && survey && <ChatShell lang={lang} sessionToken={sessionToken} survey={survey} />}
       </main>
 

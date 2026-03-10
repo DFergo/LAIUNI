@@ -13,8 +13,9 @@ Plan and execute development sprints.
 1. Read `docs/SPEC-v2.md` for requirements
 2. Read `docs/STATUS.md` for current state
 3. Read `docs/knowledge/lessons-learned.md` for pitfalls to avoid
-4. Define sprint scope with clear deliverables
-5. Write plan to `docs/STATUS.md` under new sprint heading
+4. Read `docs/ideas.md` — check if any captured ideas are relevant to this sprint and present them to Daniel
+5. Define sprint scope with clear deliverables
+6. Write plan to `docs/STATUS.md` under new sprint heading
 
 ### Starting
 1. Confirm sprint plan exists in STATUS.md
