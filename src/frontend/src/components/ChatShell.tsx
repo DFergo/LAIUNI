@@ -47,7 +47,9 @@ export default function ChatShell({ lang, sessionToken, survey }: Props) {
     setStreamingText('')
     setQueuePosition(null)
 
-    const messageId = crypto.randomUUID()
+    // crypto.randomUUID() requires HTTPS — use fallback for plain HTTP
+    const messageId = crypto.randomUUID?.()
+      ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
     const timestamp = new Date().toISOString()
 
     try {
