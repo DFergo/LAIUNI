@@ -20,18 +20,36 @@ router = APIRouter(prefix="/admin/llm", tags=["admin-llm"])
 _SETTINGS_PATH = Path("/app/data/llm_settings.json")
 
 
+_DEFAULTS = {
+    "inference_provider": "lm_studio",
+    "inference_model": config.lm_studio_model,
+    "inference_temperature": 0.7,
+    "inference_max_tokens": 2048,
+    "inference_num_ctx": config.ollama_num_ctx,
+    "summariser_enabled": False,
+    "summariser_provider": "ollama",
+    "summariser_model": config.ollama_summariser_model,
+    "summariser_temperature": 0.3,
+    "summariser_max_tokens": 1024,
+    "summariser_num_ctx": config.ollama_num_ctx,
+}
+
+
 def _load_settings() -> dict[str, Any]:
     if _SETTINGS_PATH.exists():
-        return json.loads(_SETTINGS_PATH.read_text())
-    return {
-        "inference_provider": "lm_studio",
-        "inference_model": config.lm_studio_model,
-        "summariser_provider": "ollama",
-        "summariser_model": config.ollama_summariser_model,
-        "temperature": 0.7,
-        "max_tokens": 2048,
-        "num_ctx": config.ollama_num_ctx,
-    }
+        data = json.loads(_SETTINGS_PATH.read_text())
+        # Migrate old flat format to per-slot format
+        if "temperature" in data and "inference_temperature" not in data:
+            data["inference_temperature"] = data.pop("temperature", 0.7)
+            data["inference_max_tokens"] = data.pop("max_tokens", 2048)
+            data["summariser_temperature"] = 0.3
+            data["summariser_max_tokens"] = 1024
+            data["summariser_num_ctx"] = data.pop("num_ctx", config.ollama_num_ctx)
+        # Ensure all keys exist (new fields added over time)
+        for key, val in _DEFAULTS.items():
+            data.setdefault(key, val)
+        return data
+    return dict(_DEFAULTS)
 
 
 def _save_settings(settings: dict[str, Any]):
@@ -48,11 +66,15 @@ def get_llm_settings() -> dict[str, Any]:
 class LLMSettingsRequest(BaseModel):
     inference_provider: str | None = None
     inference_model: str | None = None
+    inference_temperature: float | None = None
+    inference_max_tokens: int | None = None
+    inference_num_ctx: int | None = None
+    summariser_enabled: bool | None = None
     summariser_provider: str | None = None
     summariser_model: str | None = None
-    temperature: float | None = None
-    max_tokens: int | None = None
-    num_ctx: int | None = None
+    summariser_temperature: float | None = None
+    summariser_max_tokens: int | None = None
+    summariser_num_ctx: int | None = None
 
 
 @router.get("/health")
@@ -93,3 +115,11 @@ async def update_settings(req: LLMSettingsRequest, _: dict = Depends(require_adm
     _save_settings(current)
     logger.info(f"LLM settings updated: {list(updates.keys())}")
     return current
+
+
+@router.post("/settings/reset")
+async def reset_settings(_: dict = Depends(require_admin)):
+    """Reset LLM settings to defaults."""
+    _save_settings(dict(_DEFAULTS))
+    logger.info("LLM settings reset to defaults")
+    return dict(_DEFAULTS)

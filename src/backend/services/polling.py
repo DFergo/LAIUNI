@@ -126,9 +126,9 @@ async def _safe_process(msg: dict[str, Any]):
                 messages=llm_messages,
                 provider=settings.get("inference_provider"),
                 model=settings.get("inference_model"),
-                temperature=settings.get("temperature", 0.7),
-                max_tokens=settings.get("max_tokens", 2048),
-                num_ctx=settings.get("num_ctx"),
+                temperature=settings.get("inference_temperature", 0.7),
+                max_tokens=settings.get("inference_max_tokens", 2048),
+                num_ctx=settings.get("inference_num_ctx") if settings.get("inference_provider") == "ollama" else None,
             ):
                 raw_response += token
 

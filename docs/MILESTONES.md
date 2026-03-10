@@ -231,29 +231,38 @@ Each sprint has explicit acceptance criteria. A sprint is NOT done until ALL cri
 
 ## Sprint 8 — Session Management & Finalization
 
-**Goal:** Sessions persist, recover, and generate reports.
+**Goal:** Sessions persist to disk, recover across restarts, and generate summary + report on closure.
 
 ### Deliverables
-- [ ] `services/session_store.py` — JSON file persistence
+- [ ] `services/session_store.py` — JSON file persistence per session directory
+- [ ] Real-time conversation logging to `/app/data/sessions/{token}/conversation.jsonl`
 - [ ] Session recovery endpoint on frontend sidecar
-- [ ] "End Session" → finalize flow (summary + report)
-- [ ] Post-processing prompts (session_summary, internal_case_file)
+- [ ] "End Session" button in ChatShell (red border)
+- [ ] Session closure flow (§3.6): summary → report → mark completed → SMTP alert
+- [ ] Inactivity timeout auto-closure (configurable, e.g. 2h)
+- [ ] Admin "Generate Report" / "Generate Summary" buttons per session
 - [ ] Session state: active, completed, flagged
 
 ### Acceptance Criteria
-- [ ] Session data persists to `/app/data/sessions/{token}.json`
+- [ ] Session data persists to `/app/data/sessions/{token}/` directory
+- [ ] `session.json` contains metadata (survey, language, role, timestamps, status)
+- [ ] `conversation.jsonl` appended in real-time as messages flow
 - [ ] Recover session by token → loads conversation, survey, language
 - [ ] Resume window: 48h worker, 120h organizer
 - [ ] Expired token → error message
-- [ ] "End Session" → AI generates summary using summary prompt
-- [ ] "End Session" → AI generates case file using report prompt
+- [ ] "End Session" button → summary streamed to chat → saved as `summary.md`
+- [ ] "End Session" button → report generated in background → saved as `report.md`
+- [ ] Report skipped for "training" mode sessions
 - [ ] Session marked as "completed" in admin
-- [ ] Admin can view completed session with summary and report
+- [ ] Admin can view completed session with conversation, summary, and report
+- [ ] Admin can trigger report/summary generation on demand for any session
+- [ ] Inactivity timeout closes session and generates report automatically
+- [ ] Session data survives container restart (Docker volume)
 
 ### Spec Sections Covered
-- §3.3 (Session Management), §3.5 (Chat — End Session)
-- §4.2.5 (Sessions Tab), §8.1 (SubmitMessageRequest — finalize)
-- §11 (Persistent Storage — sessions)
+- §3.3 (Session Management), §3.5 (Chat — End Session), §3.6 (Session Closure)
+- §4.2.5 (Sessions Tab — report generation), §8.1 (SubmitMessageRequest — finalize)
+- §11 (Persistent Storage — session directory structure)
 
 ---
 

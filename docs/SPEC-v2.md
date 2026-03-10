@@ -190,8 +190,45 @@ English, Spanish, French, German, Portuguese, Arabic, Chinese, Hindi, Indonesian
 - **Streaming indicator:** pulsing blue dot with "Preparing..." text
 - **Input:** textarea (2 rows), Enter to send, Shift+Enter for newline
 - **Send button:** blue, disabled while streaming
-- **End Session button:** red border, generates summary + report
-- **SSE streaming:** EventSource API, events: `token`, `done`, `error`
+- **"End Session" button:** red border, triggers session closure flow (§3.6)
+- **SSE streaming:** EventSource API, events: `token`, `done`, `error`, `queue_position`
+
+### 3.6 Session Closure & Report Generation
+
+#### Trigger mechanisms (in priority order)
+
+1. **User clicks "End Session"** — primary path. The AI should suggest using this button when it determines it has sufficient information to generate a useful report.
+2. **Inactivity timeout** — if a session has no activity for a configurable period (e.g., 2 hours), the backend auto-closes it and generates the report. The user is no longer present, but the report is still created.
+3. **Admin manual trigger** — Sessions tab in admin panel shows whether summary/report were generated. Admin can trigger generation on demand for any session, regardless of status.
+
+#### Closure flow (sequential)
+
+```
+1. "End Session" triggered (button, timeout, or admin)
+2. Backend loads full conversation from /app/data/sessions/{token}/conversation.jsonl
+3. Step A — Summary (visible to user if still connected):
+   - Load session_summary.md prompt
+   - Send full conversation + prompt to inference LLM
+   - Response streamed to chat as final assistant message
+   - Save as /app/data/sessions/{token}/summary.md
+4. Step B — Internal report (background, user does NOT see this):
+   - Load internal_case_file.md prompt
+   - Send full conversation + prompt to inference LLM
+   - Save as /app/data/sessions/{token}/report.md
+   - NOTE: Skipped for "training" mode sessions
+5. Mark session status as "completed"
+6. SMTP notifications:
+   - Alert admin that session was completed
+   - Optionally send report to registered users (configurable)
+```
+
+#### Important notes
+
+- Both summary and report use the **inference LLM** (main model), NOT the summariser/Letta model. These are document generation tasks, not context compression.
+- The `session_summary.md` prompt produces a user-facing summary in the chat language.
+- The `internal_case_file.md` prompt produces an internal report (may be 20+ pages). Written in the admin's configured language.
+- Reports are saved as Markdown files — future: downloadable from admin, optionally sent via SMTP.
+- If the user disconnects before "End Session", the inactivity timeout ensures reports are still generated.
 
 ---
 
@@ -233,12 +270,13 @@ Layout: two-column (list left, editor right). Groups are expandable. Save button
 
 #### 4.2.3 LLM Tab
 
-- **Provider health status:** LM Studio / Ollama (online/offline indicators)
-- **Refresh models** button (pulls model list from providers)
-- **Inference slot:** provider select, model select, `num_ctx`, `temperature`, `max_tokens`
-- **Summariser slot:** same controls (for session summary/reports)
-- **Letta compression threshold** slider
-- **Save** button
+- **Provider health status:** LM Studio / Ollama (online/offline indicators, auto-refresh)
+- **Refresh** button (pulls model list and health from providers)
+- **Inference panel:** provider select, model select, `temperature`, `max_tokens`, `num_ctx` (Ollama only). Hint text on each parameter with recommended values.
+- **Context Compression (Letta) panel:** toggle enabled/disabled. When enabled: provider select, model select, `temperature`, `max_tokens`, `num_ctx` (Ollama only). Uses a separate, typically smaller model (e.g., 7B) to compress conversation context for the inference model. NOT used for session summaries or reports.
+- **Buttons:** Save Settings, Discard Changes, Reset to Defaults
+- Settings persist to `/app/data/llm_settings.json`
+- Health refresh does NOT overwrite unsaved edits
 
 #### 4.2.4 RAG Documents Tab
 
@@ -254,6 +292,9 @@ Layout: two-column (list left, editor right). Groups are expandable. Save button
 - Session details: token, role, mode, start time, last activity, message count
 - View conversation history
 - Flag/unflag sessions
+- **Report status indicators:** shows whether summary and/or report were generated (checkmark/missing)
+- **"Generate Report" button:** triggers report generation on demand for any session (useful for abandoned sessions or re-generation with updated prompts)
+- **"Generate Summary" button:** same, for session summary
 - Export session data
 
 #### 4.2.6 SMTP Tab
@@ -625,8 +666,15 @@ All persistent data lives in Docker volumes mapped to `/app/data`:
 ├── .admin_hash              # bcrypt admin password
 ├── .jwt_secret              # JWT signing key
 ├── frontends.json           # Registered frontends
-├── sessions/                # Session JSON files
+├── llm_settings.json        # LLM configuration (inference + summariser)
+├── sessions/                # Session data (one directory per session)
+│   └── {token}/
+│       ├── session.json         # Metadata: survey, language, role, timestamps, status
+│       ├── conversation.jsonl   # Messages appended in real-time (one JSON per line)
+│       ├── summary.md           # Generated at session closure (user-facing)
+│       └── report.md            # Generated at session closure (internal, skipped for training)
 ├── rag_index/               # LlamaIndex vector index
+├── documents/               # RAG source documents
 └── prompts/                 # Editable prompt files
     ├── core.md
     ├── worker.md

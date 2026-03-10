@@ -84,11 +84,15 @@ export interface LLMHealth {
 export interface LLMSettings {
   inference_provider: string
   inference_model: string
+  inference_temperature: number
+  inference_max_tokens: number
+  inference_num_ctx: number
+  summariser_enabled: boolean
   summariser_provider: string
   summariser_model: string
-  temperature: number
-  max_tokens: number
-  num_ctx: number
+  summariser_temperature: number
+  summariser_max_tokens: number
+  summariser_num_ctx: number
 }
 
 export async function getLLMHealth(): Promise<LLMHealth> {
@@ -108,4 +112,8 @@ export async function updateLLMSettings(data: Partial<LLMSettings>): Promise<LLM
     method: 'PUT',
     body: JSON.stringify(data),
   });
+}
+
+export async function resetLLMSettings(): Promise<LLMSettings> {
+  return request('/admin/llm/settings/reset', { method: 'POST' });
 }
