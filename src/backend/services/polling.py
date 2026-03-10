@@ -9,7 +9,7 @@ from src.services.frontend_registry import registry
 from src.services.llm_provider import llm
 from src.services.prompt_assembler import assemble_system_prompt
 from src.services.rag_service import get_relevant_chunks
-from src.services.session_history import history
+from src.services.session_store import store as history
 from src.services.context_compressor import compress_if_needed, estimate_messages_tokens
 from src.api.v1.admin.llm import get_llm_settings
 
@@ -110,7 +110,7 @@ async def _safe_process(msg: dict[str, Any]):
         # If first message with survey, build system prompt and store it
         if survey:
             system_prompt = assemble_system_prompt(survey, language)
-            history.init_session(session_token, system_prompt, survey)
+            history.init_session(session_token, system_prompt, survey, language)
 
         # Add user message to history
         history.add_message(session_token, "user", content)

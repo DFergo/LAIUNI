@@ -153,15 +153,22 @@ export interface SessionSummary {
   message_count: number
   role: string
   mode: string
-  flagged?: boolean
+  status: string
+  flagged: boolean
+  created_at: string | null
+  last_activity: string | null
 }
 
 export interface SessionDetail {
   token: string
   survey: Record<string, unknown>
-  messages: { role: string; content: string }[]
+  messages: { role: string; content: string; timestamp?: string }[]
   system_prompt: string
   flagged: boolean
+  status: string
+  language: string
+  created_at: string | null
+  last_activity: string | null
 }
 
 export async function listSessions(): Promise<{ sessions: SessionSummary[] }> {

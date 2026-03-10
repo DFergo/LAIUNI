@@ -1,7 +1,32 @@
 import { useState, useEffect } from 'react'
 import { listSessions, getSession, toggleSessionFlag, type SessionSummary, type SessionDetail } from './api'
 
-type Filter = 'all' | 'flagged'
+type Filter = 'all' | 'active' | 'completed' | 'flagged'
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return '—'
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ago`
+}
+
+function statusBadge(status: string) {
+  const colors: Record<string, string> = {
+    active: 'bg-green-50 text-green-700',
+    completed: 'bg-gray-100 text-gray-600',
+    flagged: 'bg-red-50 text-uni-red',
+  }
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors[status] || 'bg-gray-100 text-gray-500'}`}>
+      {status}
+    </span>
+  )
+}
 
 export default function SessionsTab() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
@@ -51,9 +76,20 @@ export default function SessionsTab() {
     }
   }
 
-  const filtered = filter === 'flagged'
-    ? sessions.filter(s => s.flagged)
-    : sessions
+  const filtered = sessions.filter(s => {
+    if (filter === 'all') return true
+    if (filter === 'active') return s.status === 'active'
+    if (filter === 'completed') return s.status === 'completed'
+    if (filter === 'flagged') return s.flagged
+    return true
+  })
+
+  const counts = {
+    all: sessions.length,
+    active: sessions.filter(s => s.status === 'active').length,
+    completed: sessions.filter(s => s.status === 'completed').length,
+    flagged: sessions.filter(s => s.flagged).length,
+  }
 
   if (loading) return <p className="text-gray-400 text-sm">Loading...</p>
 
@@ -69,6 +105,7 @@ export default function SessionsTab() {
             &larr; Back to list
           </button>
           <span className="font-mono text-lg font-semibold text-gray-800">{selected.token}</span>
+          {statusBadge(selected.status)}
           <button
             onClick={() => handleFlag(selected.token)}
             className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
@@ -79,6 +116,13 @@ export default function SessionsTab() {
           >
             {selected.flagged ? 'Unflag' : 'Flag'}
           </button>
+        </div>
+
+        {/* Session metadata */}
+        <div className="flex gap-4 text-xs text-gray-400">
+          <span>Language: {selected.language}</span>
+          {selected.created_at && <span>Created: {timeAgo(selected.created_at)}</span>}
+          {selected.last_activity && <span>Last activity: {timeAgo(selected.last_activity)}</span>}
         </div>
 
         {/* Survey info */}
@@ -113,8 +157,9 @@ export default function SessionsTab() {
                   : 'bg-gray-50 border border-gray-100'
               }`}
             >
-              <div className="text-xs font-medium text-gray-400 mb-1">
-                {msg.role === 'user' ? 'User' : 'Assistant'}
+              <div className="flex justify-between text-xs font-medium text-gray-400 mb-1">
+                <span>{msg.role === 'user' ? 'User' : 'Assistant'}</span>
+                {msg.timestamp && <span>{timeAgo(msg.timestamp)}</span>}
               </div>
               <div className="whitespace-pre-wrap text-gray-700">{msg.content}</div>
             </div>
@@ -129,7 +174,7 @@ export default function SessionsTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex gap-2">
-          {(['all', 'flagged'] as Filter[]).map(f => (
+          {(['all', 'active', 'completed', 'flagged'] as Filter[]).map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -139,7 +184,7 @@ export default function SessionsTab() {
                   : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-50'
               }`}
             >
-              {f === 'all' ? `All (${sessions.length})` : `Flagged (${sessions.filter(s => s.flagged).length})`}
+              {f.charAt(0).toUpperCase() + f.slice(1)} ({counts[f]})
             </button>
           ))}
         </div>
@@ -156,7 +201,10 @@ export default function SessionsTab() {
       {filtered.length === 0 ? (
         <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6 text-center">
           <p className="text-gray-400 text-sm">
-            {filter === 'flagged' ? 'No flagged sessions' : 'No active sessions. Start a conversation on a frontend to see sessions here.'}
+            {filter === 'flagged' ? 'No flagged sessions' :
+             filter === 'completed' ? 'No completed sessions' :
+             filter === 'active' ? 'No active sessions' :
+             'No sessions. Start a conversation on a frontend to see sessions here.'}
           </p>
         </div>
       ) : (
@@ -167,7 +215,9 @@ export default function SessionsTab() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Token</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Role</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Mode</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Messages</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">Msgs</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">Last Activity</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600">Flag</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600"></th>
               </tr>
@@ -178,7 +228,9 @@ export default function SessionsTab() {
                   <td className="px-4 py-3 font-mono text-gray-800">{s.token}</td>
                   <td className="px-4 py-3 text-gray-600">{s.role}</td>
                   <td className="px-4 py-3 text-gray-600">{s.mode}</td>
+                  <td className="px-4 py-3">{statusBadge(s.status)}</td>
                   <td className="px-4 py-3 text-right text-gray-600">{s.message_count}</td>
+                  <td className="px-4 py-3 text-right text-gray-400 text-xs">{timeAgo(s.last_activity)}</td>
                   <td className="px-4 py-3 text-center">
                     <button
                       onClick={() => handleFlag(s.token)}

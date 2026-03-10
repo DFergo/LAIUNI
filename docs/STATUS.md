@@ -297,11 +297,231 @@ New: language → disclaimer → session (new/recover) → **role selection** �
 - SPEC-v2.md needs updating before starting (new modes, reordered flow)
 - Prompt files can start as placeholders with clear structure, Daniel fills content later
 
-### What's Needed Next
-- **Sprint 8:** Session management + finalization + evidence document upload (summary + session RAG)
-- **Sprint 8b:** Campaign-specific RAG (documents tied to individual frontends)
-- **Sprint 9:** SMTP integration
-- **Sprint 10:** Ethical guardrails
+### Sprint 8a — Session Persistence to Disk ✅
+
+**Goal:** Sessions survive backend restarts. All session data written to `/app/data/sessions/{token}/` in real time.
+
+**Current state:** Everything in-memory (`session_history.py` singleton dict). Lost on restart. `config.py` defines `sessions_path` but it's unused.
+
+#### Deliverables
+- [x] `services/session_store.py` — New service: disk-backed session persistence
+  - `init_session(token, system_prompt, survey, language)` → creates `{token}/session.json`
+  - `append_message(token, role, content)` → appends to `{token}/conversation.jsonl`
+  - `get_session(token)` → reads from disk
+  - `list_sessions()` → scans session directories
+  - Atomic writes for `session.json` (tmp + rename)
+- [x] `session.json` per session: metadata (survey, language, role, mode, timestamps, status, flagged)
+- [x] `conversation.jsonl` per session: one JSON line per message `{role, content, timestamp}`
+- [x] Integrate into `polling.py`: write to disk after each message (user + assistant)
+- [x] Integrate into admin `sessions.py`: read from disk instead of in-memory
+- [x] Session status field: `active` | `completed` | `flagged`
+- [x] Flag toggle persists to disk (currently in-memory only)
+- [x] Load existing sessions on startup (scan `/app/data/sessions/`)
+- [x] Keep in-memory cache for active sessions (performance), disk as source of truth
+
+#### Acceptance Criteria
+- [x] `session.json` created on first message with correct metadata
+- [x] `conversation.jsonl` grows with each message exchange
+- [x] Backend restart → sessions still visible in admin panel
+- [x] Flag toggle persists across restart
+- [x] Admin session list shows all sessions (active + old)
+- [x] Admin session detail shows full conversation from disk
+- [x] No performance regression in chat flow (in-memory cache for active)
+
+---
+
+### Sprint 8b — Session Recovery (PLANNED)
+
+**Goal:** Users can resume sessions by entering their token. Recovery skips role select, instructions, and survey.
+
+**Depends on:** Sprint 8a (disk persistence)
+
+#### Deliverables
+- [ ] Sidecar endpoint: `GET /internal/session/{token}/recover` → returns session data or 404
+  - Backend must have pushed session data to sidecar, OR sidecar queries backend
+  - Decision: sidecar forwards to backend via poll response (pull-inverse compatible)
+  - Alternative: backend pushes session metadata to sidecar when session is initialized
+- [ ] Backend endpoint: session recovery data (survey, language, role, mode, message count, status)
+- [ ] Frontend `App.tsx`: on recover → fetch session data → restore language, role, survey → skip to chat
+- [ ] Frontend `SessionPage.tsx`: show error if token not found or expired
+- [ ] Resume window enforcement: 48h worker, 120h organizer (from `deployment config`)
+- [ ] Expired token → clear error message with window duration
+- [ ] Recovered session loads conversation history into chat UI
+
+#### Acceptance Criteria
+- [ ] Enter valid token → chat resumes with previous conversation visible
+- [ ] Language, role, survey data restored (no re-entry)
+- [ ] Recovery skips: role select, instructions, survey (go straight to chat)
+- [ ] Expired token (>48h worker / >120h organizer) → error message
+- [ ] Invalid token → error message
+- [ ] Works on both frontworker and frontorganizer
+- [ ] Pull-inverse architecture respected (frontend doesn't call backend directly)
+
+---
+
+### Sprint 8c — End Session + Summary (PLANNED)
+
+**Goal:** User can end session. Summary is generated and streamed to chat as final message.
+
+**Depends on:** Sprint 8a (disk persistence)
+
+#### Deliverables
+- [ ] "End Session" button in ChatShell (red border, per spec §3.5)
+- [ ] Frontend sends `finalize: true` in message payload (spec §8.1)
+- [ ] Backend detects `finalize` flag in polling
+- [ ] Summary generation: load `session_summary.md` prompt + full conversation → LLM inference
+- [ ] Summary streamed to chat as final assistant message (user sees it)
+- [ ] Summary saved as `/app/data/sessions/{token}/summary.md`
+- [ ] Session status set to `completed`
+- [ ] Chat input disabled after finalization
+- [ ] Confirmation dialog before ending ("Are you sure?")
+
+#### Acceptance Criteria
+- [ ] "End Session" button visible in chat (red border styling)
+- [ ] Click → confirmation → summary streams to chat
+- [ ] Summary saved to `summary.md` on disk
+- [ ] Session marked `completed` in session.json
+- [ ] Chat input disabled after session ends
+- [ ] Summary uses inference LLM (not summariser) per spec §3.6
+- [ ] Summary generated in session language
+
+---
+
+### Sprint 8d — Report + Internal Assessment (PLANNED)
+
+**Goal:** Background generation of internal report and UNI assessment after session closure.
+
+**Depends on:** Sprint 8c (End Session flow)
+
+#### Deliverables
+- [ ] After summary: generate report using `internal_case_file.md` prompt + full conversation
+- [ ] Report saved as `/app/data/sessions/{token}/report.md`
+- [ ] Report skipped for "training" mode sessions (spec §3.6)
+- [ ] Internal assessment using dedicated prompt + full conversation (spec §13.3)
+  - Severity assessment, applicable frameworks
+  - Session integrity flag: normal / low_concern / high_concern
+  - Recommended priority for UNI attention
+- [ ] Assessment saved as `/app/data/sessions/{token}/internal_assessment.md`
+- [ ] Phase-based prompt loading (spec §13.4): report/assessment prompts REPLACE conversational prompt
+- [ ] Both report and assessment generated sequentially after summary completes
+- [ ] User does NOT see report or assessment (background only)
+
+#### Acceptance Criteria
+- [ ] After "End Session": summary (visible) → report (background) → assessment (background)
+- [ ] `report.md` contains structured case documentation
+- [ ] `internal_assessment.md` contains severity, integrity flag, priority
+- [ ] Training mode sessions: report skipped, assessment still generated
+- [ ] Report/assessment use inference LLM with dedicated prompts (not conversational prompt)
+- [ ] Full conversation passed as input (not just summary)
+- [ ] Admin can view report and assessment in session detail
+
+---
+
+### Sprint 8e — Admin Session Enhancements (PLANNED)
+
+**Goal:** Admin panel shows report status and can trigger generation on demand.
+
+**Depends on:** Sprint 8d (report generation)
+
+#### Deliverables
+- [ ] Sessions list: status column (active/completed/flagged)
+- [ ] Sessions list: report status indicators (checkmarks for summary/report/assessment)
+- [ ] Session detail: display summary, report, and assessment as tabs or sections
+- [ ] "Generate Summary" button — triggers on demand for any session
+- [ ] "Generate Report" button — triggers on demand for any session
+- [ ] "Generate Assessment" button — triggers on demand for any session
+- [ ] Useful for: abandoned sessions, re-generation with updated prompts
+- [ ] Session filters: All, Active, Completed, Flagged (currently only All/Flagged)
+
+#### Acceptance Criteria
+- [ ] Status indicators visible: ✓ summary, ✓ report, ✓ assessment (or ✗ if missing)
+- [ ] Admin can trigger any generation independently
+- [ ] Re-generation overwrites previous file
+- [ ] Filters work correctly (Active shows only active, etc.)
+- [ ] Report/assessment content readable in admin panel
+
+---
+
+### Sprint 8f — Inactivity Timeout (PLANNED)
+
+**Goal:** Sessions auto-close after configurable inactivity period. Reports generated automatically.
+
+**Depends on:** Sprint 8d (report generation pipeline)
+
+#### Deliverables
+- [ ] Backend background task: scan active sessions for inactivity
+- [ ] Configurable timeout (default 2h, in deployment config)
+- [ ] Auto-trigger closure flow: summary → report → assessment → mark completed
+- [ ] User is no longer present — summary saved but not streamed
+- [ ] Scan interval: every 5 minutes (configurable)
+- [ ] Log when session is auto-closed
+
+#### Acceptance Criteria
+- [ ] Session with no activity for 2h → auto-closed
+- [ ] Summary + report + assessment generated automatically
+- [ ] Session marked `completed` in admin
+- [ ] Active sessions NOT affected
+- [ ] Timeout configurable in backend deployment config
+- [ ] Multiple sessions can be auto-closed in same scan
+
+---
+
+### Sprint 8g — Evidence Document Upload (PLANNED)
+
+**Goal:** Users can upload documents during session. Summariser processes them for safe context injection.
+
+**Depends on:** Sprint 8a (disk persistence)
+
+#### Deliverables
+- [ ] File input button in ChatShell (📎 or similar, mobile-compatible `<input type="file">`)
+- [ ] Supported formats: .pdf, .txt, .md, .doc, .docx, .jpg, .png (images OCR TBD)
+- [ ] File upload via sidecar: `POST /internal/upload/{session_token}`
+- [ ] Backend fetches uploaded file during polling
+- [ ] Security: summariser reviews document content (not raw injection — prevents prompt injection)
+- [ ] Summariser generates structured summary of document
+- [ ] Summary injected as fixed context in conversation
+- [ ] Original file stored in `/app/data/sessions/{token}/evidence/`
+- [ ] Document summary stored alongside for reference
+- [ ] Size limit: 25MB per file (spec §13)
+
+#### Acceptance Criteria
+- [ ] Upload button visible in chat (doesn't leave SPA on mobile)
+- [ ] File uploaded → processing indicator shown
+- [ ] Summariser extracts key information from document
+- [ ] Summary added to conversation context (LLM can reference it)
+- [ ] Raw document content never passed directly to inference LLM
+- [ ] Original files persist in session directory
+- [ ] Upload works on mobile browsers (iOS Safari, Android Chrome)
+
+---
+
+### Sprint 8h — Campaign-Specific RAG (PLANNED)
+
+**Goal:** Campaign documents attached to specific frontend deployments.
+
+**Depends on:** Sprint 8a (disk persistence), Sprint 7a (RAG service)
+
+#### Deliverables
+- [ ] Campaign documents tied to specific frontend IDs in backend
+- [ ] Admin RAG tab: frontend selector to assign documents per deployment
+- [ ] Campaign RAG injected alongside global RAG for sessions on that frontend
+- [ ] Frontend-specific document management (upload/delete per frontend)
+- [ ] Campaign documents stored in `/app/data/campaigns/{frontend_id}/`
+- [ ] Separate LlamaIndex index per campaign
+
+#### Acceptance Criteria
+- [ ] Admin can assign documents to a specific frontend
+- [ ] Sessions on that frontend receive campaign-specific RAG context
+- [ ] Global RAG documents still apply to all frontends
+- [ ] Campaign docs don't leak to other frontends
+- [ ] Documents persist across container restarts
+- [ ] Reindex works per campaign
+
+---
+
+### What's Needed After Sprint 8
+- **Sprint 9:** SMTP integration (auth codes, report forwarding, admin notifications)
+- **Sprint 10:** Ethical guardrails + content safety
 - **Sprint 11:** Polish + production deployment + repetition detection
 - **Sprint 12:** Letta/MemGPT integration (experimental)
 
