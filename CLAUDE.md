@@ -125,8 +125,9 @@ Before starting ANY sprint, read these in order:
 
 ### Git
 - **NEVER touch git configuration** (remotes, user, etc.). Only provide commands for Daniel to execute.
-- Use heredoc format for commit messages.
-- Daniel runs: `git add -A && git commit -m "$(cat <<'EOF'\nmessage\nEOF\n)"` then `git push origin main`
+- Two remotes: `origin` (GitHub) and `gitea` (http://100.77.80.55:3000/Daniel/LAIUNI). Always push to both.
+- Push command: `git push origin main && git push gitea main`
+- Use `/git` command to generate commit + push commands.
 
 ### Docker
 - Always use separate compose files (never merge backend + frontend)
