@@ -30,6 +30,7 @@ export interface RecoveryData {
   role: Role
   mode: ConsultationMode
   message_count: number
+  status?: string
   recovery_type: 'full' | 'summary'
   messages?: { role: 'user' | 'assistant'; content: string }[]
   summary?: string

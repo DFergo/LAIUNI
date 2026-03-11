@@ -358,22 +358,22 @@ New: language → disclaimer → session (new/recover) → **role selection** �
 
 ---
 
-### Sprint 8c — End Session + Summary (PLANNED)
+### Sprint 8c — End Session + Summary (IN PROGRESS)
 
 **Goal:** User can end session. Summary is generated and streamed to chat as final message.
 
 **Depends on:** Sprint 8a (disk persistence)
 
 #### Deliverables
-- [ ] "End Session" button in ChatShell (red border, per spec §3.5)
-- [ ] Frontend sends `finalize: true` in message payload (spec §8.1)
-- [ ] Backend detects `finalize` flag in polling
-- [ ] Summary generation: load `session_summary.md` prompt + full conversation → LLM inference
-- [ ] Summary streamed to chat as final assistant message (user sees it)
-- [ ] Summary saved as `/app/data/sessions/{token}/summary.md`
-- [ ] Session status set to `completed`
-- [ ] Chat input disabled after finalization
-- [ ] Confirmation dialog before ending ("Are you sure?")
+- [x] "End Session" button in ChatShell (red border, per spec §3.5)
+- [x] Frontend sends `finalize: true` in message payload (spec §8.1)
+- [x] Backend detects `finalize` flag in polling
+- [x] Summary generation: load `session_summary.md` prompt + full conversation → LLM inference
+- [x] Summary streamed to chat as final assistant message (user sees it)
+- [x] Summary saved as `/app/data/sessions/{token}/summary.md`
+- [x] Session status set to `completed`
+- [x] Chat input disabled after finalization
+- [x] Confirmation dialog before ending ("Are you sure?")
 
 #### Acceptance Criteria
 - [ ] "End Session" button visible in chat (red border styling)

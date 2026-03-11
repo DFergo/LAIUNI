@@ -153,6 +153,8 @@ export interface SessionSummary {
   message_count: number
   role: string
   mode: string
+  company: string
+  frontend_name: string
   status: string
   flagged: boolean
   created_at: string | null

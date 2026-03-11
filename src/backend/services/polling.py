@@ -39,6 +39,7 @@ async def poll_frontends():
 
             for msg in messages:
                 msg["_frontend_url"] = url
+                msg["_frontend_name"] = frontend.get("name", "")
                 async with _processing_lock:
                     _processing_queue.append(msg)
                 logger.info(f"Queued message {msg.get('message_id')} from {fid}")
@@ -106,17 +107,24 @@ async def _send_queue_positions():
 async def _safe_process(msg: dict[str, Any]):
     """Process a single message. Wrapped in try-except (lesson #2)."""
     frontend_url = msg.get("_frontend_url", "")
+    frontend_name = msg.get("_frontend_name", "")
     session_token = msg.get("session_token", "")
     content = msg.get("content", "")
     survey = msg.get("survey")
     language = msg.get("language", "en")
+    finalize = msg.get("finalize", False)
 
     client = httpx.AsyncClient(timeout=30.0)
     try:
         # If first message with survey, build system prompt and store it
         if survey:
             system_prompt = assemble_system_prompt(survey, language)
-            history.init_session(session_token, system_prompt, survey, language)
+            history.init_session(session_token, system_prompt, survey, language, frontend_name)
+
+        # Finalize: generate summary instead of normal processing
+        if finalize:
+            await _finalize_session(client, frontend_url, session_token, language)
+            return
 
         # Add user message to history
         history.add_message(session_token, "user", content)
@@ -212,6 +220,118 @@ async def _safe_process(msg: dict[str, Any]):
         await client.aclose()
 
 
+async def _finalize_session(
+    client: httpx.AsyncClient,
+    frontend_url: str,
+    session_token: str,
+    language: str,
+):
+    """Generate session summary, save to disk, mark session completed."""
+    import os
+
+    try:
+        # Resolve per-profile summary prompt
+        session = history.get_session(session_token)
+        role = session.get("survey", {}).get("role", "worker") if session else "worker"
+        prompt_file = f"session_summary_{role}.md"
+
+        # Try /app/data/prompts first (custom), then built-in defaults
+        summary_prompt_path = f"/app/data/prompts/{prompt_file}"
+        if not os.path.exists(summary_prompt_path):
+            summary_prompt_path = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)), "prompts", prompt_file
+            )
+        # Fallback to generic if profile-specific doesn't exist
+        if not os.path.exists(summary_prompt_path):
+            summary_prompt_path = "/app/data/prompts/session_summary.md"
+            if not os.path.exists(summary_prompt_path):
+                summary_prompt_path = os.path.join(
+                    os.path.dirname(os.path.dirname(__file__)), "prompts", "session_summary.md"
+                )
+        with open(summary_prompt_path) as f:
+            summary_instruction = f.read()
+
+        # Build messages: full conversation + summary instruction
+        llm_messages = history.get_llm_messages(session_token)
+
+        # Add language instruction
+        lang_instruction = f"Generate the summary in the following language: {language}."
+        llm_messages.append({"role": "user", "content": f"{summary_instruction}\n\n{lang_instruction}"})
+
+        # Generate summary using inference LLM (not summariser)
+        settings = get_llm_settings()
+        raw_response = ""
+        visible_response = ""
+        in_think = False
+
+        try:
+            async for token in llm.stream_chat(
+                messages=llm_messages,
+                provider=settings.get("inference_provider"),
+                model=settings.get("inference_model"),
+                temperature=settings.get("inference_temperature", 0.7),
+                max_tokens=settings.get("inference_max_tokens", 2048),
+                num_ctx=settings.get("inference_num_ctx") if settings.get("inference_provider") == "ollama" else None,
+            ):
+                raw_response += token
+
+                # Filter <think>...</think> blocks (Qwen3 reasoning tokens)
+                if "<think>" in raw_response and not in_think:
+                    in_think = True
+                if in_think:
+                    if "</think>" in raw_response:
+                        in_think = False
+                        after = raw_response.split("</think>", 1)[-1]
+                        raw_response = after
+                    continue
+
+                visible_response += token
+                await client.post(
+                    f"{frontend_url}/internal/stream/{session_token}/chunk",
+                    json={"event": "token", "data": token},
+                )
+        except ConnectionError:
+            logger.warning(f"No LLM for finalization of {session_token}, using placeholder")
+            visible_response = "Session ended. No LLM available to generate summary."
+            await client.post(
+                f"{frontend_url}/internal/stream/{session_token}/chunk",
+                json={"event": "token", "data": visible_response},
+            )
+
+        clean_response = visible_response.strip() if visible_response else raw_response.strip()
+
+        # Save summary as conversation message (so it appears on recovery)
+        history.add_message(session_token, "assistant", clean_response)
+
+        # Save summary to disk
+        session_dir = f"/app/data/sessions/{session_token}"
+        os.makedirs(session_dir, exist_ok=True)
+        summary_path = os.path.join(session_dir, "summary.md")
+        with open(summary_path, "w") as f:
+            f.write(clean_response)
+        logger.info(f"Summary saved to {summary_path}")
+
+        # Mark session as completed
+        history.set_status(session_token, "completed")
+
+        # Send done event
+        await client.post(
+            f"{frontend_url}/internal/stream/{session_token}/chunk",
+            json={"event": "done", "data": clean_response},
+        )
+        logger.info(f"Session {session_token} finalized")
+
+    except Exception as e:
+        logger.error(f"Finalization failed for {session_token}: {e}")
+        try:
+            await client.post(
+                f"{frontend_url}/internal/stream/{session_token}/chunk",
+                json={"event": "error", "data": f"Failed to generate summary: {str(e)}"},
+            )
+        except Exception:
+            pass
+
+
 def _mock_response(content: str) -> str:
     return (
         f'Thank you for your message. You said: "{content}"\n\n'
@@ -257,6 +377,7 @@ async def _handle_recovery(frontend_url: str, token: str):
         # Build recovery data
         survey = session.get("survey", {})
         language = session.get("language", "en")
+        session_status = session.get("status", "active")
         messages = session.get("messages", [])
 
         # Hybrid: compression summary if available, otherwise recent messages
@@ -269,6 +390,7 @@ async def _handle_recovery(frontend_url: str, token: str):
                 "language": language,
                 "role": survey.get("role", "worker"),
                 "mode": survey.get("type", "documentation"),
+                "status": session_status,
                 "message_count": len(messages),
                 "recovery_type": "summary",
                 "summary": compression_summary,
@@ -285,6 +407,7 @@ async def _handle_recovery(frontend_url: str, token: str):
                 "language": language,
                 "role": survey.get("role", "worker"),
                 "mode": survey.get("type", "documentation"),
+                "status": session_status,
                 "message_count": len(messages),
                 "recovery_type": "full",
                 "messages": clean_messages,

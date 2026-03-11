@@ -130,6 +130,7 @@ class SessionStore:
         system_prompt: str,
         survey: dict[str, Any] | None = None,
         language: str = "en",
+        frontend_name: str = "",
     ):
         """Initialize or reinitialize a session."""
         self._ensure_loaded()
@@ -142,6 +143,7 @@ class SessionStore:
                 "survey": survey or {},
                 "config": {},
                 "language": language,
+                "frontend_name": frontend_name,
                 "status": "active",
                 "flagged": False,
                 "created_at": now,
@@ -233,6 +235,8 @@ class SessionStore:
                 "message_count": len(data["messages"]),
                 "role": data.get("survey", {}).get("role", "unknown"),
                 "mode": data.get("survey", {}).get("type", "documentation"),
+                "company": data.get("survey", {}).get("company", ""),
+                "frontend_name": data.get("frontend_name", ""),
                 "status": data.get("status", "active"),
                 "flagged": data.get("flagged", False),
                 "created_at": data.get("created_at"),

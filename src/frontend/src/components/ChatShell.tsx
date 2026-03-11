@@ -1,10 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { t } from '../i18n'
 import type { LangCode, SurveyData, RecoveryData } from '../types'
 
 interface Message {
   role: 'user' | 'assistant'
   content: string
+  isSummary?: boolean
 }
 
 interface Props {
@@ -21,15 +24,29 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
   const [streamingText, setStreamingText] = useState('')
   const [queuePosition, setQueuePosition] = useState<number | null>(null)
   const [error, setError] = useState('')
+  const [sessionEnded, setSessionEnded] = useState(recoveryData?.status === 'completed')
+  const [showEndConfirm, setShowEndConfirm] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isFirstMessage = useRef(!recoveryData)  // Not first if recovering
   const hasSentInitial = useRef(!!recoveryData)  // Don't auto-send on recovery
   const eventSourceRef = useRef<EventSource | null>(null)
+  const userScrolledUp = useRef(false)
 
+  // Auto-scroll only if user is at the bottom
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (!userScrolledUp.current) {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages, streamingText])
+
+  const handleScroll = () => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    userScrolledUp.current = !atBottom
+  }
 
   // Auto-send survey situation as first message on mount (new sessions only)
   useEffect(() => {
@@ -42,6 +59,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
   }, [])
 
   const submitMessage = async (text: string) => {
+    userScrolledUp.current = false
     setError('')
     setMessages(prev => [...prev, { role: 'user', content: text }])
     setIsStreaming(true)
@@ -90,7 +108,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
     submitMessage(text)
   }
 
-  const listenForResponse = () => {
+  const listenForResponse = (finalizing = false) => {
     // Close any existing connection
     if (eventSourceRef.current) {
       eventSourceRef.current.close()
@@ -114,10 +132,17 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
 
     eventSource.addEventListener('done', (e: MessageEvent) => {
       eventSource.close()
-      setMessages(prev => [...prev, { role: 'assistant', content: e.data }])
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: e.data,
+        isSummary: finalizing,
+      }])
       setStreamingText('')
       setIsStreaming(false)
       setQueuePosition(null)
+      if (finalizing) {
+        setSessionEnded(true)
+      }
     })
 
     eventSource.addEventListener('error', (e: MessageEvent) => {
@@ -141,6 +166,39 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
     }
   }
 
+  const endSession = async () => {
+    setShowEndConfirm(false)
+
+    setError('')
+    setIsStreaming(true)
+    setStreamingText('')
+    setQueuePosition(null)
+
+    const messageId = crypto.randomUUID?.()
+      ?? `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+    const timestamp = new Date().toISOString()
+
+    try {
+      listenForResponse(true)
+
+      await fetch('/internal/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_token: sessionToken,
+          content: '',
+          message_id: messageId,
+          timestamp,
+          language: lang,
+          finalize: true,
+        }),
+      })
+    } catch {
+      setIsStreaming(false)
+      setError('Failed to end session. Please try again.')
+    }
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -158,7 +216,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
       <div className="text-center text-xs text-gray-400 py-2 font-mono">{sessionToken}</div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 space-y-4 pb-4">
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 space-y-4 pb-4">
 
         {/* Recovery: previous session summary */}
         {recoverySummary && (
@@ -166,7 +224,9 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
             <div className="text-xs font-semibold text-uni-blue mb-2 uppercase tracking-wide">
               Previous session summary ({recoveryData?.message_count} messages)
             </div>
-            <div className="whitespace-pre-wrap">{recoverySummary}</div>
+            <div className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-p:text-gray-700 prose-li:text-gray-700 prose-strong:text-gray-800">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{recoverySummary}</ReactMarkdown>
+            </div>
           </div>
         )}
 
@@ -185,7 +245,11 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
                       : 'bg-white border border-gray-200 text-gray-600'
                   }`}
                 >
-                  {msg.content}
+                  {msg.role === 'user' ? msg.content : (
+                    <div className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-p:text-gray-600 prose-li:text-gray-600 prose-strong:text-gray-700">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -205,12 +269,25 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
               className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                msg.role === 'user'
-                  ? 'bg-uni-blue text-white'
-                  : 'bg-white border border-gray-200 text-gray-800'
+                msg.isSummary
+                  ? 'bg-green-50 border-2 border-green-300 text-gray-800'
+                  : msg.role === 'user'
+                    ? 'bg-uni-blue text-white'
+                    : 'bg-white border border-gray-200 text-gray-800'
               }`}
             >
-              <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+              {msg.isSummary && (
+                <div className="text-xs font-semibold text-green-700 mb-2 uppercase tracking-wide">
+                  {t('session_summary_label', lang)}
+                </div>
+              )}
+              {msg.role === 'user' ? (
+                <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+              ) : (
+                <div className="text-sm prose prose-sm max-w-none prose-headings:text-gray-800 prose-p:text-gray-700 prose-li:text-gray-700 prose-strong:text-gray-800">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -234,7 +311,9 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
                 </div>
               )}
               {streamingText && (
-                <div className="text-sm whitespace-pre-wrap">{streamingText}</div>
+                <div className="text-sm prose prose-sm max-w-none prose-headings:text-gray-800 prose-p:text-gray-700 prose-li:text-gray-700 prose-strong:text-gray-800">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
+                </div>
               )}
             </div>
           </div>
@@ -249,27 +328,64 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
         <div ref={chatEndRef} />
       </div>
 
+      {/* Confirmation dialog */}
+      {showEndConfirm && (
+        <div className="border-t border-gray-200 bg-red-50 px-4 py-3">
+          <div className="max-w-4xl mx-auto text-center space-y-3">
+            <p className="text-sm text-gray-700">{t('end_session_confirm', lang)}</p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={endSession}
+                className="bg-uni-red text-white rounded-lg px-5 py-2 text-sm font-medium transition-colors hover:opacity-90"
+              >
+                {t('end_session_yes', lang)}
+              </button>
+              <button
+                onClick={() => setShowEndConfirm(false)}
+                className="border border-gray-300 text-gray-700 rounded-lg px-5 py-2 text-sm font-medium transition-colors hover:bg-gray-50"
+              >
+                {t('end_session_no', lang)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Input */}
       <div className="border-t border-gray-200 bg-white px-4 py-3">
-        <div className="flex gap-3 items-end max-w-4xl mx-auto">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={t('chat_placeholder', lang)}
-            rows={2}
-            disabled={isStreaming}
-            className="flex-1 border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none resize-none text-sm disabled:opacity-50"
-          />
-          <button
-            onClick={sendMessage}
-            disabled={isStreaming || !input.trim()}
-            className="bg-uni-blue text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Send
-          </button>
-        </div>
+        {sessionEnded ? (
+          <div className="text-center text-sm text-gray-500 py-2">
+            {t('session_ended_notice', lang)}
+          </div>
+        ) : (
+          <div className="flex gap-3 items-end max-w-4xl mx-auto">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={t('chat_placeholder', lang)}
+              rows={2}
+              disabled={isStreaming}
+              className="flex-1 border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none resize-none text-sm disabled:opacity-50"
+            />
+            <button
+              onClick={sendMessage}
+              disabled={isStreaming || !input.trim()}
+              className="bg-uni-blue text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Send
+            </button>
+            {!isStreaming && (
+              <button
+                onClick={() => setShowEndConfirm(true)}
+                className="border border-uni-red text-uni-red rounded-lg px-4 py-2.5 text-sm font-medium transition-colors hover:bg-red-50"
+              >
+                {t('end_session', lang)}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

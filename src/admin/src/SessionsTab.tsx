@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { listSessions, getSession, toggleSessionFlag, type SessionSummary, type SessionDetail } from './api'
 
 type Filter = 'all' | 'active' | 'completed' | 'flagged'
@@ -161,7 +163,13 @@ export default function SessionsTab() {
                 <span>{msg.role === 'user' ? 'User' : 'Assistant'}</span>
                 {msg.timestamp && <span>{timeAgo(msg.timestamp)}</span>}
               </div>
-              <div className="whitespace-pre-wrap text-gray-700">{msg.content}</div>
+              {msg.role === 'user' ? (
+                <div className="whitespace-pre-wrap text-gray-700">{msg.content}</div>
+              ) : (
+                <div className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-p:text-gray-700 prose-li:text-gray-700 prose-strong:text-gray-800">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -208,29 +216,33 @@ export default function SessionsTab() {
           </p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-x-auto">
+          <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Token</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Role</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Mode</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Msgs</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Last Activity</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Flag</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Token</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Frontend</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Company</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Role</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Mode</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Status</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Msgs</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Last Activity</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Flag</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600"></th>
               </tr>
             </thead>
             <tbody>
               {filtered.map(s => (
                 <tr key={s.token} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-gray-800">{s.token}</td>
-                  <td className="px-4 py-3 text-gray-600">{s.role}</td>
-                  <td className="px-4 py-3 text-gray-600">{s.mode}</td>
-                  <td className="px-4 py-3">{statusBadge(s.status)}</td>
+                  <td className="px-4 py-3 font-mono text-gray-800 whitespace-nowrap">{s.token}</td>
+                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">{s.frontend_name || '—'}</td>
+                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.company || '—'}</td>
+                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.role}</td>
+                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.mode}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{statusBadge(s.status)}</td>
                   <td className="px-4 py-3 text-right text-gray-600">{s.message_count}</td>
-                  <td className="px-4 py-3 text-right text-gray-400 text-xs">{timeAgo(s.last_activity)}</td>
+                  <td className="px-4 py-3 text-right text-gray-400 text-xs whitespace-nowrap">{timeAgo(s.last_activity)}</td>
                   <td className="px-4 py-3 text-center">
                     <button
                       onClick={() => handleFlag(s.token)}
@@ -243,7 +255,7 @@ export default function SessionsTab() {
                       {s.flagged ? 'flagged' : 'flag'}
                     </button>
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
                     <button
                       onClick={() => viewSession(s.token)}
                       className="text-xs text-uni-blue hover:underline"

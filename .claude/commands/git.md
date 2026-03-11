@@ -25,3 +25,4 @@ git push origin main && git push gitea main
 - Keep the commit message concise but descriptive
 - Always include the sprint identifier in the commit message
 - Always push to both `origin` and `gitea`
+- Do NOT include Co-Authored-By lines in commit messages

@@ -61,6 +61,8 @@ type TranslationKeys =
   | 'mode_documentation' | 'mode_interview' | 'mode_advisory' | 'mode_submit' | 'mode_training'
   | 'mode_documentation_desc' | 'mode_interview_desc' | 'mode_advisory_desc' | 'mode_submit_desc' | 'mode_training_desc'
   | 'chat_placeholder' | 'chat_coming_soon'
+  | 'end_session' | 'end_session_confirm' | 'end_session_yes' | 'end_session_no'
+  | 'session_ended_notice' | 'session_summary_label'
   | 'footer_disclaimer'
 
 type Translations = Partial<Record<TranslationKeys, string>>
@@ -126,6 +128,12 @@ const translations: Partial<Record<LangCode, Translations>> = {
     mode_training_desc: 'Learn about HRDD frameworks, processes, and best practices.',
     chat_placeholder: 'Type your message...',
     chat_coming_soon: 'Chat will be available in Sprint 4.',
+    end_session: 'End Session',
+    end_session_confirm: 'Are you sure you want to end this session? A summary will be generated and you will not be able to send more messages.',
+    end_session_yes: 'Yes, end session',
+    end_session_no: 'Cancel',
+    session_ended_notice: 'This session has ended. Please save your session token if you need to reference the summary later.',
+    session_summary_label: 'Session Summary',
     footer_disclaimer: 'This tool provides information, not legal advice. AI responses may contain errors.',
   },
   es: {
@@ -188,6 +196,12 @@ const translations: Partial<Record<LangCode, Translations>> = {
     mode_training_desc: 'Aprender sobre marcos de HRDD, procesos y mejores prácticas.',
     chat_placeholder: 'Escribe tu mensaje...',
     chat_coming_soon: 'El chat estará disponible en el Sprint 4.',
+    end_session: 'Finalizar sesión',
+    end_session_confirm: '¿Estás seguro de que quieres finalizar esta sesión? Se generará un resumen y no podrás enviar más mensajes.',
+    end_session_yes: 'Sí, finalizar',
+    end_session_no: 'Cancelar',
+    session_ended_notice: 'Esta sesión ha finalizado. Guarda tu código de sesión si necesitas consultar el resumen más adelante.',
+    session_summary_label: 'Resumen de la sesión',
     footer_disclaimer: 'Esta herramienta proporciona información, no asesoramiento legal. Las respuestas de IA pueden contener errores.',
   },
   fr: {

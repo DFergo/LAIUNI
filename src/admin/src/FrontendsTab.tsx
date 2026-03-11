@@ -49,6 +49,20 @@ export default function FrontendsTab() {
     await refresh()
   }
 
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+
+  const startEdit = (f: Frontend) => {
+    setEditingId(f.id)
+    setEditName(f.name)
+  }
+
+  const saveEdit = async (id: string) => {
+    await updateFrontend(id, { name: editName })
+    setEditingId(null)
+    await refresh()
+  }
+
   const statusColor = (s: string) => {
     if (s === 'online') return 'bg-green-500'
     if (s === 'offline') return 'bg-red-500'
@@ -105,7 +119,25 @@ export default function FrontendsTab() {
                 <div className="flex items-center gap-3">
                   <div className={`w-2.5 h-2.5 rounded-full ${statusColor(f.status)}`} />
                   <div>
-                    <div className="text-sm font-medium text-gray-800">{f.name}</div>
+                    {editingId === f.id ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={e => setEditName(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && saveEdit(f.id)}
+                          className="border border-gray-300 rounded px-2 py-0.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                          autoFocus
+                        />
+                        <button onClick={() => saveEdit(f.id)} className="text-xs text-uni-blue hover:underline">Save</button>
+                        <button onClick={() => setEditingId(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
+                      </div>
+                    ) : (
+                      <div className="text-sm font-medium text-gray-800">
+                        {f.name}
+                        <button onClick={() => startEdit(f)} className="ml-2 text-xs text-gray-400 hover:text-uni-blue">edit</button>
+                      </div>
+                    )}
                     <div className="text-xs text-gray-400">{f.url} — {f.frontend_type}</div>
                   </div>
                 </div>

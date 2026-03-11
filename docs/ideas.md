@@ -38,6 +38,28 @@ Ideas captured during development. Reviewed when planning each sprint.
 
 ---
 
+### Prompts de resumen y documentos internos por perfil
+**Added:** 2026-03-11 | **Sprint:** 8c/8d | **Effort:** M (1-2 días)
+
+**Resúmenes de cierre por perfil:** Los prompts de resumen de sesión (visibles al usuario al finalizar) deben ser únicos por perfil (worker, representative, organizer, officer). La información relevante y la forma de presentarla varía según el tipo de usuario. Requiere crear `session_summary_worker.md`, `session_summary_representative.md`, `session_summary_organizer.md`, `session_summary_officer.md` en lugar del genérico `session_summary.md`.
+
+**Documentos internos al cerrar sesión:** Además del resumen visible al usuario, al cerrar sesión se generan dos documentos internos (no visibles al usuario, directo al disco):
+1. **Resumen interno UNI** — resumen operativo para el equipo de UNI. Nuevo prompt y archivo (`{token}/internal_summary.md`).
+2. **Informe estructurado interno** — ya planificado en 8d como `report.md` (prompt `internal_case_file.md`).
+
+**Analysis:** Los resúmenes por perfil encajan en 8c (ampliar la lógica actual que usa un prompt genérico → resolver prompt por `role` como ya hace `prompt_assembler.py` con los case prompts). El resumen interno UNI es un documento adicional que encaja en 8d junto con el informe estructurado y el assessment. La mecánica es la misma: LLM inference con prompt dedicado → guardar en disco. Sprint 8d ya contempla report + assessment; añadir el resumen interno UNI es un prompt más en la misma cadena.
+
+---
+
+### Prompts: capacidades explícitas del modelo (can/cannot do)
+**Added:** 2026-03-11 | **Sprint:** Prompt drafting phase | **Effort:** S (hours)
+
+The LLM is offering to prepare PDFs for the user to download. It doesn't have this capability and should not offer it. When drafting the final prompts, include explicit instructions telling the model what it CAN and CANNOT do — specifically that it cannot generate files, PDFs, or downloadable documents. It should focus on providing information within the chat.
+
+**Analysis:** Not a code change — goes into the prompt text itself. When writing the final per-profile prompts, add a "Capabilities & Limitations" section listing what the model can do (guide, document, advise, reference frameworks) and what it cannot (generate files, access external systems, send emails, create PDFs). Simple addition to each prompt file.
+
+---
+
 ### Auto-archivado de sesiones por frontend con panel de configuración
 **Added:** 2026-03-11 | **Sprint:** 8e o 8f | **Effort:** M (1 día)
 

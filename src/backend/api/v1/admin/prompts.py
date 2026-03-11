@@ -28,7 +28,11 @@ CATEGORIES: dict[str, list[str]] = {
     ],
     "Context Template": ["context_template.md"],
     "Compression": ["context_compression.md"],
-    "Post-Processing": ["session_summary.md", "internal_case_file.md"],
+    "Session Summaries": [
+        "session_summary_worker.md", "session_summary_representative.md",
+        "session_summary_organizer.md", "session_summary_officer.md",
+    ],
+    "Post-Processing": ["session_summary_uni.md", "internal_case_file.md"],
 }
 
 
