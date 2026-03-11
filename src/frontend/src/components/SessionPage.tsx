@@ -6,7 +6,7 @@ import type { LangCode } from '../types'
 interface Props {
   lang: LangCode
   onNewSession: (token: string) => void
-  onRecover: (token: string) => void
+  onRecover: (token: string) => Promise<string | null>  // returns error message or null on success
 }
 
 export default function SessionPage({ lang, onNewSession, onRecover }: Props) {
@@ -14,6 +14,7 @@ export default function SessionPage({ lang, onNewSession, onRecover }: Props) {
   const [newToken, setNewToken] = useState('')
   const [recoverToken, setRecoverToken] = useState('')
   const [recoverError, setRecoverError] = useState('')
+  const [recovering, setRecovering] = useState(false)
 
   const handleNew = () => {
     const token = generateToken()
@@ -21,14 +22,19 @@ export default function SessionPage({ lang, onNewSession, onRecover }: Props) {
     setMode('new')
   }
 
-  const handleRecover = () => {
+  const handleRecover = async () => {
     const trimmed = recoverToken.trim().toUpperCase()
     if (!trimmed || !trimmed.includes('-')) {
       setRecoverError('Invalid token format')
       return
     }
     setRecoverError('')
-    onRecover(trimmed)
+    setRecovering(true)
+    const error = await onRecover(trimmed)
+    setRecovering(false)
+    if (error) {
+      setRecoverError(error)
+    }
   }
 
   return (
@@ -77,22 +83,26 @@ export default function SessionPage({ lang, onNewSession, onRecover }: Props) {
                 value={recoverToken}
                 onChange={e => setRecoverToken(e.target.value)}
                 placeholder={t('session_recover_placeholder', lang)}
-                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none font-mono uppercase"
+                disabled={recovering}
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none font-mono uppercase disabled:opacity-50"
               />
               {recoverError && <p className="text-uni-red text-sm mt-1">{recoverError}</p>}
             </div>
             <button
               onClick={handleRecover}
-              className="w-full bg-uni-blue text-white rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90"
+              disabled={recovering}
+              className="w-full bg-uni-blue text-white rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90 disabled:opacity-50"
             >
-              {t('session_recover_button', lang)}
+              {recovering ? 'Recovering...' : t('session_recover_button', lang)}
             </button>
-            <button
-              onClick={() => setMode('choose')}
-              className="w-full text-gray-500 text-sm hover:text-gray-700"
-            >
-              &larr; Back
-            </button>
+            {!recovering && (
+              <button
+                onClick={() => setMode('choose')}
+                className="w-full text-gray-500 text-sm hover:text-gray-700"
+              >
+                &larr; Back
+              </button>
+            )}
           </div>
         )}
       </div>

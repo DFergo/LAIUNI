@@ -7,6 +7,7 @@ are replaced by the running summary.
 Architecture: clean interface via compress_if_needed() to allow future Letta swap (ADR-009).
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -207,6 +208,7 @@ async def compress_if_needed(
             "summary": summary,
             "compressed_up_to": len(conversation) - _DEFAULT_PRESERVE_RECENT,
         }
+        _persist_summary(session_token)
 
     compressed_up_to = session_state.get("compressed_up_to", 0)
     to_keep = conversation[compressed_up_to:]
@@ -309,6 +311,7 @@ async def _update_running_summary(
             "summary": summary,
             "compressed_up_to": new_compressed_up_to,
         }
+        _persist_summary(session_token)
 
 
 async def _compress_messages(
@@ -406,6 +409,50 @@ def _format_conversation(messages: list[dict[str, str]]) -> str:
         content = msg["content"]
         lines.append(f"[{role}]: {content}")
     return "\n\n".join(lines)
+
+
+def get_session_summary(session_token: str) -> str:
+    """Get the running compression summary for a session (if any)."""
+    state = _session_summaries.get(session_token)
+    if state:
+        return state.get("summary", "")
+    # Try loading from disk
+    summary_path = _session_summary_path(session_token)
+    if summary_path.exists():
+        try:
+            data = json.loads(summary_path.read_text())
+            return data.get("summary", "")
+        except Exception:
+            pass
+    return ""
+
+
+def _session_summary_path(session_token: str) -> Path:
+    return Path(config.sessions_path) / session_token / "compression_summary.json"
+
+
+def _persist_summary(session_token: str):
+    """Save running summary to disk."""
+    state = _session_summaries.get(session_token)
+    if not state or not state.get("summary"):
+        return
+    path = _session_summary_path(session_token)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, default=str))
+    tmp.rename(path)
+
+
+def load_session_summary(session_token: str):
+    """Load running summary from disk into memory (on session recovery)."""
+    path = _session_summary_path(session_token)
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+            _session_summaries[session_token] = data
+            logger.info(f"Loaded compression summary for {session_token}")
+        except Exception as e:
+            logger.warning(f"Failed to load compression summary for {session_token}: {e}")
 
 
 def clear_session(session_token: str):

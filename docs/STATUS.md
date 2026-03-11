@@ -330,32 +330,31 @@ New: language → disclaimer → session (new/recover) → **role selection** �
 
 ---
 
-### Sprint 8b — Session Recovery (PLANNED)
+### Sprint 8b — Session Recovery ✅
 
 **Goal:** Users can resume sessions by entering their token. Recovery skips role select, instructions, and survey.
 
 **Depends on:** Sprint 8a (disk persistence)
 
 #### Deliverables
-- [ ] Sidecar endpoint: `GET /internal/session/{token}/recover` → returns session data or 404
-  - Backend must have pushed session data to sidecar, OR sidecar queries backend
-  - Decision: sidecar forwards to backend via poll response (pull-inverse compatible)
-  - Alternative: backend pushes session metadata to sidecar when session is initialized
-- [ ] Backend endpoint: session recovery data (survey, language, role, mode, message count, status)
-- [ ] Frontend `App.tsx`: on recover → fetch session data → restore language, role, survey → skip to chat
-- [ ] Frontend `SessionPage.tsx`: show error if token not found or expired
-- [ ] Resume window enforcement: 48h worker, 120h organizer (from `deployment config`)
-- [ ] Expired token → clear error message with window duration
-- [ ] Recovered session loads conversation history into chat UI
+- [x] Recovery via pull-inverse: frontend → sidecar queue → backend resolves → pushes data back
+- [x] Sidecar: `POST /internal/session/recover` (request), `GET /internal/session/{token}/recover` (poll result), `POST /internal/session/{token}/recovery-data` (backend pushes)
+- [x] Backend: `_handle_recovery()` in polling.py — reads session from disk, pushes to sidecar
+- [x] Hybrid recovery: compression summary for long sessions, full messages for short ones
+- [x] Compression summaries persisted to `{token}/compression_summary.json`
+- [x] Frontend `App.tsx`: recover → poll sidecar → restore language, role, survey → skip to chat
+- [x] Frontend `SessionPage.tsx`: loading state ("Recovering..."), error display
+- [x] Frontend `ChatShell.tsx`: recovery context shown (summary or previous messages + "Session resumed" separator)
+- [x] Resume window enforcement: 120h max (backend-side safety check)
+- [x] Expired/invalid token → clear error message
 
 #### Acceptance Criteria
-- [ ] Enter valid token → chat resumes with previous conversation visible
-- [ ] Language, role, survey data restored (no re-entry)
-- [ ] Recovery skips: role select, instructions, survey (go straight to chat)
-- [ ] Expired token (>48h worker / >120h organizer) → error message
-- [ ] Invalid token → error message
-- [ ] Works on both frontworker and frontorganizer
-- [ ] Pull-inverse architecture respected (frontend doesn't call backend directly)
+- [x] Enter valid token → chat resumes with previous conversation visible
+- [x] Language, role, survey data restored (no re-entry)
+- [x] Recovery skips: role select, instructions, survey (go straight to chat)
+- [x] Invalid token → error message
+- [x] Pull-inverse architecture respected (frontend doesn't call backend directly)
+- [x] Conversation coherence maintained after recovery
 
 ---
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { t } from './i18n'
-import type { Phase, LangCode, Role, DeploymentConfig, SurveyData } from './types'
+import type { Phase, LangCode, Role, DeploymentConfig, SurveyData, RecoveryData } from './types'
 import LanguageSelector from './components/LanguageSelector'
 import DisclaimerPage from './components/DisclaimerPage'
 import SessionPage from './components/SessionPage'
@@ -17,6 +17,7 @@ function App() {
   const [sessionToken, setSessionToken] = useState('')
   const [selectedRole, setSelectedRole] = useState<Role | null>(null)
   const [survey, setSurvey] = useState<SurveyData | null>(null)
+  const [recoveryData, setRecoveryData] = useState<RecoveryData | null>(null)
 
   useEffect(() => {
     fetchConfig()
@@ -55,10 +56,53 @@ function App() {
     setPhase('role_select')
   }
 
-  const handleRecover = async (token: string) => {
-    // Sprint 8 will implement actual recovery via GET /internal/session/{token}/recover
+  const handleRecover = async (token: string): Promise<string | null> => {
     setSessionToken(token)
-    setPhase('role_select')
+
+    // Step 1: Request recovery via sidecar
+    try {
+      const res = await fetch('/internal/session/recover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+      if (!res.ok) return 'Invalid token format'
+    } catch {
+      return 'Connection error. Please try again.'
+    }
+
+    // Step 2: Poll sidecar for recovery result (backend resolves via pull-inverse)
+    const maxAttempts = 10
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, 1000))
+      try {
+        const res = await fetch(`/internal/session/${token}/recover`)
+        if (!res.ok) continue
+        const result = await res.json()
+
+        if (result.status === 'pending') continue
+
+        if (result.status === 'found' && result.data) {
+          const data = result.data as RecoveryData
+          setLang(data.language || lang)
+          setSelectedRole(data.role as Role)
+          setSurvey(data.survey)
+          setRecoveryData(data)
+          setPhase('chat')
+          return null // success
+        }
+
+        if (result.status === 'expired') {
+          return 'Session expired. Please start a new session.'
+        }
+
+        return 'Session not found.'
+      } catch {
+        continue
+      }
+    }
+
+    return 'Recovery timed out. Please try again.'
   }
 
   // role_select → auth (if required) → instructions
@@ -108,7 +152,14 @@ function App() {
         {phase === 'auth' && <AuthPage lang={lang} onVerified={handleAuth} />}
         {phase === 'instructions' && selectedRole && <InstructionsPage lang={lang} role={selectedRole} onContinue={handleInstructions} />}
         {phase === 'survey' && config && selectedRole && <SurveyPage lang={lang} config={config} role={selectedRole} onSubmit={handleSurvey} />}
-        {phase === 'chat' && survey && <ChatShell lang={lang} sessionToken={sessionToken} survey={survey} />}
+        {phase === 'chat' && survey && (
+          <ChatShell
+            lang={lang}
+            sessionToken={sessionToken}
+            survey={survey}
+            recoveryData={recoveryData}
+          />
+        )}
       </main>
 
       {showFooter && (

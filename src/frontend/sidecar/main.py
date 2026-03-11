@@ -26,6 +26,11 @@ MESSAGE_TTL = 300
 _queue: list[dict[str, Any]] = []
 _queue_lock = asyncio.Lock()
 
+# --- Recovery Requests (in-memory) ---
+# token -> {"status": "pending"|"found"|"not_found"|"expired", "data": {...}}
+_recovery: dict[str, dict[str, Any]] = {}
+_recovery_lock = asyncio.Lock()
+
 # --- SSE Stream Channels ---
 # token -> asyncio.Queue of SSE events
 _streams: dict[str, asyncio.Queue[dict[str, str]]] = {}
@@ -45,6 +50,12 @@ class SubmitMessageRequest(BaseModel):
 class ChunkRequest(BaseModel):
     event: str  # "token", "done", "error", "queue_position"
     data: str
+
+
+class RecoveryDataRequest(BaseModel):
+    token: str
+    status: str  # "found", "not_found", "expired"
+    data: dict[str, Any] | None = None
 
 
 # --- Health & Config ---
@@ -87,8 +98,80 @@ async def dequeue_messages():
         # Remove expired messages
         valid = [m for m in _queue if now - m["created_at"] < MESSAGE_TTL]
         _queue.clear()
+
+    # Collect pending recovery requests
+    recovery_requests = []
+    async with _recovery_lock:
+        for token, state in _recovery.items():
+            if state["status"] == "pending":
+                recovery_requests.append(token)
+
+    result: dict[str, Any] = {"messages": valid}
+    if recovery_requests:
+        result["recovery_requests"] = recovery_requests
+        logger.info(f"Recovery requests: {recovery_requests}")
+
     logger.info(f"Dequeued {len(valid)} messages")
-    return {"messages": valid}
+    return result
+
+
+# --- Session Recovery ---
+
+@app.post("/internal/session/recover")
+async def request_recovery(data: dict[str, Any]):
+    """React app requests session recovery by token."""
+    token = data.get("token", "").strip().upper()
+    if not token or "-" not in token:
+        raise HTTPException(status_code=400, detail="Invalid token format")
+
+    async with _recovery_lock:
+        _recovery[token] = {"status": "pending", "data": None, "created_at": time.time()}
+
+    logger.info(f"Recovery requested for {token}")
+    return {"status": "pending", "token": token}
+
+
+@app.get("/internal/session/{token}/recover")
+async def get_recovery_status(token: str):
+    """React app polls this to check if recovery data is ready."""
+    async with _recovery_lock:
+        state = _recovery.get(token)
+
+    if not state:
+        raise HTTPException(status_code=404, detail="No recovery request for this token")
+
+    if state["status"] == "pending":
+        return {"status": "pending"}
+
+    # Recovery resolved — clean up and return
+    async with _recovery_lock:
+        _recovery.pop(token, None)
+
+    return {"status": state["status"], "data": state.get("data")}
+
+
+@app.post("/internal/session/{token}/recovery-data")
+async def push_recovery_data(token: str, req: RecoveryDataRequest):
+    """Backend pushes recovery result (found/not_found/expired + session data)."""
+    async with _recovery_lock:
+        if token in _recovery:
+            _recovery[token] = {
+                "status": req.status,
+                "data": req.data,
+                "created_at": _recovery[token].get("created_at", time.time()),
+            }
+            logger.info(f"Recovery data pushed for {token}: {req.status}")
+        else:
+            logger.warning(f"Recovery data for {token} but no pending request")
+
+    # Auto-clean after 60s
+    async def _cleanup():
+        await asyncio.sleep(60)
+        async with _recovery_lock:
+            _recovery.pop(token, None)
+    asyncio.create_task(_cleanup())
+
+    return {"status": "ok"}
 
 
 # --- SSE Streaming ---

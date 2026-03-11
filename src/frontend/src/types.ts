@@ -24,6 +24,17 @@ export interface SurveyData {
   description?: string
 }
 
+export interface RecoveryData {
+  survey: SurveyData
+  language: LangCode
+  role: Role
+  mode: ConsultationMode
+  message_count: number
+  recovery_type: 'full' | 'summary'
+  messages?: { role: 'user' | 'assistant'; content: string }[]
+  summary?: string
+}
+
 export type LangCode =
   | 'en' | 'zh' | 'hi' | 'es' | 'ar' | 'fr'
   | 'bn' | 'pt' | 'ru' | 'id' | 'de' | 'mr'

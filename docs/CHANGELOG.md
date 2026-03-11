@@ -2,6 +2,25 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 8b — Session Recovery (2026-03-11)
+- Session recovery via pull-inverse: sidecar queues request → backend resolves from disk → pushes data back
+- Hybrid recovery: compression summary for long conversations, full messages for short ones
+- Compression summaries now persisted to `{token}/compression_summary.json`
+- Sidecar: 3 new endpoints for recovery flow (request, poll, push data)
+- Frontend: "Recovering..." loading state, error handling (expired/not found/timeout)
+- ChatShell: recovered sessions show previous context (summary or messages) with "Session resumed" separator
+- Recovery skips role select, instructions, survey — goes straight to chat
+- 120h max resume window enforced backend-side
+
+### Sprint 8a — Session Persistence to Disk (2026-03-11)
+- `services/session_store.py`: disk-backed store with in-memory cache, replaces session_history.py
+- `session.json` per session: survey, language, role, mode, timestamps, status, flagged
+- `conversation.jsonl`: one JSON line per message with timestamps, appended in real-time
+- Atomic writes (tmp + rename) for session.json
+- Sessions survive backend restart (loaded from disk on startup)
+- Flag toggle persists to disk
+- Admin sessions tab: status badges (active/completed/flagged), 4 filter buttons, timestamps, last activity
+
 ### Sprint 7c — User Flow Redesign + Monolithic Prompts (2026-03-11)
 - New user flow: language → disclaimer → session → **role selection** → auth (if required) → **instructions** → survey → chat
 - `RoleSelectPage.tsx`: Profile selection with 2 cards per frontend type (worker/rep or organizer/officer)

@@ -10,6 +10,7 @@ from src.services.llm_provider import llm
 from src.services.prompt_assembler import assemble_system_prompt
 from src.services.rag_service import get_relevant_chunks
 from src.services.session_store import store as history
+from src.services.context_compressor import get_session_summary, load_session_summary
 from src.services.context_compressor import compress_if_needed, estimate_messages_tokens
 from src.api.v1.admin.llm import get_llm_settings
 
@@ -41,6 +42,11 @@ async def poll_frontends():
                 async with _processing_lock:
                     _processing_queue.append(msg)
                 logger.info(f"Queued message {msg.get('message_id')} from {fid}")
+
+            # Handle recovery requests (pull-inverse: backend resolves, pushes back)
+            recovery_requests = data.get("recovery_requests", [])
+            for token in recovery_requests:
+                await _handle_recovery(url, token)
 
         except Exception as e:
             registry.set_status(fid, "offline")
@@ -212,6 +218,98 @@ def _mock_response(content: str) -> str:
         "This is a mock response. No LLM provider is currently available. "
         "Please configure LM Studio or Ollama in the admin panel."
     )
+
+
+async def _handle_recovery(frontend_url: str, token: str):
+    """Resolve a session recovery request and push data back to sidecar."""
+    client = httpx.AsyncClient(timeout=10.0)
+    try:
+        session = history.get_session(token)
+        if not session:
+            await client.post(
+                f"{frontend_url}/internal/session/{token}/recovery-data",
+                json={"token": token, "status": "not_found", "data": None},
+            )
+            logger.info(f"Recovery: {token} not found")
+            return
+
+        # Check resume window (48h worker, 120h organizer)
+        # Frontend type is determined by the frontend that's asking
+        created_at = session.get("created_at")
+        if created_at:
+            from datetime import datetime, timezone
+            try:
+                created = datetime.fromisoformat(created_at)
+                age_hours = (datetime.now(timezone.utc) - created).total_seconds() / 3600
+                # Use a generous default window; the frontend config has the real value
+                # but we don't know which frontend type is asking.
+                # Frontend will validate its own window. Backend uses 120h (max) as safety.
+                if age_hours > 120:
+                    await client.post(
+                        f"{frontend_url}/internal/session/{token}/recovery-data",
+                        json={"token": token, "status": "expired", "data": None},
+                    )
+                    logger.info(f"Recovery: {token} expired ({age_hours:.0f}h)")
+                    return
+            except Exception:
+                pass
+
+        # Build recovery data
+        survey = session.get("survey", {})
+        language = session.get("language", "en")
+        messages = session.get("messages", [])
+
+        # Hybrid: compression summary if available, otherwise recent messages
+        compression_summary = get_session_summary(token)
+
+        if compression_summary:
+            # Long conversation: send summary only
+            recovery_data = {
+                "survey": survey,
+                "language": language,
+                "role": survey.get("role", "worker"),
+                "mode": survey.get("type", "documentation"),
+                "message_count": len(messages),
+                "recovery_type": "summary",
+                "summary": compression_summary,
+            }
+        else:
+            # Short conversation: send all messages
+            # Strip timestamps for frontend display
+            clean_messages = [
+                {"role": m["role"], "content": m["content"]}
+                for m in messages
+            ]
+            recovery_data = {
+                "survey": survey,
+                "language": language,
+                "role": survey.get("role", "worker"),
+                "mode": survey.get("type", "documentation"),
+                "message_count": len(messages),
+                "recovery_type": "full",
+                "messages": clean_messages,
+            }
+
+        # Load compression summary into memory for continued conversation
+        load_session_summary(token)
+
+        await client.post(
+            f"{frontend_url}/internal/session/{token}/recovery-data",
+            json={"token": token, "status": "found", "data": recovery_data},
+        )
+        logger.info(f"Recovery: {token} resolved ({recovery_data['recovery_type']}, {len(messages)} msgs)")
+
+    except Exception as e:
+        logger.error(f"Recovery failed for {token}: {e}")
+        try:
+            await client.post(
+                f"{frontend_url}/internal/session/{token}/recovery-data",
+                json={"token": token, "status": "not_found", "data": None},
+            )
+        except Exception:
+            pass
+    finally:
+        await client.aclose()
 
 
 async def polling_loop(interval: int = 2):
