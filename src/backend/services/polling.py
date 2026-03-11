@@ -314,12 +314,16 @@ async def _finalize_session(
         # Mark session as completed
         history.set_status(session_token, "completed")
 
-        # Send done event
+        # Send done event (user is done — they can leave now)
         await client.post(
             f"{frontend_url}/internal/stream/{session_token}/chunk",
             json={"event": "done", "data": clean_response},
         )
-        logger.info(f"Session {session_token} finalized")
+        logger.info(f"Session {session_token} finalized — starting background documents")
+
+        # Background: generate internal documents (user doesn't see these)
+        mode = session.get("survey", {}).get("type", "documentation") if session else "documentation"
+        await _generate_internal_documents(session_token, language, mode, settings)
 
     except Exception as e:
         logger.error(f"Finalization failed for {session_token}: {e}")
@@ -330,6 +334,111 @@ async def _finalize_session(
             )
         except Exception:
             pass
+
+
+async def _generate_internal_documents(
+    session_token: str,
+    language: str,
+    mode: str,
+    settings: dict[str, Any],
+):
+    """Generate internal documents after session closure (user doesn't see these)."""
+    import os
+    session_dir = f"/app/data/sessions/{session_token}"
+    os.makedirs(session_dir, exist_ok=True)
+
+    # 1. Internal UNI summary (always generated)
+    try:
+        uni_summary = await _generate_document(
+            session_token, "session_summary_uni.md", language, settings
+        )
+        if uni_summary:
+            path = os.path.join(session_dir, "internal_summary.md")
+            with open(path, "w") as f:
+                f.write(uni_summary)
+            logger.info(f"Internal UNI summary saved: {path}")
+    except Exception as e:
+        logger.error(f"Internal UNI summary failed for {session_token}: {e}")
+
+    # 2. Report (skipped for training mode)
+    if mode == "training":
+        logger.info(f"Report skipped for {session_token} (training mode)")
+    else:
+        try:
+            report = await _generate_document(
+                session_token, "internal_case_file.md", language, settings
+            )
+            if report:
+                path = os.path.join(session_dir, "report.md")
+                with open(path, "w") as f:
+                    f.write(report)
+                logger.info(f"Report saved: {path}")
+        except Exception as e:
+            logger.error(f"Report generation failed for {session_token}: {e}")
+
+
+async def _generate_document(
+    session_token: str,
+    prompt_file: str,
+    language: str,
+    settings: dict[str, Any],
+) -> str | None:
+    """Generate a document using a prompt file + full conversation. Returns text or None."""
+    import os
+
+    # Load prompt
+    prompt_path = f"/app/data/prompts/{prompt_file}"
+    if not os.path.exists(prompt_path):
+        prompt_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "prompts", prompt_file
+        )
+    if not os.path.exists(prompt_path):
+        logger.warning(f"Prompt file not found: {prompt_file}")
+        return None
+
+    with open(prompt_path) as f:
+        prompt_instruction = f.read()
+
+    # Build messages: replace system prompt with document prompt + full conversation
+    llm_messages = history.get_llm_messages(session_token)
+
+    # Replace the system prompt with the document generation prompt
+    if llm_messages and llm_messages[0]["role"] == "system":
+        llm_messages[0] = {"role": "system", "content": prompt_instruction}
+    else:
+        llm_messages.insert(0, {"role": "system", "content": prompt_instruction})
+
+    # Add language instruction as final user message
+    llm_messages.append({
+        "role": "user",
+        "content": f"Generate this document based on the conversation above. Write in: {language}.",
+    })
+
+    # Non-streaming LLM call
+    raw_response = ""
+    in_think = False
+
+    async for token in llm.stream_chat(
+        messages=llm_messages,
+        provider=settings.get("inference_provider"),
+        model=settings.get("inference_model"),
+        temperature=settings.get("inference_temperature", 0.7),
+        max_tokens=settings.get("inference_max_tokens", 2048),
+        num_ctx=settings.get("inference_num_ctx") if settings.get("inference_provider") == "ollama" else None,
+    ):
+        raw_response += token
+
+        # Filter <think>...</think> blocks
+        if "<think>" in raw_response and not in_think:
+            in_think = True
+        if in_think:
+            if "</think>" in raw_response:
+                in_think = False
+                raw_response = raw_response.split("</think>", 1)[-1]
+
+    clean = raw_response.strip()
+    logger.info(f"Document generated ({prompt_file}): {len(clean)} chars for {session_token}")
+    return clean if clean else None
 
 
 def _mock_response(content: str) -> str:

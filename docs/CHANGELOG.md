@@ -2,6 +2,34 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 8d — Report + Internal UNI Summary (2026-03-11)
+- After session closure: background generation of internal UNI summary + structured report
+- `session_summary_uni.md` prompt: severity, frameworks, integrity flag, priority for UNI staff
+- `internal_case_file.md` prompt: formal case documentation with framework analysis
+- Internal UNI summary saved as `{token}/internal_summary.md`
+- Report saved as `{token}/report.md` (skipped for training mode sessions)
+- Phase-based prompt loading: document prompts replace conversational system prompt
+- Sequential generation after user-visible summary completes
+- User does not see internal documents — background only
+
+### Sprint 8c — End Session + Summary (2026-03-11)
+- "End Session" button (red border) with confirmation dialog
+- Per-profile summary prompts (`session_summary_{role}.md`) — 4 files, customizable per profile
+- Summary streamed to chat as final assistant message, saved to disk + conversation history
+- Session marked `completed`, chat input disabled after finalization
+- Recovered completed sessions are read-only (no input, no End Session button)
+- Markdown rendering with `react-markdown` + `remark-gfm` (GFM tables, strikethrough, task lists)
+- Markdown applied in: chat messages, streaming, recovery context, admin session detail
+- `@tailwindcss/typography` plugin for prose styling in both frontend and admin
+- Smart auto-scroll: pauses when user scrolls up during streaming
+- Admin Sessions table: company column, frontend origin column, horizontal scroll
+- Admin Frontends: inline editable frontend names
+- Frontend origin stored in session metadata on first message
+- `session_summary_uni.md` replaces generic `session_summary.md` (for 8d internal use)
+- i18n: 6 new keys (EN/ES) for end session flow
+- Fix: summary now saved as conversation message (visible on recovery)
+- Fix: recovered completed sessions blocked from sending messages
+
 ### Sprint 8b — Session Recovery (2026-03-11)
 - Session recovery via pull-inverse: sidecar queues request → backend resolves from disk → pushes data back
 - Hybrid recovery: compression summary for long conversations, full messages for short ones

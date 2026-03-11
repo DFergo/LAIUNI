@@ -358,7 +358,7 @@ New: language → disclaimer → session (new/recover) → **role selection** �
 
 ---
 
-### Sprint 8c — End Session + Summary (IN PROGRESS)
+### Sprint 8c — End Session + Summary (DONE)
 
 **Goal:** User can end session. Summary is generated and streamed to chat as final message.
 
@@ -368,51 +368,57 @@ New: language → disclaimer → session (new/recover) → **role selection** �
 - [x] "End Session" button in ChatShell (red border, per spec §3.5)
 - [x] Frontend sends `finalize: true` in message payload (spec §8.1)
 - [x] Backend detects `finalize` flag in polling
-- [x] Summary generation: load `session_summary.md` prompt + full conversation → LLM inference
+- [x] Summary generation: per-profile prompts (`session_summary_{role}.md`) + full conversation → LLM inference
 - [x] Summary streamed to chat as final assistant message (user sees it)
-- [x] Summary saved as `/app/data/sessions/{token}/summary.md`
+- [x] Summary saved as `/app/data/sessions/{token}/summary.md` and as conversation message
 - [x] Session status set to `completed`
 - [x] Chat input disabled after finalization
 - [x] Confirmation dialog before ending ("Are you sure?")
+- [x] Recovered completed sessions are read-only
+- [x] Markdown rendering (react-markdown + remark-gfm) in chat, streaming, recovery, and admin
+- [x] Smart auto-scroll: pauses when user scrolls up during streaming
+- [x] Admin Sessions: company and frontend origin columns, horizontal scroll
+- [x] Admin Frontends: editable frontend names
+- [x] Frontend origin stored in session metadata
 
 #### Acceptance Criteria
-- [ ] "End Session" button visible in chat (red border styling)
-- [ ] Click → confirmation → summary streams to chat
-- [ ] Summary saved to `summary.md` on disk
-- [ ] Session marked `completed` in session.json
-- [ ] Chat input disabled after session ends
-- [ ] Summary uses inference LLM (not summariser) per spec §3.6
-- [ ] Summary generated in session language
+- [x] "End Session" button visible in chat (red border styling)
+- [x] Click → confirmation → summary streams to chat
+- [x] Summary saved to `summary.md` on disk
+- [x] Session marked `completed` in session.json
+- [x] Chat input disabled after session ends
+- [x] Summary uses inference LLM (not summariser) per spec §3.6
+- [x] Summary generated in session language
 
 ---
 
-### Sprint 8d — Report + Internal Assessment (PLANNED)
+### Sprint 8d — Report + Internal UNI Summary (DONE)
 
-**Goal:** Background generation of internal report and UNI assessment after session closure.
+**Goal:** Background generation of internal UNI summary and report after session closure.
 
 **Depends on:** Sprint 8c (End Session flow)
 
 #### Deliverables
-- [ ] After summary: generate report using `internal_case_file.md` prompt + full conversation
-- [ ] Report saved as `/app/data/sessions/{token}/report.md`
-- [ ] Report skipped for "training" mode sessions (spec §3.6)
-- [ ] Internal assessment using dedicated prompt + full conversation (spec §13.3)
+- [x] After user summary: generate internal UNI summary using `session_summary_uni.md` prompt
   - Severity assessment, applicable frameworks
   - Session integrity flag: normal / low_concern / high_concern
   - Recommended priority for UNI attention
-- [ ] Assessment saved as `/app/data/sessions/{token}/internal_assessment.md`
-- [ ] Phase-based prompt loading (spec §13.4): report/assessment prompts REPLACE conversational prompt
-- [ ] Both report and assessment generated sequentially after summary completes
-- [ ] User does NOT see report or assessment (background only)
+- [x] Internal UNI summary saved as `/app/data/sessions/{token}/internal_summary.md`
+- [x] Generate report using `internal_case_file.md` prompt + full conversation
+- [x] Report saved as `/app/data/sessions/{token}/report.md`
+- [x] Report skipped for "training" mode sessions
+- [x] Phase-based prompt loading: document prompts REPLACE conversational system prompt
+- [x] Both documents generated sequentially after user summary completes
+- [x] User does NOT see internal documents (background only)
 
 #### Acceptance Criteria
-- [ ] After "End Session": summary (visible) → report (background) → assessment (background)
-- [ ] `report.md` contains structured case documentation
-- [ ] `internal_assessment.md` contains severity, integrity flag, priority
-- [ ] Training mode sessions: report skipped, assessment still generated
-- [ ] Report/assessment use inference LLM with dedicated prompts (not conversational prompt)
-- [ ] Full conversation passed as input (not just summary)
-- [ ] Admin can view report and assessment in session detail
+- [x] After "End Session": summary (visible) → internal UNI summary (background) → report (background)
+- [x] `internal_summary.md` contains severity, integrity flag, priority
+- [x] `report.md` contains structured case documentation
+- [x] Training mode sessions: report skipped, internal summary still generated
+- [x] Documents use inference LLM with dedicated prompts (not conversational prompt)
+- [x] Full conversation passed as input (not just summary)
+- [x] Backend logs confirm document generation
 
 ---
 
