@@ -1,9 +1,20 @@
 import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { listSessions, getSession, toggleSessionFlag, type SessionSummary, type SessionDetail } from './api'
+import {
+  listSessions, getSession, toggleSessionFlag, getSessionDocuments, generateDocument,
+  listFrontends, getLifecycleSettings, updateLifecycleSettings,
+  type SessionSummary, type SessionDetail, type SessionDocuments,
+  type Frontend, type LifecycleConfig,
+} from './api'
 
 type Filter = 'all' | 'active' | 'completed' | 'flagged'
+
+const DOC_LABELS: Record<string, string> = {
+  summary: 'User Summary',
+  internal_summary: 'Internal Summary',
+  report: 'Report',
+}
 
 function timeAgo(iso: string | null): string {
   if (!iso) return '—'
@@ -30,12 +41,37 @@ function statusBadge(status: string) {
   )
 }
 
+function docIndicator(has: boolean) {
+  return has
+    ? <span className="text-green-600 font-bold" title="Available">&#10003;</span>
+    : <span className="text-gray-300" title="Not generated">&#10007;</span>
+}
+
 export default function SessionsTab() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [filter, setFilter] = useState<Filter>('all')
   const [selected, setSelected] = useState<SessionDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  // Document state for detail view
+  const [docs, setDocs] = useState<SessionDocuments | null>(null)
+  const [docsLoading, setDocsLoading] = useState(false)
+  const [expandedDoc, setExpandedDoc] = useState<string | null>(null)
+  const [generating, setGenerating] = useState<string | null>(null)
+
+  // Lifecycle settings state
+  const [showLifecycle, setShowLifecycle] = useState(false)
+  const [frontends, setFrontends] = useState<Frontend[]>([])
+  const [lifecycleSettings, setLifecycleSettings] = useState<Record<string, LifecycleConfig>>({})
+  const [lifecycleDefaults, setLifecycleDefaults] = useState<LifecycleConfig>({
+    auto_close_enabled: false, auto_close_hours: 2,
+    auto_cleanup_enabled: false, auto_cleanup_days: 30,
+  })
+  const [selectedFrontend, setSelectedFrontend] = useState('')
+  const [lifecycleForm, setLifecycleForm] = useState<LifecycleConfig | null>(null)
+  const [lifecycleSaving, setLifecycleSaving] = useState(false)
+  const [lifecycleMsg, setLifecycleMsg] = useState('')
 
   const refresh = async () => {
     try {
@@ -48,6 +84,49 @@ export default function SessionsTab() {
     }
   }
 
+  const loadLifecycle = async () => {
+    try {
+      const [fData, lcData] = await Promise.all([listFrontends(), getLifecycleSettings()])
+      setFrontends(fData.frontends)
+      setLifecycleSettings(lcData.settings)
+      setLifecycleDefaults(lcData.defaults)
+      // Auto-select first frontend if none selected
+      if (!selectedFrontend && fData.frontends.length > 0) {
+        const fid = fData.frontends[0].id
+        setSelectedFrontend(fid)
+        setLifecycleForm({ ...lcData.defaults, ...lcData.settings[fid] })
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load lifecycle settings')
+    }
+  }
+
+  const selectFrontendLifecycle = (fid: string) => {
+    setSelectedFrontend(fid)
+    setLifecycleForm({ ...lifecycleDefaults, ...lifecycleSettings[fid] })
+    setLifecycleMsg('')
+  }
+
+  const saveLifecycle = async () => {
+    if (!selectedFrontend || !lifecycleForm) return
+    setLifecycleSaving(true)
+    setLifecycleMsg('')
+    try {
+      await updateLifecycleSettings(selectedFrontend, lifecycleForm)
+      setLifecycleSettings(prev => ({ ...prev, [selectedFrontend]: lifecycleForm }))
+      setLifecycleMsg('Saved')
+      setTimeout(() => setLifecycleMsg(''), 2000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setLifecycleSaving(false)
+    }
+  }
+
+  useEffect(() => {
+    if (showLifecycle) loadLifecycle()
+  }, [showLifecycle])
+
   useEffect(() => {
     refresh()
     const interval = setInterval(refresh, 10000)
@@ -56,11 +135,19 @@ export default function SessionsTab() {
 
   const viewSession = async (token: string) => {
     setError('')
+    setDocs(null)
+    setExpandedDoc(null)
     try {
       const detail = await getSession(token)
       setSelected(detail)
+      // Load documents in background
+      setDocsLoading(true)
+      const docsData = await getSessionDocuments(token)
+      setDocs(docsData)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load session')
+    } finally {
+      setDocsLoading(false)
     }
   }
 
@@ -75,6 +162,28 @@ export default function SessionsTab() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to toggle flag')
+    }
+  }
+
+  const handleGenerate = async (token: string, docType: string) => {
+    setGenerating(docType)
+    setError('')
+    try {
+      const result = await generateDocument(token, docType)
+      // Update docs state with new content
+      setDocs(prev => prev
+        ? { ...prev, documents: { ...prev.documents, [docType]: result.content } }
+        : { token, documents: { [docType]: result.content } }
+      )
+      // Update session list doc indicators
+      setSessions(prev => prev.map(s =>
+        s.token === token ? { ...s, docs: { ...s.docs, [docType]: true } } : s
+      ))
+      setExpandedDoc(docType)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to generate ${docType}`)
+    } finally {
+      setGenerating(null)
     }
   }
 
@@ -142,6 +251,62 @@ export default function SessionsTab() {
           </div>
         )}
 
+        {/* Documents section */}
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4 space-y-3">
+          <h4 className="text-sm font-semibold text-gray-700 mb-2">Documents</h4>
+          {docsLoading ? (
+            <p className="text-gray-400 text-sm">Loading documents...</p>
+          ) : (
+            <div className="space-y-2">
+              {Object.entries(DOC_LABELS).map(([docType, label]) => {
+                const content = docs?.documents?.[docType] ?? null
+                const hasContent = content !== null && content !== undefined
+                const isExpanded = expandedDoc === docType
+                const isGenerating = generating === docType
+
+                return (
+                  <div key={docType} className="border border-gray-200 rounded-lg">
+                    <div className="flex items-center justify-between px-4 py-2">
+                      <div className="flex items-center gap-2">
+                        {docIndicator(hasContent)}
+                        <span className="text-sm font-medium text-gray-700">{label}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {hasContent && (
+                          <button
+                            onClick={() => setExpandedDoc(isExpanded ? null : docType)}
+                            className="text-xs text-uni-blue hover:underline"
+                          >
+                            {isExpanded ? 'Collapse' : 'View'}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleGenerate(selected.token, docType)}
+                          disabled={isGenerating || generating !== null}
+                          className={`text-xs px-3 py-1 rounded-lg border transition-colors ${
+                            isGenerating
+                              ? 'border-gray-200 text-gray-400 bg-gray-50 cursor-wait'
+                              : 'border-uni-blue text-uni-blue hover:bg-blue-50'
+                          }`}
+                        >
+                          {isGenerating ? 'Generating...' : hasContent ? 'Regenerate' : 'Generate'}
+                        </button>
+                      </div>
+                    </div>
+                    {isExpanded && hasContent && (
+                      <div className="border-t border-gray-200 px-4 py-3">
+                        <div className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-p:text-gray-700 prose-li:text-gray-700 prose-strong:text-gray-800">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
         {/* Conversation */}
         <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4 space-y-3">
           <h4 className="text-sm font-semibold text-gray-700 mb-2">
@@ -196,13 +361,132 @@ export default function SessionsTab() {
             </button>
           ))}
         </div>
-        <button
-          onClick={refresh}
-          className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 font-medium transition-colors"
-        >
-          Refresh
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowLifecycle(!showLifecycle)}
+            className={`text-xs px-3 py-1 rounded-lg border transition-colors font-medium ${
+              showLifecycle ? 'border-uni-blue text-uni-blue bg-blue-50' : 'border-gray-300 text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            Lifecycle Settings
+          </button>
+          <button
+            onClick={refresh}
+            className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 font-medium transition-colors"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
+
+      {/* Lifecycle settings panel */}
+      {showLifecycle && (
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4 space-y-4">
+          <h4 className="text-sm font-semibold text-gray-700">Session Lifecycle Settings</h4>
+
+          {frontends.length === 0 ? (
+            <p className="text-gray-400 text-sm">No frontends registered. Register a frontend first.</p>
+          ) : (
+            <>
+              {/* Frontend selector */}
+              <div className="flex gap-2 flex-wrap">
+                {frontends.map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => selectFrontendLifecycle(f.id)}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      selectedFrontend === f.id
+                        ? 'bg-uni-blue text-white'
+                        : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {f.name || f.url}
+                  </button>
+                ))}
+              </div>
+
+              {lifecycleForm && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Auto-close */}
+                  <div className="border border-gray-200 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-gray-700">Auto-close inactive sessions</span>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={lifecycleForm.auto_close_enabled}
+                          onChange={e => setLifecycleForm({ ...lifecycleForm, auto_close_enabled: e.target.checked })}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-gray-200 peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-uni-blue"></div>
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-500">Timeout:</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={48}
+                        value={lifecycleForm.auto_close_hours}
+                        onChange={e => setLifecycleForm({ ...lifecycleForm, auto_close_hours: parseInt(e.target.value) || 2 })}
+                        disabled={!lifecycleForm.auto_close_enabled}
+                        className="w-16 px-2 py-1 text-sm border border-gray-300 rounded disabled:opacity-50"
+                      />
+                      <span className="text-xs text-gray-500">hours</span>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      Generates summary, internal summary, and report automatically when session has no activity.
+                    </p>
+                  </div>
+
+                  {/* Auto-cleanup */}
+                  <div className="border border-gray-200 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-gray-700">Auto-cleanup old sessions</span>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={lifecycleForm.auto_cleanup_enabled}
+                          onChange={e => setLifecycleForm({ ...lifecycleForm, auto_cleanup_enabled: e.target.checked })}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-gray-200 peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-uni-blue"></div>
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-500">Retention:</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={365}
+                        value={lifecycleForm.auto_cleanup_days}
+                        onChange={e => setLifecycleForm({ ...lifecycleForm, auto_cleanup_days: parseInt(e.target.value) || 30 })}
+                        disabled={!lifecycleForm.auto_cleanup_enabled}
+                        className="w-16 px-2 py-1 text-sm border border-gray-300 rounded disabled:opacity-50"
+                      />
+                      <span className="text-xs text-gray-500">days</span>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      Removes completed sessions from the listing. Files on disk are preserved.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={saveLifecycle}
+                  disabled={lifecycleSaving}
+                  className="px-4 py-1.5 bg-uni-blue text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  {lifecycleSaving ? 'Saving...' : 'Save'}
+                </button>
+                {lifecycleMsg && <span className="text-xs text-green-600 font-medium">{lifecycleMsg}</span>}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {error && <p className="text-sm text-uni-red">{error}</p>}
 
@@ -226,6 +510,9 @@ export default function SessionsTab() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Role</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Mode</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Status</th>
+                <th className="text-center px-3 py-3 font-medium text-gray-600 whitespace-nowrap" title="User Summary">Sum</th>
+                <th className="text-center px-3 py-3 font-medium text-gray-600 whitespace-nowrap" title="Internal Summary">Int</th>
+                <th className="text-center px-3 py-3 font-medium text-gray-600 whitespace-nowrap" title="Report">Rep</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Msgs</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Last Activity</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Flag</th>
@@ -241,6 +528,9 @@ export default function SessionsTab() {
                   <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.role}</td>
                   <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.mode}</td>
                   <td className="px-4 py-3 whitespace-nowrap">{statusBadge(s.status)}</td>
+                  <td className="px-3 py-3 text-center">{docIndicator(s.docs?.summary ?? false)}</td>
+                  <td className="px-3 py-3 text-center">{docIndicator(s.docs?.internal_summary ?? false)}</td>
+                  <td className="px-3 py-3 text-center">{docIndicator(s.docs?.report ?? false)}</td>
                   <td className="px-4 py-3 text-right text-gray-600">{s.message_count}</td>
                   <td className="px-4 py-3 text-right text-gray-400 text-xs whitespace-nowrap">{timeAgo(s.last_activity)}</td>
                   <td className="px-4 py-3 text-center">

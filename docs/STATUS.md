@@ -422,52 +422,81 @@ New: language → disclaimer → session (new/recover) → **role selection** �
 
 ---
 
-### Sprint 8e — Admin Session Enhancements (PLANNED)
+### Sprint 8e — Admin Session Enhancements (DONE)
 
-**Goal:** Admin panel shows report status and can trigger generation on demand.
+**Goal:** Admin can view generated documents and trigger generation on demand.
 
 **Depends on:** Sprint 8d (report generation)
 
 #### Deliverables
-- [ ] Sessions list: status column (active/completed/flagged)
-- [ ] Sessions list: report status indicators (checkmarks for summary/report/assessment)
-- [ ] Session detail: display summary, report, and assessment as tabs or sections
-- [ ] "Generate Summary" button — triggers on demand for any session
-- [ ] "Generate Report" button — triggers on demand for any session
-- [ ] "Generate Assessment" button — triggers on demand for any session
-- [ ] Useful for: abandoned sessions, re-generation with updated prompts
-- [ ] Session filters: All, Active, Completed, Flagged (currently only All/Flagged)
+- [x] Sessions list: document status indicators (✓/✗ for summary, internal_summary, report)
+- [x] Backend `list_sessions`: check disk for `summary.md`, `internal_summary.md`, `report.md` per session
+- [x] Session detail: 3 document sections (Summary, Internal UNI Summary, Report) with content
+- [x] Backend endpoints to read documents: `GET /admin/sessions/{token}/documents`
+- [x] "Generate" buttons per document — triggers generation on demand for any session
+- [x] Backend endpoints to trigger generation: `POST /admin/sessions/{token}/generate/{doc_type}`
+- [x] Re-generation overwrites previous file on disk
+- [x] Useful for: abandoned sessions (no End Session), re-generation after prompt updates
 
 #### Acceptance Criteria
-- [ ] Status indicators visible: ✓ summary, ✓ report, ✓ assessment (or ✗ if missing)
-- [ ] Admin can trigger any generation independently
-- [ ] Re-generation overwrites previous file
-- [ ] Filters work correctly (Active shows only active, etc.)
-- [ ] Report/assessment content readable in admin panel
+- [x] Sessions table shows ✓/✗ indicators for each document type
+- [x] Session detail displays document content with markdown rendering
+- [x] Admin can trigger summary/internal_summary/report generation independently
+- [x] Generation works for any session (active or completed)
+- [x] Re-generation overwrites previous file
+- [x] Documents rendered with markdown in admin panel
 
 ---
 
-### Sprint 8f — Inactivity Timeout (PLANNED)
+### Sprint 8f — Inactivity Timeout + Auto-Cleanup (DONE)
 
-**Goal:** Sessions auto-close after configurable inactivity period. Reports generated automatically.
+**Goal:** Sessions auto-close after configurable inactivity period with automatic document generation. Old sessions auto-removed from backend listing (files preserved on disk). Settings per frontend.
 
-**Depends on:** Sprint 8d (report generation pipeline)
+**Depends on:** Sprint 8e (admin documents), Sprint 8d (report generation pipeline)
 
-#### Deliverables
-- [ ] Backend background task: scan active sessions for inactivity
-- [ ] Configurable timeout (default 2h, in deployment config)
-- [ ] Auto-trigger closure flow: summary → report → assessment → mark completed
-- [ ] User is no longer present — summary saved but not streamed
-- [ ] Scan interval: every 5 minutes (configurable)
-- [ ] Log when session is auto-closed
+#### Part 1: Admin Settings UI (Sessions tab)
+
+- [x] New "Session Lifecycle" settings panel in Sessions tab (collapsible)
+- [x] Per-frontend configuration (button selector for each registered frontend)
+- [x] **Auto-closure:** toggle on/off + timeout in hours (default: 2h, range 1-48h)
+- [x] **Auto-cleanup:** toggle on/off + retention period in days (default: 30d, range 1-365d)
+- [x] Settings persisted to `/app/data/session_lifecycle.json` (per frontend_id)
+- [x] Backend endpoints: `GET /admin/sessions/lifecycle` and `PUT /admin/sessions/lifecycle/{frontend_id}`
+
+#### Part 2: Background Scanner
+
+- [x] `services/session_lifecycle.py` — asyncio background task, runs every 5 minutes
+- [x] Scan active sessions: if `last_activity` exceeds frontend's auto-closure timeout → trigger closure
+- [x] Auto-closure generates all 3 documents (summary, internal_summary, report) without streaming
+  - Uses same `_generate_document()` from polling.py
+  - Summary NOT streamed (user is gone) — saved directly to disk
+  - Report skipped for training mode (same logic as manual closure)
+- [x] Mark session `completed` after document generation
+- [x] Scan completed sessions: if `last_activity` exceeds frontend's retention period → remove from store
+- [x] "Remove from store" = delete from in-memory cache + mark `archived: true` in session.json
+  - Files on disk (session.json, conversation.jsonl, documents) are NEVER deleted
+  - Session no longer appears in admin list or counts
+- [x] Log auto-closure and auto-cleanup events with session token
+
+#### Part 3: Backend Integration
+
+- [x] Start background task on backend startup (`main.py` lifespan)
+- [x] Session store: `archive_session(token)` method — removes from cache, marks archived in session.json
+- [x] `_ensure_loaded()` skips archived sessions
+- [x] `frontend_id` stored in session metadata for lifecycle mapping
+- [x] Sessions without a known frontend use global defaults (both features off)
 
 #### Acceptance Criteria
-- [ ] Session with no activity for 2h → auto-closed
-- [ ] Summary + report + assessment generated automatically
-- [ ] Session marked `completed` in admin
-- [ ] Active sessions NOT affected
-- [ ] Timeout configurable in backend deployment config
-- [ ] Multiple sessions can be auto-closed in same scan
+- [x] Admin Sessions tab shows lifecycle settings panel with per-frontend config
+- [x] Auto-closure toggle + timeout configurable per frontend
+- [x] Auto-cleanup toggle + retention configurable per frontend
+- [x] Session inactive for configured timeout → auto-closed with documents generated
+- [x] Session older than retention period → removed from admin list
+- [x] Archived session files remain on disk (volume)
+- [x] Active sessions not affected by scanner
+- [x] Multiple sessions can be processed in same scan cycle
+- [x] Settings persist across backend restart
+- [x] Backend logs auto-closure and auto-cleanup events
 
 ---
 

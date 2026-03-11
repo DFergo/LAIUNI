@@ -57,6 +57,8 @@ class SessionStore:
             if d.is_dir() and (d / "session.json").exists():
                 try:
                     meta = json.loads((d / "session.json").read_text())
+                    if meta.get("archived"):
+                        continue  # Skip archived sessions
                     messages = self._load_conversation(d.name)
                     self._cache[d.name] = {
                         "system_prompt": meta.get("system_prompt", ""),
@@ -64,6 +66,8 @@ class SessionStore:
                         "survey": meta.get("survey", {}),
                         "config": meta.get("config", {}),
                         "language": meta.get("language", "en"),
+                        "frontend_name": meta.get("frontend_name", ""),
+                        "frontend_id": meta.get("frontend_id", ""),
                         "status": meta.get("status", "active"),
                         "flagged": meta.get("flagged", False),
                         "created_at": meta.get("created_at"),
@@ -110,6 +114,8 @@ class SessionStore:
             "config": session.get("config", {}),
             "created_at": session.get("created_at"),
             "last_activity": session.get("last_activity"),
+            "frontend_name": session.get("frontend_name", ""),
+            "frontend_id": session.get("frontend_id", ""),
         }
         _atomic_write_json(d / "session.json", meta)
 
@@ -131,6 +137,7 @@ class SessionStore:
         survey: dict[str, Any] | None = None,
         language: str = "en",
         frontend_name: str = "",
+        frontend_id: str = "",
     ):
         """Initialize or reinitialize a session."""
         self._ensure_loaded()
@@ -144,6 +151,7 @@ class SessionStore:
                 "config": {},
                 "language": language,
                 "frontend_name": frontend_name,
+                "frontend_id": frontend_id,
                 "status": "active",
                 "flagged": False,
                 "created_at": now,
@@ -237,6 +245,7 @@ class SessionStore:
                 "mode": data.get("survey", {}).get("type", "documentation"),
                 "company": data.get("survey", {}).get("company", ""),
                 "frontend_name": data.get("frontend_name", ""),
+                "frontend_id": data.get("frontend_id", ""),
                 "status": data.get("status", "active"),
                 "flagged": data.get("flagged", False),
                 "created_at": data.get("created_at"),
@@ -261,6 +270,28 @@ class SessionStore:
         if session:
             session["status"] = status
             self._save_meta(token)
+
+    def archive_session(self, token: str):
+        """Archive a session: mark in session.json and remove from cache. Files stay on disk."""
+        session = self._cache.get(token)
+        if session:
+            session["archived"] = True
+            session["archived_at"] = datetime.now(timezone.utc).isoformat()
+            self._save_meta(token)
+        else:
+            # Not in cache but might be on disk
+            d = _session_dir(token)
+            meta_path = d / "session.json"
+            if meta_path.exists():
+                try:
+                    meta = json.loads(meta_path.read_text())
+                    meta["archived"] = True
+                    meta["archived_at"] = datetime.now(timezone.utc).isoformat()
+                    _atomic_write_json(meta_path, meta)
+                except Exception as e:
+                    logger.warning(f"Failed to archive {token} on disk: {e}")
+        self._cache.pop(token, None)
+        logger.info(f"Session archived: {token}")
 
     def remove_session(self, token: str):
         """Remove a session from cache (disk files kept for audit)."""

@@ -40,6 +40,7 @@ async def poll_frontends():
             for msg in messages:
                 msg["_frontend_url"] = url
                 msg["_frontend_name"] = frontend.get("name", "")
+                msg["_frontend_id"] = fid
                 async with _processing_lock:
                     _processing_queue.append(msg)
                 logger.info(f"Queued message {msg.get('message_id')} from {fid}")
@@ -108,6 +109,7 @@ async def _safe_process(msg: dict[str, Any]):
     """Process a single message. Wrapped in try-except (lesson #2)."""
     frontend_url = msg.get("_frontend_url", "")
     frontend_name = msg.get("_frontend_name", "")
+    frontend_id = msg.get("_frontend_id", "")
     session_token = msg.get("session_token", "")
     content = msg.get("content", "")
     survey = msg.get("survey")
@@ -119,7 +121,7 @@ async def _safe_process(msg: dict[str, Any]):
         # If first message with survey, build system prompt and store it
         if survey:
             system_prompt = assemble_system_prompt(survey, language)
-            history.init_session(session_token, system_prompt, survey, language, frontend_name)
+            history.init_session(session_token, system_prompt, survey, language, frontend_name, frontend_id)
 
         # Finalize: generate summary instead of normal processing
         if finalize:

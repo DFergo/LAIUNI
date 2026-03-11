@@ -18,6 +18,7 @@ from src.api.v1.admin.knowledge import router as knowledge_router
 from src.api.v1.admin.knowledge import ensure_defaults as ensure_knowledge_defaults
 from src.core.config import config
 from src.services.polling import polling_loop
+from src.services.session_lifecycle import lifecycle_loop
 from src.services.prompt_assembler import ensure_defaults
 
 logging.basicConfig(level=logging.INFO)
@@ -33,14 +34,17 @@ async def lifespan(app: FastAPI):
     from src.services.rag_service import initialize as init_rag
     init_rag()
     # Start polling loop on startup
-    task = asyncio.create_task(polling_loop(config.poll_interval_seconds))
-    logger.info("Backend started, polling loop running")
+    poll_task = asyncio.create_task(polling_loop(config.poll_interval_seconds))
+    lifecycle_task = asyncio.create_task(lifecycle_loop())
+    logger.info("Backend started, polling loop + lifecycle scanner running")
     yield
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    poll_task.cancel()
+    lifecycle_task.cancel()
+    for t in [poll_task, lifecycle_task]:
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="HRDD Helper Backend", version="2.0.0", lifespan=lifespan)

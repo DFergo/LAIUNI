@@ -159,6 +159,7 @@ export interface SessionSummary {
   flagged: boolean
   created_at: string | null
   last_activity: string | null
+  docs?: Record<string, boolean>
 }
 
 export interface SessionDetail {
@@ -183,6 +184,39 @@ export async function getSession(token: string): Promise<SessionDetail> {
 
 export async function toggleSessionFlag(token: string): Promise<{ token: string; flagged: boolean }> {
   return request(`/admin/sessions/${token}/flag`, { method: 'PUT' });
+}
+
+export interface SessionDocuments {
+  token: string
+  documents: Record<string, string | null>
+}
+
+export async function getSessionDocuments(token: string): Promise<SessionDocuments> {
+  return request(`/admin/sessions/${token}/documents`);
+}
+
+export async function generateDocument(token: string, docType: string): Promise<{ token: string; doc_type: string; content: string }> {
+  return request(`/admin/sessions/${token}/generate/${docType}`, { method: 'POST' });
+}
+
+// --- Lifecycle API ---
+
+export interface LifecycleConfig {
+  auto_close_enabled: boolean
+  auto_close_hours: number
+  auto_cleanup_enabled: boolean
+  auto_cleanup_days: number
+}
+
+export async function getLifecycleSettings(): Promise<{ settings: Record<string, LifecycleConfig>; defaults: LifecycleConfig }> {
+  return request('/admin/sessions/lifecycle');
+}
+
+export async function updateLifecycleSettings(frontendId: string, config: LifecycleConfig): Promise<{ frontend_id: string; config: LifecycleConfig }> {
+  return request(`/admin/sessions/lifecycle/${frontendId}`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
 }
 
 // --- RAG API ---

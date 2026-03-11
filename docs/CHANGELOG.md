@@ -2,6 +2,24 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 8f — Inactivity Timeout + Auto-Cleanup (2026-03-12)
+- `services/session_lifecycle.py`: background scanner (every 5 min) for auto-closure and auto-cleanup
+- Auto-closure: inactive sessions get documents generated (summary, internal_summary, report) then marked completed
+- Auto-cleanup: old completed sessions archived from listing (files preserved on disk)
+- Per-frontend lifecycle settings via admin Sessions tab ("Lifecycle Settings" button)
+- Settings persisted to `/app/data/session_lifecycle.json`
+- `session_store.py`: `archive_session()` method, archived sessions skipped on load
+- `frontend_id` now stored in session metadata for lifecycle mapping
+- Backend endpoints: `GET /admin/sessions/lifecycle`, `PUT /admin/sessions/lifecycle/{frontend_id}`
+
+### Sprint 8e — Admin Session Enhancements (2026-03-11)
+- Sessions table: document status indicators (✓/✗) for summary, internal summary, report
+- Session detail: Documents section with view/collapse and markdown rendering
+- On-demand document generation buttons (Generate / Regenerate) per document type
+- Backend endpoints: `GET /admin/sessions/{token}/documents`, `POST /admin/sessions/{token}/generate/{doc_type}`
+- Re-generation overwrites previous file on disk
+- Works for any session (active or completed) — useful for abandoned sessions or prompt updates
+
 ### Sprint 8d — Report + Internal UNI Summary (2026-03-11)
 - After session closure: background generation of internal UNI summary + structured report
 - `session_summary_uni.md` prompt: severity, frameworks, integrity flag, priority for UNI staff
