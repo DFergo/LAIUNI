@@ -220,8 +220,9 @@ def _build_knowledge_section(survey: dict[str, Any] | None, language: str) -> st
 def assemble_system_prompt(survey: dict[str, Any] | None, language: str = "en", frontend_id: str | None = None) -> str:
     """Build the full system prompt from case-specific prompt files.
 
-    Structure: core + case prompt (profile+case) + context(survey) + knowledge base
+    Structure: core + guardrails + case prompt (profile+case) + context(survey) + knowledge base
     Sprint 8h: frontend_id used to resolve per-frontend prompts when mode is 'per_frontend'.
+    Sprint 10: guardrails.md always injected between core and case prompt.
     """
     parts: list[str] = []
 
@@ -230,8 +231,13 @@ def assemble_system_prompt(survey: dict[str, Any] | None, language: str = "en", 
     if core:
         parts.append(core)
 
+    # 2. Guardrails (always injected — safety net independent of other prompts)
+    guardrails = _load("guardrails.md", frontend_id)
+    if guardrails:
+        parts.append(guardrails)
+
     if survey:
-        # 2. Case-specific prompt (monolithic per profile+case)
+        # 3. Case-specific prompt (monolithic per profile+case)
         role = survey.get("role", "worker")
         mode = survey.get("type", "documentation")
         case_file = _resolve_case_prompt(role, mode)
@@ -242,12 +248,12 @@ def assemble_system_prompt(survey: dict[str, Any] | None, language: str = "en", 
         else:
             logger.warning(f"No case prompt found for {role}/{mode} ({case_file})")
 
-        # 3. Context from survey data
+        # 4. Context from survey data
         context = _render_context(survey, language, frontend_id)
         if context:
             parts.append(context)
 
-    # 4. Knowledge base (glossary + organizations) — injected directly, not via RAG
+    # 5. Knowledge base (glossary + organizations) — injected directly, not via RAG
     kb = _build_knowledge_section(survey, language)
     if kb:
         parts.append(kb)

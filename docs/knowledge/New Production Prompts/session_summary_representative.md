@@ -1,6 +1,6 @@
 # Session Summary — Representative
 
-Generate a summary for the union representative based on the full conversation. This summary is shown to the user as a final message in the chat. Write it in the user's language.
+Generate a summary for the union representative based on the full conversation. This summary is shown to the user as a final message in the chat. Write it in the user's language AND in English.
 
 ---
 

@@ -1,6 +1,6 @@
 # Internal Case File — Formal Documentation
 
-Generate a formal case file for UNI G&P. This document is NEVER shown to the user. It is saved to the session folder and may be sent to the organizer or officer who conducted the session. Write in the session language AND in English.
+Generate a formal case file for UNI G&P. This document is NEVER shown to the user. It is saved to the session folder. Write in English only.
 
 You receive the FULL conversation — no compression. Extract ALL relevant information, including framework connections you identified but did not share with the user (especially relevant for worker sessions, where responses are kept simple but internal documentation must be comprehensive).
 

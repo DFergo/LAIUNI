@@ -1,6 +1,6 @@
 # Session Summary — Organizer
 
-Generate a summary for the organizer based on the full conversation. This summary is shown to the user in the chat. Write it in the user's language.
+Generate a summary for the organizer based on the full conversation. This summary is shown to the user in the chat. Write it in the user's language AND in English.
 
 ---
 

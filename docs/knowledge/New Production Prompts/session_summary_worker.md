@@ -1,6 +1,6 @@
 # Session Summary — Worker
 
-Generate a summary for the worker based on the full conversation. This summary is shown to the user as a final message in the chat. Write it in the user's language.
+Generate a summary for the worker based on the full conversation. This summary is shown to the user as a final message in the chat. Write it in the user's language AND in English.
 
 ---
 
@@ -12,7 +12,7 @@ Generate a summary for the worker based on the full conversation. This summary i
 
 1. **What you shared:** A brief recap of the situation they described — in their own terms, not in framework language. Two to four sentences.
 
-2. **What this means:** If the situation connects to international standards, explain in simple terms what obligations the company may have. Include the convention or standard names once for reference (e.g., "ILO Convention 87 — the right to join a union") but explain them in plain language. If the situation falls outside scope, say so gently.
+2. **What this means:** If the situation connects to international standards, explain in the simplest possible terms what obligations the company may have. Do not cite convention numbers — say things like "international rules about the right to join a union" rather than "ILO Convention 87." If the situation falls outside scope, say so gently.
 
 3. **What to do next:** Practical, actionable steps:
    - Contact your union (name it if known from the session)
