@@ -148,6 +148,25 @@ El modelo da respuestas demasiado complejas, especialmente cuando acumula mucha 
 
 ---
 
+### Fase de test de calidad post-prompts (análisis de respuestas)
+**Added:** 2026-03-12 | **Sprint:** Post-diseño de prompts (antes de Sprint 11) | **Effort:** M (1-2 días)
+
+Después de definir los prompts finales por perfil/caso, dedicar una fase de testing profundo donde se analizan las respuestas del sistema en escenarios reales. No es testing funcional (eso se hace en cada sprint) — es testing de calidad de las respuestas del LLM con los prompts definitivos.
+
+**Qué probar:**
+- Calidad y tono de las respuestas por perfil (worker vs organizer vs officer)
+- RAG por campaña: ¿el modelo usa correctamente los docs de campaña?
+- Compresión: ¿la conversación mantiene coherencia tras compresiones?
+- Documentos de cierre: ¿los informes y resúmenes internos capturan toda la información relevante?
+- Respuestas simples para workers: ¿el modelo extrae info sin apabullar?
+- Guardrails: ¿los prompts previenen respuestas inadecuadas sin necesidad del filtro hardcoded?
+
+**Prerequisito:** Prompts finales escritos por Daniel. Requiere sesiones reales o simuladas con varios perfiles y escenarios.
+
+**Analysis:** Encaja como fase intermedia entre el diseño de prompts y Sprint 11 (polish). No es un sprint de código — es un sprint de contenido y evaluación. Los hallazgos pueden resultar en ajustes a prompts, parámetros del modelo, o threshold de compresión. Debería hacerse con el modelo final que se usará en producción.
+
+---
+
 ### Summariser dedicado para resúmenes de evidencia
 **Added:** 2026-03-12 | **Sprint:** Backlog | **Effort:** S (horas)
 

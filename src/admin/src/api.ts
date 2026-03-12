@@ -133,16 +133,38 @@ export interface PromptsResponse {
   categories: Record<string, PromptFile[]>
 }
 
-export async function listPrompts(): Promise<PromptsResponse> {
-  return request('/admin/prompts');
+export async function getPromptMode(): Promise<{ mode: string }> {
+  return request('/admin/prompts/mode');
 }
 
-export async function readPrompt(name: string): Promise<{ name: string; content: string }> {
-  return request(`/admin/prompts/${name}`);
+export async function setPromptMode(mode: string): Promise<{ mode: string }> {
+  return request('/admin/prompts/mode', {
+    method: 'PUT',
+    body: JSON.stringify({ mode }),
+  });
 }
 
-export async function savePrompt(name: string, content: string): Promise<PromptFile> {
-  return request(`/admin/prompts/${name}`, {
+export async function copyPromptsToFrontend(frontendId: string): Promise<{ frontend_id: string; copied: number }> {
+  return request(`/admin/prompts/copy-to-frontend/${frontendId}`, { method: 'POST' });
+}
+
+export async function deleteFrontendPrompts(frontendId: string): Promise<{ frontend_id: string; deleted: number }> {
+  return request(`/admin/prompts/frontend/${frontendId}`, { method: 'DELETE' });
+}
+
+export async function listPrompts(frontendId?: string): Promise<PromptsResponse> {
+  const qs = frontendId ? `?frontend_id=${frontendId}` : '';
+  return request(`/admin/prompts${qs}`);
+}
+
+export async function readPrompt(name: string, frontendId?: string): Promise<{ name: string; content: string }> {
+  const qs = frontendId ? `?frontend_id=${frontendId}` : '';
+  return request(`/admin/prompts/${name}${qs}`);
+}
+
+export async function savePrompt(name: string, content: string, frontendId?: string): Promise<PromptFile> {
+  const qs = frontendId ? `?frontend_id=${frontendId}` : '';
+  return request(`/admin/prompts/${name}${qs}`, {
     method: 'PUT',
     body: JSON.stringify({ content }),
   });
@@ -229,15 +251,17 @@ export interface RAGDocument {
   modified: number
 }
 
-export async function listRAGDocuments(): Promise<{ documents: RAGDocument[] }> {
-  return request('/admin/rag/documents');
+export async function listRAGDocuments(frontendId?: string): Promise<{ documents: RAGDocument[] }> {
+  const qs = frontendId ? `?frontend_id=${frontendId}` : '';
+  return request(`/admin/rag/documents${qs}`);
 }
 
-export async function uploadRAGDocument(file: File): Promise<{ name: string; size: number }> {
+export async function uploadRAGDocument(file: File, frontendId?: string): Promise<{ name: string; size: number }> {
   const token = localStorage.getItem('hrdd_admin_token');
   const formData = new FormData();
   formData.append('file', file);
-  const res = await fetch('/admin/rag/upload', {
+  const qs = frontendId ? `?frontend_id=${frontendId}` : '';
+  const res = await fetch(`/admin/rag/upload${qs}`, {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: formData,
@@ -249,12 +273,25 @@ export async function uploadRAGDocument(file: File): Promise<{ name: string; siz
   return res.json();
 }
 
-export async function deleteRAGDocument(name: string): Promise<void> {
-  return request(`/admin/rag/documents/${name}`, { method: 'DELETE' });
+export async function deleteRAGDocument(name: string, frontendId?: string): Promise<void> {
+  const qs = frontendId ? `?frontend_id=${frontendId}` : '';
+  return request(`/admin/rag/documents/${name}${qs}`, { method: 'DELETE' });
 }
 
-export async function reindexRAG(): Promise<{ status: string; document_count: number; node_count?: number }> {
-  return request('/admin/rag/reindex', { method: 'POST' });
+export async function reindexRAG(frontendId?: string): Promise<{ status: string; document_count: number; node_count?: number }> {
+  const qs = frontendId ? `?frontend_id=${frontendId}` : '';
+  return request(`/admin/rag/reindex${qs}`, { method: 'POST' });
+}
+
+export async function getCampaignRAGConfig(frontendId: string): Promise<{ include_global_rag: boolean }> {
+  return request(`/admin/rag/campaign/${frontendId}/config`);
+}
+
+export async function updateCampaignRAGConfig(frontendId: string, includeGlobal: boolean): Promise<{ include_global_rag: boolean }> {
+  return request(`/admin/rag/campaign/${frontendId}/config`, {
+    method: 'PUT',
+    body: JSON.stringify({ include_global_rag: includeGlobal }),
+  });
 }
 
 // --- SMTP API ---

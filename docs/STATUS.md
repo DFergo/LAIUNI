@@ -604,27 +604,93 @@ New: language → disclaimer → session (new/recover) → **role selection** �
 
 ---
 
-### Sprint 8h — Campaign-Specific RAG (PLANNED)
+### Sprint 8h — Campaign-Specific Prompts & RAG (IN PROGRESS)
 
-**Goal:** Campaign documents attached to specific frontend deployments.
+**Goal:** Per-frontend prompt sets and RAG document collections for parallel campaigns.
 
-**Depends on:** Sprint 8a (disk persistence), Sprint 7a (RAG service)
+**Depends on:** Sprint 8a (disk persistence), Sprint 7a (RAG service), Sprint 8f (frontend_id in sessions)
 
-#### Deliverables
-- [ ] Campaign documents tied to specific frontend IDs in backend
-- [ ] Admin RAG tab: frontend selector to assign documents per deployment
-- [ ] Campaign RAG injected alongside global RAG for sessions on that frontend
-- [ ] Frontend-specific document management (upload/delete per frontend)
-- [ ] Campaign documents stored in `/app/data/campaigns/{frontend_id}/`
-- [ ] Separate LlamaIndex index per campaign
+**Idea source:** `docs/ideas.md` — "Campañas paralelas: prompts y RAG por frontend"
+
+#### Part 1: Per-Frontend Prompts (Toggle Mode: Global / Per Frontend)
+
+Toggle at top of Prompts tab controls the mode:
+
+- **Global** (default): single prompt set, applies to all frontends. Current behavior.
+- **Per Frontend**: each frontend gets its own prompt set. Global prompts are ignored.
+
+When switching Global → Per Frontend:
+- All global prompts are copied to each registered frontend that doesn't already have custom prompts
+- Each frontend starts as a copy of global, admin can then customize per frontend
+
+When switching Per Frontend → Global:
+- Frontend-specific prompts stay on disk (not deleted) but are ignored
+- All frontends use global prompts again
+
+- [x] Prompt mode config: `/app/data/prompt_mode.json` — `{ "mode": "global" | "per_frontend" }`
+- [x] `prompt_assembler.py` — accept `frontend_id`, check mode:
+  - `global` → load from `/app/data/prompts/` (current behavior)
+  - `per_frontend` → load from `/app/data/campaigns/{frontend_id}/prompts/`
+- [x] Prompt storage per frontend: `/app/data/campaigns/{frontend_id}/prompts/`
+- [x] Admin Prompts tab UI:
+  - Toggle "Global / Per Frontend" at top
+  - Global mode = current editor (unchanged)
+  - Per Frontend mode = frontend selector tabs/dropdown + prompt editor scoped to selected frontend
+  - Auto-copy from global when activating Per Frontend mode (for frontends without existing prompts)
+- [x] Backend prompt endpoints: accept optional `?frontend_id=` query param (used in Per Frontend mode)
+- [x] `polling.py` — pass `frontend_id` to `assemble_system_prompt()`
+
+#### Part 2: Per-Frontend RAG (Additive Model)
+
+RAG is always additive. Global RAG panel stays. Each frontend can have its own documents AND toggle whether to also include global RAG.
+
+- [x] RAG storage: `/app/data/campaigns/{frontend_id}/documents/` + `/app/data/campaigns/{frontend_id}/rag_index/`
+- [x] `rag_service.py` — per-campaign index (cached in-memory like global)
+  - `get_relevant_chunks(query, top_k, frontend_id)` → queries campaign index + optionally global
+  - `index_campaign(frontend_id)` — build index from campaign docs
+  - `add_campaign_document(frontend_id, ...)` / `remove_campaign_document(frontend_id, ...)`
+- [x] Campaign RAG config: `/app/data/campaigns/{frontend_id}/rag_config.json`
+  - `include_global_rag: true` (default) — per frontend toggle
+- [x] Admin RAG tab UI:
+  - Global RAG section stays at top (current behavior, always visible)
+  - Below: collapsible "Campaign Documents" section per registered frontend
+  - Each frontend section: document list + upload/delete + "Include Global RAG" toggle + Reindex
+  - Frontends without campaign docs show empty state with upload button
+- [x] Backend RAG endpoints: accept optional `?frontend_id=` query param
+- [x] `polling.py` — pass `frontend_id` to `get_relevant_chunks()`
+
+#### Part 3: Backend Integration
+
+- [x] `frontend_id` already available in polling loop (from frontend registry)
+- [x] `frontend_id` already stored in `session.json` (from Sprint 8f)
+- [x] Campaign directory auto-created on first upload or prompt copy
+- [x] Deleting a frontend from admin does NOT delete campaign data (files preserved on disk)
+- [ ] When a new frontend is registered and prompt mode is `per_frontend` → auto-copy global prompts
+
+#### Part 4: Admin UI
+
+- [x] Prompts tab: mode toggle + conditional UI (global editor vs. frontend selector + scoped editor)
+- [x] RAG tab: global section (unchanged) + campaign sections per frontend (collapsible)
+- [x] Visual indicator when a frontend has campaign documents (count badge)
 
 #### Acceptance Criteria
-- [ ] Admin can assign documents to a specific frontend
-- [ ] Sessions on that frontend receive campaign-specific RAG context
-- [ ] Global RAG documents still apply to all frontends
+- [ ] Prompts toggle "Global / Per Frontend" works and persists
+- [ ] Global mode: all frontends use same prompts (current behavior, no regression)
+- [ ] Per Frontend mode: each frontend has its own prompt set
+- [ ] Switching to Per Frontend auto-copies global prompts to frontends without custom sets
+- [ ] Switching back to Global ignores frontend prompts (but doesn't delete them)
+- [ ] Admin can edit prompts per frontend in Per Frontend mode
+- [ ] Admin can upload campaign-specific RAG documents per frontend
+- [ ] Campaign docs indexed in separate LlamaIndex index per frontend
+- [ ] "Include Global RAG" toggle per frontend controls global chunk inclusion
+- [ ] Default: include global RAG = true (new frontends get global + campaign)
+- [ ] Sessions on a frontend receive correct prompts (global or frontend-specific)
+- [ ] Sessions on a frontend receive correct RAG (campaign + optionally global)
 - [ ] Campaign docs don't leak to other frontends
-- [ ] Documents persist across container restarts
-- [ ] Reindex works per campaign
+- [ ] Documents and prompts persist across container restarts
+- [ ] Reindex works per campaign and globally
+- [ ] Removing a frontend does NOT delete its campaign data from disk
+- [ ] New frontend registered in Per Frontend mode → gets global prompts copied automatically
 
 ---
 

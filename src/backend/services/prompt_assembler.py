@@ -1,6 +1,7 @@
 """Assembles the system prompt from case-specific prompt files + survey context + knowledge base.
 
 Sprint 7c: Monolithic case prompts replace modular core+role+mode concatenation.
+Sprint 8h: Per-frontend prompt sets (exclusive model — toggle Global / Per Frontend).
 Structure: core.md + case prompt (per profile+case) + context_template + knowledge base.
 """
 
@@ -16,14 +17,85 @@ logger = logging.getLogger("backend.prompts")
 # Default prompts shipped with the app — copied to data dir on first run
 _DEFAULTS_DIR = Path(__file__).parent.parent / "prompts"
 
+# Prompt mode config file
+_PROMPT_MODE_PATH = Path("/app/data/prompt_mode.json")
 
-def _prompts_dir() -> Path:
+
+def _prompts_dir(frontend_id: str | None = None) -> Path:
+    """Resolve prompts directory based on prompt mode and frontend_id."""
+    mode = get_prompt_mode()
+    if mode == "per_frontend" and frontend_id:
+        campaign_dir = Path(f"/app/data/campaigns/{frontend_id}/prompts")
+        if campaign_dir.exists() and any(campaign_dir.glob("*.md")):
+            return campaign_dir
+        # Fallback to global if frontend has no custom prompts yet
+        logger.debug(f"No custom prompts for frontend {frontend_id}, using global")
     return Path(config.prompts_path)
+
+
+def _global_prompts_dir() -> Path:
+    """Always return the global prompts directory (for admin, defaults, etc.)."""
+    return Path(config.prompts_path)
+
+
+def get_prompt_mode() -> str:
+    """Get current prompt mode: 'global' or 'per_frontend'."""
+    if _PROMPT_MODE_PATH.exists():
+        try:
+            data = json.loads(_PROMPT_MODE_PATH.read_text())
+            return data.get("mode", "global")
+        except Exception:
+            pass
+    return "global"
+
+
+def set_prompt_mode(mode: str) -> str:
+    """Set prompt mode. Returns the new mode."""
+    if mode not in ("global", "per_frontend"):
+        raise ValueError(f"Invalid prompt mode: {mode}")
+    _PROMPT_MODE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _PROMPT_MODE_PATH.write_text(json.dumps({"mode": mode}))
+    logger.info(f"Prompt mode set to: {mode}")
+    return mode
+
+
+def copy_global_to_frontend(frontend_id: str) -> int:
+    """Copy all global prompts to a frontend's campaign directory. Returns count."""
+    global_dir = _global_prompts_dir()
+    campaign_dir = Path(f"/app/data/campaigns/{frontend_id}/prompts")
+    campaign_dir.mkdir(parents=True, exist_ok=True)
+    count = 0
+    for src_file in global_dir.glob("*.md"):
+        dst_file = campaign_dir / src_file.name
+        if not dst_file.exists():
+            dst_file.write_text(src_file.read_text())
+            count += 1
+    logger.info(f"Copied {count} global prompts to frontend {frontend_id}")
+    return count
+
+
+def delete_frontend_prompts(frontend_id: str) -> int:
+    """Delete all custom prompts for a frontend. Returns count deleted."""
+    campaign_dir = Path(f"/app/data/campaigns/{frontend_id}/prompts")
+    if not campaign_dir.exists():
+        return 0
+    count = 0
+    for f in campaign_dir.glob("*.md"):
+        f.unlink()
+        count += 1
+    logger.info(f"Deleted {count} custom prompts for frontend {frontend_id}")
+    return count
+
+
+def frontend_has_custom_prompts(frontend_id: str) -> bool:
+    """Check if a frontend has any custom prompt files."""
+    campaign_dir = Path(f"/app/data/campaigns/{frontend_id}/prompts")
+    return campaign_dir.exists() and any(campaign_dir.glob("*.md"))
 
 
 def ensure_defaults():
     """Copy default prompt files to data dir if they don't exist yet."""
-    dest = _prompts_dir()
+    dest = _global_prompts_dir()
     dest.mkdir(parents=True, exist_ok=True)
     for src_file in _DEFAULTS_DIR.glob("*.md"):
         dst_file = dest / src_file.name
@@ -32,9 +104,9 @@ def ensure_defaults():
             logger.info(f"Installed default prompt: {src_file.name}")
 
 
-def _load(name: str) -> str:
+def _load(name: str, frontend_id: str | None = None) -> str:
     """Load a prompt file by name. Returns empty string if not found."""
-    path = _prompts_dir() / name
+    path = _prompts_dir(frontend_id) / name
     if path.exists():
         return path.read_text().strip()
     logger.warning(f"Prompt file not found: {name}")
@@ -71,9 +143,9 @@ def _resolve_case_prompt(role: str, mode: str) -> str:
     return f"{role}_{file_suffix}.md"
 
 
-def _render_context(survey: dict[str, Any] | None, language: str) -> str:
+def _render_context(survey: dict[str, Any] | None, language: str, frontend_id: str | None = None) -> str:
     """Render context_template.md with survey data."""
-    template = _load("context_template.md")
+    template = _load("context_template.md", frontend_id)
     if not template or not survey:
         return ""
 
@@ -145,15 +217,16 @@ def _build_knowledge_section(survey: dict[str, Any] | None, language: str) -> st
     return "\n\n".join(parts)
 
 
-def assemble_system_prompt(survey: dict[str, Any] | None, language: str = "en") -> str:
+def assemble_system_prompt(survey: dict[str, Any] | None, language: str = "en", frontend_id: str | None = None) -> str:
     """Build the full system prompt from case-specific prompt files.
 
     Structure: core + case prompt (profile+case) + context(survey) + knowledge base
+    Sprint 8h: frontend_id used to resolve per-frontend prompts when mode is 'per_frontend'.
     """
     parts: list[str] = []
 
     # 1. Core system prompt (universal instructions)
-    core = _load("core.md")
+    core = _load("core.md", frontend_id)
     if core:
         parts.append(core)
 
@@ -162,15 +235,15 @@ def assemble_system_prompt(survey: dict[str, Any] | None, language: str = "en") 
         role = survey.get("role", "worker")
         mode = survey.get("type", "documentation")
         case_file = _resolve_case_prompt(role, mode)
-        case_prompt = _load(case_file)
-        logger.info(f"Case prompt: {case_file} for {role}/{mode}")
+        case_prompt = _load(case_file, frontend_id)
+        logger.info(f"Case prompt: {case_file} for {role}/{mode} (frontend={frontend_id})")
         if case_prompt:
             parts.append(case_prompt)
         else:
             logger.warning(f"No case prompt found for {role}/{mode} ({case_file})")
 
         # 3. Context from survey data
-        context = _render_context(survey, language)
+        context = _render_context(survey, language, frontend_id)
         if context:
             parts.append(context)
 

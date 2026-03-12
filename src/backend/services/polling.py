@@ -77,7 +77,7 @@ async def poll_frontends():
 
                 # Generate one response per token for all accumulated uploads
                 for tk, results in all_results.items():
-                    await _respond_to_upload(client, url, tk, results)
+                    await _respond_to_upload(client, url, tk, results, fid)
             except Exception as e:
                 logger.warning(f"Failed to poll uploads from {fid}: {e}")
 
@@ -151,7 +151,7 @@ async def _safe_process(msg: dict[str, Any]):
     try:
         # If first message with survey, build system prompt and store it
         if survey:
-            system_prompt = assemble_system_prompt(survey, language)
+            system_prompt = assemble_system_prompt(survey, language, frontend_id)
             history.init_session(session_token, system_prompt, survey, language, frontend_name, frontend_id)
 
         # Finalize: generate summary instead of normal processing
@@ -181,7 +181,7 @@ async def _safe_process(msg: dict[str, Any]):
             llm_messages.insert(-1, {"role": "system", "content": evidence_context})
 
         # Inject RAG context — retrieve relevant document chunks for this message
-        rag_chunks = get_relevant_chunks(content)
+        rag_chunks = get_relevant_chunks(content, frontend_id=frontend_id)
         # Also query session-specific evidence RAG
         session_rag_chunks = get_session_rag_chunks(session_token, content)
         all_chunks = rag_chunks + session_rag_chunks
@@ -662,6 +662,7 @@ async def _respond_to_upload(
     frontend_url: str,
     token: str,
     results: list[dict[str, Any]],
+    frontend_id: str = "",
 ):
     """Generate an automatic LLM response acknowledging uploaded document(s)."""
     try:
@@ -711,7 +712,7 @@ async def _respond_to_upload(
         # RAG chunks for the uploaded documents
         query = " ".join(filenames)
         session_rag_chunks = get_session_rag_chunks(token, query)
-        rag_chunks = get_relevant_chunks(query)
+        rag_chunks = get_relevant_chunks(query, frontend_id=frontend_id)
         all_chunks = rag_chunks + session_rag_chunks
         if all_chunks:
             rag_context = (
