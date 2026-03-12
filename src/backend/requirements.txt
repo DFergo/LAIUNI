@@ -9,3 +9,4 @@ llama-index-readers-file>=0.4
 docx2txt>=0.8
 llama-index-embeddings-huggingface>=0.5
 sentence-transformers>=2.2
+aiosmtplib>=3.0

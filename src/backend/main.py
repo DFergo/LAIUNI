@@ -33,6 +33,9 @@ async def lifespan(app: FastAPI):
     # Initialize RAG index (loads from disk or builds from documents)
     from src.services.rag_service import initialize as init_rag
     init_rag()
+    # Non-blocking SMTP health check (logs warning if unreachable)
+    from src.services.smtp_service import check_smtp_health
+    asyncio.create_task(check_smtp_health())
     # Start polling loop on startup
     poll_task = asyncio.create_task(polling_loop(config.poll_interval_seconds))
     lifecycle_task = asyncio.create_task(lifecycle_loop())

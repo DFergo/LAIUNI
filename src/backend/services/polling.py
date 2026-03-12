@@ -14,6 +14,10 @@ from src.services.evidence_processor import get_session_rag_chunks, load_evidenc
 from src.services.session_store import store as history
 from src.services.context_compressor import get_session_summary, load_session_summary
 from src.services.context_compressor import compress_if_needed, estimate_messages_tokens
+from src.services.smtp_service import (
+    is_email_authorized, generate_auth_code, verify_auth_code,
+    send_auth_code, is_configured as smtp_configured,
+)
 from src.api.v1.admin.llm import get_llm_settings
 
 logger = logging.getLogger("backend.polling")
@@ -51,6 +55,11 @@ async def poll_frontends():
             recovery_requests = data.get("recovery_requests", [])
             for token in recovery_requests:
                 await _handle_recovery(url, token)
+
+            # Handle auth requests (pull-inverse: sidecar queues, backend resolves)
+            auth_requests = data.get("auth_requests", [])
+            for auth_req in auth_requests:
+                await _handle_auth_request(client, url, auth_req)
 
             # Handle file uploads — collect all uploads, process, then respond per token
             try:
@@ -413,20 +422,45 @@ async def _generate_internal_documents(
         logger.error(f"Internal UNI summary failed for {session_token}: {e}")
 
     # 2. Report (skipped for training mode)
+    report_content = None
     if mode == "training":
         logger.info(f"Report skipped for {session_token} (training mode)")
     else:
         try:
-            report = await _generate_document(
+            report_content = await _generate_document(
                 session_token, "internal_case_file.md", language, settings
             )
-            if report:
+            if report_content:
                 path = os.path.join(session_dir, "report.md")
                 with open(path, "w") as f:
-                    f.write(report)
+                    f.write(report_content)
                 logger.info(f"Report saved: {path}")
         except Exception as e:
             logger.error(f"Report generation failed for {session_token}: {e}")
+
+    # Sprint 9: Send email notifications (best-effort)
+    try:
+        from src.services.smtp_service import notify_admin_report, send_user_summary, send_user_report
+        session_data = history.get_session(session_token)
+        user_email = session_data.get("survey", {}).get("email", "") if session_data else ""
+
+        if report_content:
+            await notify_admin_report(session_token, report_content)
+
+        if user_email and is_email_authorized(user_email):
+            # Read summary from disk (saved by _finalize_session)
+            import os
+            summary_path = os.path.join(f"/app/data/sessions/{session_token}", "summary.md")
+            summary_text = ""
+            if os.path.exists(summary_path):
+                with open(summary_path) as sf:
+                    summary_text = sf.read()
+            if summary_text:
+                await send_user_summary(user_email, session_token, summary_text, language)
+            if report_content:
+                await send_user_report(user_email, session_token, report_content, language)
+    except Exception as e:
+        logger.warning(f"Email notification failed for {session_token}: {e}")
 
 
 async def _generate_document(
@@ -594,6 +628,67 @@ async def _handle_recovery(frontend_url: str, token: str):
             pass
     finally:
         await client.aclose()
+
+
+async def _handle_auth_request(client: httpx.AsyncClient, frontend_url: str, auth_req: dict[str, Any]):
+    """Handle an auth request from the sidecar (pull-inverse)."""
+    session_token = auth_req.get("session_token", "")
+    email = auth_req.get("email", "").lower().strip()
+    code_attempt = auth_req.get("code", "")
+    language = auth_req.get("language", "en")
+
+    if not session_token:
+        return
+
+    try:
+        if code_attempt:
+            # Verification attempt
+            valid = verify_auth_code(session_token, code_attempt)
+            result = {
+                "session_token": session_token,
+                "status": "verified" if valid else "invalid_code",
+                "email": email,
+            }
+        else:
+            # Code request — check whitelist, generate code, send email
+            if not is_email_authorized(email):
+                result = {
+                    "session_token": session_token,
+                    "status": "not_authorized",
+                    "email": email,
+                }
+                logger.info(f"Auth rejected: {email} not in whitelist")
+            elif not smtp_configured():
+                result = {
+                    "session_token": session_token,
+                    "status": "smtp_not_configured",
+                    "email": email,
+                }
+                logger.warning(f"Auth request but SMTP not configured")
+            else:
+                code = generate_auth_code(session_token, email)
+                sent = await send_auth_code(email, code, language)
+                if sent:
+                    result = {
+                        "session_token": session_token,
+                        "status": "code_sent",
+                        "email": email,
+                    }
+                    logger.info(f"Auth code sent to {email} for {session_token}")
+                else:
+                    result = {
+                        "session_token": session_token,
+                        "status": "smtp_error",
+                        "email": email,
+                    }
+                    logger.error(f"Failed to send auth code to {email}")
+
+        await client.post(
+            f"{frontend_url}/internal/auth/{session_token}/result",
+            json=result,
+        )
+    except Exception as e:
+        logger.error(f"Auth request handling failed: {e}")
 
 
 async def _handle_upload(client: httpx.AsyncClient, frontend_url: str, upload: dict[str, Any]) -> dict[str, str] | None:

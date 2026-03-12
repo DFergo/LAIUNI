@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-12
 
-## Current State: v2 Rewrite — Sprint 8g Complete
+## Current State: v2 Rewrite — Sprint 9 In Progress
 
 ### Sprint 0 — Project Setup ✅
 - [x] Product specification written (SPEC-v2.md)
@@ -694,8 +694,110 @@ RAG is always additive. Global RAG panel stays. Each frontend can have its own d
 
 ---
 
-### What's Needed After Sprint 8
-- **Sprint 9:** SMTP integration (auth codes, report forwarding, admin notifications)
+### Sprint 9 — SMTP Integration + Email Auth (IN PROGRESS)
+
+**Goal:** Email service for auth codes, report forwarding, and admin notifications. Everything disableable — system works fully without SMTP.
+
+**Depends on:** Sprint 8c (session closure), Sprint 8d (reports), Sprint 6 (SMTP tab stub)
+
+**Design decisions (from discussion with Daniel):**
+- SMTP is best-effort: failure never blocks the user flow (except auth — see below)
+- Auth bypass via `auth_required: false` in deployment config (editable via Portainer)
+- Email whitelist managed in backend admin panel
+- Metrics/abuse detection deferred to backlog
+- Email format: text with markdown content
+- Language: admin emails in English, user emails in session language
+- Gmail SMTP for testing (smtp.gmail.com:587, app password)
+
+#### Part 1: SMTP Service
+
+- [x] `services/smtp_service.py` — async email sending with aiosmtplib
+  - `send_email(to, subject, body)` — basic send function (best-effort, never raises)
+  - `test_connection()` — tests SMTP + optionally sends test email
+  - `check_smtp_health()` — non-blocking startup health check
+  - TLS support (Gmail compatible)
+- [x] Admin SMTP tab: "Test Connection" wired to real test endpoint
+- [x] SMTP master toggle: if host is empty, all email features silently skip
+- [x] Add `aiosmtplib>=3.0` to backend requirements.txt
+- [x] SMTP health check on startup (non-blocking, logs warning if unreachable)
+
+#### Part 2: Email Authentication (Organizer)
+
+- [x] **Email whitelist** in backend admin:
+  - Authorized emails section in SMTP tab
+  - Add/remove email addresses
+  - Stored in `/app/data/authorized_emails.json`
+  - Backend endpoints: `GET/PUT /admin/smtp/authorized-emails`
+- [x] **Auth flow via pull-inverse:**
+  - Frontend `AuthPage.tsx` → POST email to sidecar → backend polls
+  - Backend checks whitelist → if not found, rejects with "not authorized"
+  - Backend generates 6-digit code, stores with 10-min expiry (in-memory)
+  - Backend sends code via SMTP to the email
+  - Frontend shows code input → POST code to sidecar → backend verifies
+  - On success: backend pushes verification result to sidecar → frontend proceeds
+- [x] **Sidecar endpoints:**
+  - `POST /internal/auth/request-code` — request auth code
+  - `POST /internal/auth/verify-code` — submit code for verification
+  - `GET /internal/auth/status/{session_token}` — frontend polls for result
+  - `POST /internal/auth/{session_token}/result` — backend pushes result
+  - Auth requests included in `GET /internal/queue` response for backend polling
+- [x] **Auth bypass:** `auth_required: false` in deployment config → auth phase skipped
+- [x] **Backend auth handler:** `_handle_auth_request()` in polling.py
+  - Whitelist check → code generation → SMTP send → result push to sidecar
+  - Code verification → result push to sidecar
+- [x] **SMTP failure handling:**
+  - Poll-based with 30s timeout (not retry button — cleaner UX)
+  - Clear error messages per status (not_authorized, smtp_error, timeout, invalid_code)
+  - After 3 failed code attempts: "Contact administrator" message, input disabled
+  - Backend logs all SMTP errors
+- [x] **i18n:** auth error messages in EN/ES/FR + English fallback for all other languages
+
+#### Part 3: Notification Toggles (Admin SMTP Tab)
+
+- [x] SMTP config expanded with notification toggles:
+  - `notify_on_report: bool` — email admin on report generation (default: false)
+  - `send_summary_to_user: bool` — email summary to user (default: false)
+  - `send_report_to_user: bool` — email report to user (default: false)
+- [x] Admin SMTP tab: "Email Notifications" section with descriptive toggles
+- [x] Integration in `_generate_internal_documents()` (polling.py):
+  - After report generation: check toggles → send if enabled
+  - User emails only sent if email in authorized_emails
+  - User emails in session language, admin emails in English
+- [x] `smtp_service.py` notification functions:
+  - `notify_admin_report()` — admin notification with report content
+  - `send_user_summary()` — session summary to user (multi-language)
+  - `send_user_report()` — report to user (multi-language)
+
+#### Part 4: Frontend Auth Flow (Wire Up)
+
+- [x] `AuthPage.tsx` — real sidecar calls:
+  - POST email to `/internal/auth/request-code`
+  - Poll `/internal/auth/status/{session_token}` for result
+  - Handle: code_sent, verified, invalid_code, not_authorized, smtp_error, timeout states
+  - Max 3 code verification attempts, then disabled + "contact admin"
+  - "Code sent to [email]" confirmation message
+- [x] Store verified email in session (passed to backend with survey)
+
+#### Acceptance Criteria
+- [x] SMTP sends emails via aiosmtplib (Gmail or any SMTP server)
+- [x] "Test Connection" sends real test email to admin address
+- [x] System works fully without SMTP configured (all email features silently skip)
+- [x] Organizer auth: email → whitelist check → code sent → code verified → proceed
+- [x] Non-whitelisted email → clear rejection message
+- [x] `auth_required: false` → auth phase skipped entirely
+- [x] SMTP failure during auth → clear error, 3-attempt limit
+- [x] SMTP health checked on startup (warning log if unreachable, non-blocking)
+- [x] Admin toggle: notify on report → email sent to admin
+- [x] Admin toggle: send summary/report to user → email sent to user (organizer only)
+- [x] User emails in session language, admin emails in English
+- [x] Notification toggles persist in smtp_config.json
+- [x] Authorized emails list managed from admin panel
+- [x] All email sending is best-effort (failure logged, never crashes system)
+- [x] Verified email stored in session for notifications
+
+---
+
+### What's Needed After Sprint 9
 - **Sprint 10:** Ethical guardrails + content safety
 - **Sprint 11:** Polish + production deployment + repetition detection
 - **Sprint 12:** Letta/MemGPT integration (experimental)

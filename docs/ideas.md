@@ -167,6 +167,26 @@ Después de definir los prompts finales por perfil/caso, dedicar una fase de tes
 
 ---
 
+### Monitorización externa con alertas Telegram
+**Added:** 2026-03-12 | **Sprint:** Backlog (post-Sprint 11) | **Effort:** S (horas)
+
+Script bash en el Mac host (fuera de Docker) que chequea periódicamente la salud del sistema y envía alertas via Telegram Bot API si algo falla. Ejecutado por launchd cada 5-10 minutos.
+
+**Checks posibles:**
+- Backend health (`/health` endpoint)
+- SMTP conectividad (si está configurado)
+- LLM providers (LM Studio / Ollama online)
+- Espacio en disco del volumen Docker
+- Containers running (docker ps)
+
+**Stack:** bash + curl + launchd plist en `~/Library/LaunchAgents/`. Telegram Bot API para notificaciones (funciona desde el móvil, no requiere sesión activa en el Mac). Alternativa: iMessage via osascript (requiere sesión).
+
+**Requisitos:** Crear Telegram bot (@BotFather), obtener chat_id, guardar token como variable de entorno.
+
+**Analysis:** No es un sprint de código del proyecto — es infraestructura del host. Implementable en una hora. Útil para producción headless. No tiene dependencias con ningún sprint. Se puede hacer en cualquier momento después de tener el backend en producción.
+
+---
+
 ### Summariser dedicado para resúmenes de evidencia
 **Added:** 2026-03-12 | **Sprint:** Backlog | **Effort:** S (horas)
 

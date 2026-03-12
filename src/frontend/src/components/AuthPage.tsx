@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { t } from '../i18n'
 import type { LangCode } from '../types'
 
 interface Props {
   lang: LangCode
-  onVerified: () => void
+  onVerified: (email: string) => void
 }
 
 export default function AuthPage({ lang, onVerified }: Props) {
@@ -13,6 +13,29 @@ export default function AuthPage({ lang, onVerified }: Props) {
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [retries, setRetries] = useState(0)
+  const sessionTokenRef = useRef(`auth-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+
+  const MAX_RETRIES = 3
+
+  const pollAuthStatus = useCallback(async (expectedStatus: string[]): Promise<string> => {
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 1000))
+      try {
+        const resp = await fetch(`/internal/auth/status/${sessionTokenRef.current}`)
+        const data = await resp.json()
+        if (expectedStatus.includes(data.status)) {
+          return data.status
+        }
+        if (data.status !== 'pending' && data.status !== 'verifying') {
+          return data.status
+        }
+      } catch {
+        continue
+      }
+    }
+    return 'timeout'
+  }, [])
 
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -20,12 +43,30 @@ export default function AuthPage({ lang, onVerified }: Props) {
     setLoading(true)
 
     try {
-      // Sprint 9 will implement actual SMTP sending
-      // For now, simulate code sent
-      await new Promise(r => setTimeout(r, 500))
-      setCodeSent(true)
+      const resp = await fetch('/internal/auth/request-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_token: sessionTokenRef.current,
+          email,
+          language: lang,
+        }),
+      })
+      if (!resp.ok) throw new Error('Request failed')
+
+      const status = await pollAuthStatus(['code_sent', 'not_authorized', 'smtp_error', 'smtp_not_configured'])
+
+      if (status === 'code_sent') {
+        setCodeSent(true)
+      } else if (status === 'not_authorized') {
+        setError(t('auth_not_authorized', lang))
+      } else if (status === 'smtp_error' || status === 'smtp_not_configured') {
+        setError(t('auth_smtp_error', lang))
+      } else {
+        setError(t('auth_timeout', lang))
+      }
     } catch {
-      setError('Failed to send code')
+      setError(t('auth_smtp_error', lang))
     } finally {
       setLoading(false)
     }
@@ -37,15 +78,34 @@ export default function AuthPage({ lang, onVerified }: Props) {
     setLoading(true)
 
     try {
-      // Sprint 9 will implement actual verification
-      // For now, accept any 6-digit code
-      if (code.length === 6 && /^\d+$/.test(code)) {
-        onVerified()
+      const resp = await fetch('/internal/auth/verify-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_token: sessionTokenRef.current,
+          code,
+          language: lang,
+        }),
+      })
+      if (!resp.ok) throw new Error('Request failed')
+
+      const status = await pollAuthStatus(['verified', 'invalid_code'])
+
+      if (status === 'verified') {
+        onVerified(email)
+      } else if (status === 'invalid_code') {
+        const newRetries = retries + 1
+        setRetries(newRetries)
+        if (newRetries >= MAX_RETRIES) {
+          setError(t('auth_max_retries', lang))
+        } else {
+          setError(t('auth_invalid_code', lang))
+        }
       } else {
-        setError('Invalid code format')
+        setError(t('auth_timeout', lang))
       }
     } catch {
-      setError('Verification failed')
+      setError(t('auth_smtp_error', lang))
     } finally {
       setLoading(false)
     }
@@ -79,6 +139,7 @@ export default function AuthPage({ lang, onVerified }: Props) {
           </form>
         ) : (
           <form onSubmit={handleVerify} className="space-y-4">
+            <p className="text-sm text-gray-600 mb-2">{t('auth_code_sent_to', lang)} <strong>{email}</strong></p>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t('auth_code_label', lang)}</label>
               <input
@@ -90,16 +151,20 @@ export default function AuthPage({ lang, onVerified }: Props) {
                 maxLength={6}
                 required
                 autoFocus
+                disabled={retries >= MAX_RETRIES}
               />
             </div>
             {error && <p className="text-uni-red text-sm">{error}</p>}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || retries >= MAX_RETRIES}
               className="w-full bg-uni-blue text-white rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? '...' : t('auth_verify', lang)}
             </button>
+            {retries >= MAX_RETRIES && (
+              <p className="text-sm text-gray-500 text-center">{t('auth_contact_admin', lang)}</p>
+            )}
           </form>
         )}
       </div>

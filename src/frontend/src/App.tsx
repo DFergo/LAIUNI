@@ -18,6 +18,7 @@ function App() {
   const [selectedRole, setSelectedRole] = useState<Role | null>(null)
   const [survey, setSurvey] = useState<SurveyData | null>(null)
   const [recoveryData, setRecoveryData] = useState<RecoveryData | null>(null)
+  const [verifiedEmail, setVerifiedEmail] = useState('')
 
   useEffect(() => {
     fetchConfig()
@@ -115,7 +116,8 @@ function App() {
     }
   }
 
-  const handleAuth = () => {
+  const handleAuth = (email: string) => {
+    setVerifiedEmail(email)
     setPhase('instructions')
   }
 
@@ -126,6 +128,10 @@ function App() {
 
   // survey → chat
   const handleSurvey = (data: SurveyData) => {
+    // Inject verified email from auth phase (if present)
+    if (verifiedEmail && !data.email) {
+      data.email = verifiedEmail
+    }
     setSurvey(data)
     setPhase('chat')
   }

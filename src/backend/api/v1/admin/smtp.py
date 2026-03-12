@@ -1,4 +1,7 @@
-"""Admin SMTP endpoints — config, test connection."""
+"""Admin SMTP endpoints — config, test, authorized emails, notification toggles.
+
+Sprint 9: Real SMTP with aiosmtplib, auth code flow, notification toggles.
+"""
 
 import json
 import logging
@@ -24,6 +27,9 @@ _DEFAULTS = {
     "use_tls": True,
     "from_address": "",
     "admin_notify_address": "",
+    "notify_on_report": False,
+    "send_summary_to_user": False,
+    "send_report_to_user": False,
 }
 
 
@@ -50,13 +56,15 @@ class SMTPConfigRequest(BaseModel):
     use_tls: bool | None = None
     from_address: str | None = None
     admin_notify_address: str | None = None
+    notify_on_report: bool | None = None
+    send_summary_to_user: bool | None = None
+    send_report_to_user: bool | None = None
 
 
 @router.get("")
 async def get_smtp_config(_: dict = Depends(require_admin)):
     """Get current SMTP configuration."""
     cfg = _load_config()
-    # Mask password in response
     if cfg.get("password"):
         cfg["password"] = "••••••••"
     return cfg
@@ -67,13 +75,11 @@ async def update_smtp_config(req: SMTPConfigRequest, _: dict = Depends(require_a
     """Update SMTP configuration."""
     current = _load_config()
     updates = req.model_dump(exclude_none=True)
-    # Don't overwrite password with masked value
     if updates.get("password") == "••••••••":
         del updates["password"]
     current.update(updates)
     _save_config(current)
     logger.info(f"SMTP config updated: {list(updates.keys())}")
-    # Return with masked password
     if current.get("password"):
         current["password"] = "••••••••"
     return current
@@ -81,9 +87,29 @@ async def update_smtp_config(req: SMTPConfigRequest, _: dict = Depends(require_a
 
 @router.post("/test")
 async def test_smtp(_: dict = Depends(require_admin)):
-    """Test SMTP connection (stub — actual implementation in Sprint 9)."""
-    cfg = _load_config()
-    if not cfg.get("host"):
-        return {"status": "error", "message": "SMTP host not configured"}
-    # Stub — real test in Sprint 9
-    return {"status": "not_implemented", "message": "SMTP test will be available in Sprint 9"}
+    """Test SMTP connection — sends real test email if admin address configured."""
+    from src.services.smtp_service import test_connection
+    result = await test_connection()
+    logger.info(f"SMTP test: {result}")
+    return result
+
+
+# --- Authorized Emails ---
+
+@router.get("/authorized-emails")
+async def get_authorized_emails(_: dict = Depends(require_admin)):
+    """Get list of authorized email addresses."""
+    from src.services.smtp_service import load_authorized_emails
+    return {"emails": load_authorized_emails()}
+
+
+class AuthorizedEmailsRequest(BaseModel):
+    emails: list[str]
+
+
+@router.put("/authorized-emails")
+async def update_authorized_emails(req: AuthorizedEmailsRequest, _: dict = Depends(require_admin)):
+    """Update list of authorized email addresses."""
+    from src.services.smtp_service import save_authorized_emails, load_authorized_emails
+    save_authorized_emails(req.emails)
+    return {"emails": load_authorized_emails()}

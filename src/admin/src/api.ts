@@ -304,6 +304,9 @@ export interface SMTPConfig {
   use_tls: boolean
   from_address: string
   admin_notify_address: string
+  notify_on_report: boolean
+  send_summary_to_user: boolean
+  send_report_to_user: boolean
 }
 
 export async function getSMTPConfig(): Promise<SMTPConfig> {
@@ -319,6 +322,17 @@ export async function updateSMTPConfig(data: Partial<SMTPConfig>): Promise<SMTPC
 
 export async function testSMTP(): Promise<{ status: string; message: string }> {
   return request('/admin/smtp/test', { method: 'POST' });
+}
+
+export async function getAuthorizedEmails(): Promise<{ emails: string[] }> {
+  return request('/admin/smtp/authorized-emails');
+}
+
+export async function updateAuthorizedEmails(emails: string[]): Promise<{ emails: string[] }> {
+  return request('/admin/smtp/authorized-emails', {
+    method: 'PUT',
+    body: JSON.stringify({ emails }),
+  });
 }
 
 // --- Knowledge Base API ---

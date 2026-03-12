@@ -109,10 +109,19 @@ async def dequeue_messages():
             if state["status"] == "pending":
                 recovery_requests.append(token)
 
+    # Collect pending auth requests
+    auth_requests = []
+    async with _auth_lock:
+        auth_requests = list(_auth_queue)
+        _auth_queue.clear()
+
     result: dict[str, Any] = {"messages": valid}
     if recovery_requests:
         result["recovery_requests"] = recovery_requests
         logger.info(f"Recovery requests: {recovery_requests}")
+    if auth_requests:
+        result["auth_requests"] = auth_requests
+        logger.info(f"Auth requests: {len(auth_requests)}")
 
     logger.info(f"Dequeued {len(valid)} messages")
     return result
@@ -232,6 +241,100 @@ async def stream_sse(session_token: str):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# --- Auth Requests (pull-inverse: sidecar queues, backend resolves) ---
+# session_token -> {"status": "pending"|"code_sent"|..., "email": str, ...}
+_auth_requests: dict[str, dict[str, Any]] = {}
+_auth_queue: list[dict[str, Any]] = []
+_auth_lock = asyncio.Lock()
+
+
+class AuthCodeRequest(BaseModel):
+    session_token: str
+    email: str
+    language: str = "en"
+
+
+class AuthVerifyRequest(BaseModel):
+    session_token: str
+    code: str
+    language: str = "en"
+
+
+class AuthResultRequest(BaseModel):
+    session_token: str
+    status: str  # "code_sent", "verified", "invalid_code", "not_authorized", "smtp_error", "smtp_not_configured"
+    email: str = ""
+
+
+@app.post("/internal/auth/request-code")
+async def request_auth_code(req: AuthCodeRequest):
+    """React app requests an auth code — queued for backend to process."""
+    async with _auth_lock:
+        _auth_requests[req.session_token] = {
+            "status": "pending",
+            "email": req.email,
+            "created_at": time.time(),
+        }
+        _auth_queue.append({
+            "session_token": req.session_token,
+            "email": req.email,
+            "language": req.language,
+        })
+    logger.info(f"Auth code requested for {req.email} (session {req.session_token})")
+    return {"status": "pending"}
+
+
+@app.post("/internal/auth/verify-code")
+async def verify_auth_code(req: AuthVerifyRequest):
+    """React app submits a code for verification — queued for backend."""
+    async with _auth_lock:
+        _auth_requests[req.session_token] = {
+            "status": "verifying",
+            "email": _auth_requests.get(req.session_token, {}).get("email", ""),
+            "created_at": time.time(),
+        }
+        _auth_queue.append({
+            "session_token": req.session_token,
+            "code": req.code,
+            "email": _auth_requests.get(req.session_token, {}).get("email", ""),
+            "language": req.language,
+        })
+    logger.info(f"Auth code verification for session {req.session_token}")
+    return {"status": "verifying"}
+
+
+@app.get("/internal/auth/status/{session_token}")
+async def get_auth_status(session_token: str):
+    """React app polls this to check auth result."""
+    async with _auth_lock:
+        state = _auth_requests.get(session_token)
+    if not state:
+        return {"status": "none"}
+    return {"status": state["status"], "email": state.get("email", "")}
+
+
+@app.post("/internal/auth/{session_token}/result")
+async def push_auth_result(session_token: str, req: AuthResultRequest):
+    """Backend pushes auth result (code_sent, verified, rejected, etc.)."""
+    async with _auth_lock:
+        if session_token in _auth_requests:
+            _auth_requests[session_token]["status"] = req.status
+            if req.email:
+                _auth_requests[session_token]["email"] = req.email
+            logger.info(f"Auth result for {session_token}: {req.status}")
+        else:
+            logger.warning(f"Auth result for {session_token} but no pending request")
+
+    # Auto-clean after 5 minutes
+    async def _cleanup():
+        await asyncio.sleep(300)
+        async with _auth_lock:
+            _auth_requests.pop(session_token, None)
+    asyncio.create_task(_cleanup())
+
+    return {"status": "ok"}
 
 
 # --- File Upload ---
