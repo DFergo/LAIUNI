@@ -18,6 +18,8 @@ from src.services.smtp_service import (
     is_email_authorized, generate_auth_code, verify_auth_code,
     send_auth_code, is_configured as smtp_configured,
 )
+from src.services.guardrails import check_content, get_session_ended_response
+from src.services.repetition_detector import RepetitionDetector
 from src.api.v1.admin.llm import get_llm_settings
 
 logger = logging.getLogger("backend.polling")
@@ -171,6 +173,46 @@ async def _safe_process(msg: dict[str, Any]):
         # Add user message to history
         history.add_message(session_token, "user", content)
 
+        # Pre-LLM guardrails check (§13.1) — pattern-based, fixed response
+        guardrail_result = check_content(content, language)
+        if guardrail_result.triggered:
+            from src.core.config import config as app_config
+            violations = history.increment_guardrail_violations(session_token)
+            logger.warning(
+                f"[{session_token}] Guardrail triggered ({guardrail_result.category}), "
+                f"violation {violations}/{app_config.guardrail_max_triggers}"
+            )
+
+            # Check if session should be ended
+            if violations >= app_config.guardrail_max_triggers:
+                # Flag and end session
+                history.toggle_flag(session_token)
+                ended_response = get_session_ended_response(language)
+                history.add_message(session_token, "assistant", ended_response)
+                history.set_status(session_token, "completed")
+                await client.post(
+                    f"{frontend_url}/internal/stream/{session_token}/chunk",
+                    json={"event": "token", "data": ended_response},
+                )
+                await client.post(
+                    f"{frontend_url}/internal/stream/{session_token}/chunk",
+                    json={"event": "done", "data": ended_response},
+                )
+                logger.warning(f"[{session_token}] Session ended — max guardrail violations reached")
+                return
+
+            # Return fixed response (skip LLM entirely)
+            history.add_message(session_token, "assistant", guardrail_result.response)
+            await client.post(
+                f"{frontend_url}/internal/stream/{session_token}/chunk",
+                json={"event": "token", "data": guardrail_result.response},
+            )
+            await client.post(
+                f"{frontend_url}/internal/stream/{session_token}/chunk",
+                json={"event": "done", "data": guardrail_result.response},
+            )
+            return
+
         # Build messages for LLM (system + conversation history)
         llm_messages = history.get_llm_messages(session_token)
 
@@ -216,6 +258,7 @@ async def _safe_process(msg: dict[str, Any]):
         raw_response = ""
         visible_response = ""
         in_think = False
+        rep_detector = RepetitionDetector()
         try:
             async for token in llm.stream_chat(
                 messages=llm_messages,
@@ -238,6 +281,11 @@ async def _safe_process(msg: dict[str, Any]):
                         raw_response = after
                     continue
 
+                # Check for repetition loops before streaming
+                if rep_detector.check(token):
+                    logger.warning(f"[{session_token}] Repetition loop detected, stopping generation")
+                    break
+
                 # Stream visible tokens to frontend
                 visible_response += token
                 await client.post(
@@ -256,6 +304,11 @@ async def _safe_process(msg: dict[str, Any]):
                     json={"event": "token", "data": t},
                 )
                 await asyncio.sleep(0.05)
+
+        # If repetition was detected, use cleaned output instead
+        if rep_detector.triggered:
+            visible_response = rep_detector.get_clean_output()
+            logger.info(f"[{session_token}] Using trimmed response ({len(visible_response)} chars)")
 
         # Strip think blocks from final response for history and done event
         clean_response = visible_response.strip() if visible_response else raw_response.strip()

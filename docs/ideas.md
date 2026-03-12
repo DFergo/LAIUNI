@@ -195,3 +195,18 @@ Los resúmenes de documentos subidos usan el summariser (mismo modelo que la com
 **Analysis:** Cambio menor. Añadir `evidence_summariser_model` y `evidence_summariser_provider` a LLM settings. `evidence_processor.py` ya lee settings para elegir provider/model — solo cambiar las keys que consulta. UI: un selector más en admin LLM tab.
 
 ---
+
+### Sprint de traducción de textos del frontend
+**Added:** 2026-03-12 | **Sprint:** Post-diseño de prompts (después de fase de test de calidad) | **Effort:** M (1-2 días)
+
+**Descripción:** Dedicar un sprint completo a revisar y completar la traducción de TODOS los textos fijos que ve el usuario final en el frontend. Actualmente muchos idiomas usan fallback a inglés. Los prompts y el admin se mantienen solo en inglés — este sprint es exclusivamente para textos del frontend (i18n.ts): UI labels, mensajes de error, disclaimer, instrucciones, respuestas fijas de guardrails, etc.
+
+**Incluye:**
+- Revisar i18n.ts: completar traducciones reales para los 31 idiomas (actualmente muchos son English fallback)
+- Respuestas fijas de guardrails en los 31 idiomas
+- Mensajes de auth, upload, errores — todo lo que el usuario final ve
+- NO incluye: prompts del LLM (solo inglés), admin panel (solo inglés)
+
+**Recurrencia:** Después de este sprint inicial, cada sprint de mejora que afecte a texto visible por el usuario final debe incluir una tarea de traducción de los nuevos textos.
+
+**Analysis:** Encaja como sprint de contenido después de la fase de test de calidad de prompts y antes de producción final. No requiere cambios de código — solo contenido en i18n.ts y las respuestas hardcoded de guardrails. Se puede hacer con herramientas de traducción o nativos.

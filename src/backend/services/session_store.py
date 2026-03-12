@@ -72,6 +72,7 @@ class SessionStore:
                         "flagged": meta.get("flagged", False),
                         "created_at": meta.get("created_at"),
                         "last_activity": meta.get("last_activity"),
+                        "guardrail_violations": meta.get("guardrail_violations", 0),
                     }
                     count += 1
                 except Exception as e:
@@ -116,6 +117,7 @@ class SessionStore:
             "last_activity": session.get("last_activity"),
             "frontend_name": session.get("frontend_name", ""),
             "frontend_id": session.get("frontend_id", ""),
+            "guardrail_violations": session.get("guardrail_violations", 0),
         }
         _atomic_write_json(d / "session.json", meta)
 
@@ -248,6 +250,7 @@ class SessionStore:
                 "frontend_id": data.get("frontend_id", ""),
                 "status": data.get("status", "active"),
                 "flagged": data.get("flagged", False),
+                "guardrail_violations": data.get("guardrail_violations", 0),
                 "created_at": data.get("created_at"),
                 "last_activity": data.get("last_activity"),
             })
@@ -262,6 +265,25 @@ class SessionStore:
         session["flagged"] = not session.get("flagged", False)
         self._save_meta(token)
         return session["flagged"]
+
+    def increment_guardrail_violations(self, token: str) -> int:
+        """Increment guardrail violation count. Returns new count."""
+        self._ensure_loaded()
+        session = self._cache.get(token)
+        if not session:
+            return 0
+        count = session.get("guardrail_violations", 0) + 1
+        session["guardrail_violations"] = count
+        self._save_meta(token)
+        return count
+
+    def get_guardrail_violations(self, token: str) -> int:
+        """Get current guardrail violation count."""
+        self._ensure_loaded()
+        session = self._cache.get(token)
+        if not session:
+            return 0
+        return session.get("guardrail_violations", 0)
 
     def set_status(self, token: str, status: str):
         """Set session status (active/completed/flagged)."""

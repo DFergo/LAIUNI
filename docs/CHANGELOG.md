@@ -2,6 +2,29 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 10 — Guardrails + Repetition Detection + Polish (2026-03-12) [Blocks 1-3]
+- **Pre-LLM content filter** (`services/guardrails.py`): pattern-based detection of hate speech, discriminatory content, and prompt injection attempts
+  - Fixed hardcoded response strings (NOT LLM-generated) in EN/ES/FR/DE/PT/IT, English fallback for others
+  - Violation counter per session persisted in session.json
+  - After 3 violations: session auto-flagged and ended gracefully
+  - Respects `guardrails_enabled` and `guardrail_max_triggers` from deployment config
+- **Model repetition detector** (`services/repetition_detector.py`): streaming analysis to detect and stop generation loops
+  - Conservative thresholds: 40+ char phrases repeated 3+ times, only checks after 200+ chars
+  - Stops streaming at repetition point, delivers clean partial response
+  - Documented design principle: false positives worse than false negatives
+- **Sprint 8h loose end**: auto-copy global prompts when registering new frontend in per_frontend mode
+- `session_store.py`: `guardrail_violations` field in session metadata, `increment_guardrail_violations()` and `get_guardrail_violations()` methods
+- Admin sessions list includes `guardrail_violations` count
+
+### Sprint 9 — SMTP + Email Auth + Guardrails Prompt + Production Prompts (2026-03-12)
+- Full SMTP integration with aiosmtplib (auth codes, notifications, report/summary forwarding)
+- Email authentication flow via pull-inverse (whitelist, 6-digit code, 10-min expiry, 3 attempts)
+- Guardrails prompt layer (always injected between core and case prompt)
+- 22 production prompt files (per-profile conversational, summaries, internal documents)
+- Notification toggles in admin SMTP tab (notify on report, send summary/report to user)
+- Authorized emails whitelist management in admin panel
+- SMTP health check on startup (non-blocking)
+
 ### Sprint 8g-b — Batch Upload + UX Polish (2026-03-12)
 - Multi-file upload: select up to 4 files at once (`<input multiple>`, client-side limit)
 - Upload progress: "Uploading 1/3..." for batch uploads

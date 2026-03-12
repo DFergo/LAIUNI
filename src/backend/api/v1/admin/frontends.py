@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from src.api.v1.admin.auth import require_admin
 from src.services.frontend_registry import registry
+from src.services.prompt_assembler import get_prompt_mode, copy_global_to_frontend
 
 router = APIRouter(prefix="/admin/frontends", tags=["admin-frontends"])
 
@@ -40,6 +41,12 @@ async def register_frontend(req: RegisterRequest, _: dict = Depends(require_admi
     frontend_type = config.get("frontend_type", "worker")
     frontend = registry.register(url, frontend_type, req.name)
     registry.set_status(frontend["id"], "online")
+
+    # Auto-copy global prompts if in per_frontend mode (Sprint 8h loose end)
+    if get_prompt_mode() == "per_frontend":
+        copied = copy_global_to_frontend(frontend["id"])
+        if copied:
+            frontend["prompts_copied"] = copied
 
     return {"frontend": frontend}
 
