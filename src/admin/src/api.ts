@@ -352,11 +352,15 @@ export async function getFrontendBranding(frontendId: string): Promise<BrandingC
   return request(`/admin/frontends/${frontendId}/branding`);
 }
 
-export async function updateFrontendBranding(frontendId: string, data: BrandingConfig): Promise<BrandingConfig> {
+export async function updateFrontendBranding(frontendId: string, data: BrandingConfig): Promise<BrandingConfig & { translation_status?: string }> {
   return request(`/admin/frontends/${frontendId}/branding`, {
     method: 'PUT',
     body: JSON.stringify(data),
   });
+}
+
+export async function getBrandingTranslationStatus(frontendId: string): Promise<{ status: string; progress: number; total: number }> {
+  return request(`/admin/frontends/${frontendId}/branding/translation-status`);
 }
 
 export async function updateFrontendNotificationEmails(frontendId: string, emails: string[]): Promise<{ emails: string[] }> {

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -100,7 +101,10 @@ async def get_branding(frontend_id: str, _: dict = Depends(require_admin)):
 
 @router.put("/{frontend_id}/branding")
 async def update_branding(frontend_id: str, req: BrandingRequest, _: dict = Depends(require_admin)):
-    """Save branding config and push to the frontend sidecar."""
+    """Save branding config. If custom text is set, trigger LLM translation in background."""
+    from src.services.branding_translator import translate_branding, delete_translations, load_translations
+    from src.services.polling import invalidate_branding_cache
+
     data = req.model_dump()
     # Save to disk
     path = _branding_path(frontend_id)
@@ -110,18 +114,66 @@ async def update_branding(frontend_id: str, req: BrandingRequest, _: dict = Depe
     tmp.rename(path)
     logger.info(f"Branding saved for frontend {frontend_id}")
 
-    # Clear push cache so polling re-pushes on sidecar restart
-    from src.services.polling import invalidate_branding_cache
-    invalidate_branding_cache(frontend_id)
+    has_custom_text = bool(data.get("disclaimer_text") or data.get("instructions_text"))
 
-    # Push to sidecar
+    if has_custom_text:
+        # Launch background translation
+        async def _safe_translate():
+            try:
+                await translate_branding(frontend_id, data)
+                # Push branding + translations to sidecar after translation completes
+                await _push_branding_to_sidecar(frontend_id)
+            except Exception as e:
+                logger.error(f"Background translation failed for {frontend_id}: {e}")
+
+        asyncio.create_task(_safe_translate())
+        translation_status = "translating"
+    else:
+        # Reset to default — delete translations and push empty branding
+        delete_translations(frontend_id)
+        translation_status = "idle"
+
+    # Push base branding immediately (without translations)
+    invalidate_branding_cache(frontend_id)
+    await _push_branding_to_sidecar(frontend_id)
+
+    return {**data, "translation_status": translation_status}
+
+
+async def _push_branding_to_sidecar(frontend_id: str):
+    """Push branding config + translations to the sidecar."""
+    from src.services.branding_translator import load_translations
+
+    path = _branding_path(frontend_id)
+    if not path.exists():
+        return
+
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return
+
+    # Include translations if available
+    translations = load_translations(frontend_id)
+    has_custom_text = bool(data.get("disclaimer_text") or data.get("instructions_text"))
+    payload = {
+        **data,
+        "custom": has_custom_text,
+        "translations": translations,
+    }
+
     fe = registry.get(frontend_id)
     if fe and fe.get("enabled"):
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(f"{fe['url']}/internal/branding", json=data)
+                await client.post(f"{fe['url']}/internal/branding", json=payload)
                 logger.info(f"Branding pushed to {fe['url']}")
         except Exception as e:
             logger.warning(f"Failed to push branding to {fe['url']}: {e}")
 
-    return data
+
+@router.get("/{frontend_id}/branding/translation-status")
+async def get_branding_translation_status(frontend_id: str, _: dict = Depends(require_admin)):
+    """Get the current translation status for a frontend's branding."""
+    from src.services.branding_translator import get_translation_status
+    return get_translation_status(frontend_id)

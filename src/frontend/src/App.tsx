@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { t } from './i18n'
-import type { Phase, LangCode, Role, DeploymentConfig, SurveyData, RecoveryData } from './types'
+import type { Phase, LangCode, Role, DeploymentConfig, SurveyData, RecoveryData, BrandingConfig } from './types'
 import LanguageSelector from './components/LanguageSelector'
 import DisclaimerPage from './components/DisclaimerPage'
 import SessionPage from './components/SessionPage'
@@ -21,6 +21,7 @@ function App() {
   const [survey, setSurvey] = useState<SurveyData | null>(null)
   const [recoveryData, setRecoveryData] = useState<RecoveryData | null>(null)
   const [verifiedEmail, setVerifiedEmail] = useState('')
+  const [brandingText, setBrandingText] = useState<BrandingConfig | null>(null)
 
   useEffect(() => {
     fetchConfig()
@@ -80,9 +81,26 @@ function App() {
     survey: () => navigateTo('instructions'),
   }
 
+  // Fetch translated branding text for the selected language
+  async function fetchBrandingText(langCode: LangCode) {
+    try {
+      const res = await fetch(`/internal/branding/${langCode}`)
+      if (res.ok) {
+        const data = await res.json()
+        setBrandingText(data)
+      }
+    } catch {
+      // Fallback: no translated text, components use i18n defaults
+    }
+  }
+
   // language → disclaimer (or skip) → session
   const handleLanguage = (selected: LangCode) => {
     setLang(selected)
+    // Fetch translated branding if this frontend has custom text
+    if (config?.branding?.custom) {
+      fetchBrandingText(selected)
+    }
     if (config?.disclaimer_enabled === false) {
       navigateTo('session')
     } else {
@@ -179,14 +197,19 @@ function App() {
     navigateTo('chat')
   }
 
+  // Merge base branding (app_title, logo_url) with translated text (disclaimer_text, instructions_text)
+  const mergedBranding: BrandingConfig | undefined = config?.branding
+    ? { ...config.branding, ...brandingText }
+    : undefined
+
   const showFooter = phase !== 'chat' && phase !== 'loading'
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-uni-blue text-white px-6 py-3 shadow-md flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <img src={config?.branding?.logo_url || '/uni-logo.png'} alt="UNI" className="h-8 brightness-0 invert" />
-          <h1 className="text-xl font-semibold">{config?.branding?.app_title || 'HRDD Helper'}</h1>
+          <img src={mergedBranding?.logo_url || '/uni-logo.png'} alt="UNI" className="h-8 brightness-0 invert" />
+          <h1 className="text-xl font-semibold">{mergedBranding?.app_title || 'HRDD Helper'}</h1>
         </div>
         <span className="text-sm opacity-75">UNI Global Union</span>
       </header>
@@ -197,12 +220,12 @@ function App() {
             <p className="text-gray-400">Loading...</p>
           </div>
         )}
-        {phase === 'language' && <LanguageSelector onSelect={handleLanguage} branding={config?.branding} />}
-        {phase === 'disclaimer' && <DisclaimerPage lang={lang} onAccept={handleDisclaimer} onBack={goBackFrom.disclaimer!} branding={config?.branding} />}
+        {phase === 'language' && <LanguageSelector onSelect={handleLanguage} branding={mergedBranding} />}
+        {phase === 'disclaimer' && <DisclaimerPage lang={lang} onAccept={handleDisclaimer} onBack={goBackFrom.disclaimer!} branding={mergedBranding} />}
         {phase === 'session' && <SessionPage lang={lang} onNewSession={handleNewSession} onRecover={handleRecover} onBack={goBackFrom.session!} />}
         {phase === 'role_select' && config && <RoleSelectPage lang={lang} config={config} onSelect={handleRoleSelect} onBack={goBackFrom.role_select!} />}
         {phase === 'auth' && <AuthPage lang={lang} onVerified={handleAuth} onBack={goBackFrom.auth!} />}
-        {phase === 'instructions' && selectedRole && <InstructionsPage lang={lang} role={selectedRole} onContinue={handleInstructions} onBack={goBackFrom.instructions!} branding={config?.branding} />}
+        {phase === 'instructions' && selectedRole && <InstructionsPage lang={lang} role={selectedRole} onContinue={handleInstructions} onBack={goBackFrom.instructions!} branding={mergedBranding} />}
         {phase === 'survey' && config && selectedRole && <SurveyPage lang={lang} config={config} role={selectedRole} onSubmit={handleSurvey} onBack={goBackFrom.survey!} />}
         {phase === 'chat' && survey && (
           <ChatShell

@@ -70,17 +70,74 @@ async def health():
     return {"status": "ok"}
 
 
-# --- Branding (pushed by backend) ---
+# --- Branding (pushed by backend, translations persisted to disk) ---
 _branding: dict[str, Any] = {}
+_branding_translations: dict[str, dict[str, str]] = {}
+_BRANDING_DIR = Path("/app/data/branding")
+
+# Load translations from disk on startup
+if (_BRANDING_DIR / "translations.json").exists():
+    try:
+        _branding_translations = json.loads((_BRANDING_DIR / "translations.json").read_text())
+        logger.info(f"Loaded branding translations: {len(_branding_translations)} languages")
+    except (json.JSONDecodeError, OSError):
+        pass
+if (_BRANDING_DIR / "config.json").exists():
+    try:
+        _branding = json.loads((_BRANDING_DIR / "config.json").read_text())
+        logger.info("Loaded branding config from disk")
+    except (json.JSONDecodeError, OSError):
+        pass
 
 
 @app.post("/internal/branding")
 async def update_branding(data: dict[str, Any]):
-    """Backend pushes branding config for this frontend."""
-    global _branding
+    """Backend pushes branding config + translations for this frontend."""
+    global _branding, _branding_translations
+
+    translations = data.pop("translations", None)
+    is_custom = data.get("custom", False)
+
+    # Store base branding
     _branding = data
-    logger.info(f"Branding updated: {list(data.keys())}")
+    _BRANDING_DIR.mkdir(parents=True, exist_ok=True)
+
+    if is_custom:
+        # Save base config to disk
+        cfg_tmp = (_BRANDING_DIR / "config.json").with_suffix(".tmp")
+        cfg_tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        cfg_tmp.rename(_BRANDING_DIR / "config.json")
+
+        # Save translations if provided
+        if translations:
+            _branding_translations = translations
+            tr_tmp = (_BRANDING_DIR / "translations.json").with_suffix(".tmp")
+            tr_tmp.write_text(json.dumps(translations, ensure_ascii=False, indent=2))
+            tr_tmp.rename(_BRANDING_DIR / "translations.json")
+            logger.info(f"Branding translations saved: {len(translations)} languages")
+    else:
+        # Reset to default — delete branding files
+        _branding_translations = {}
+        for f in ("translations.json", "config.json"):
+            p = _BRANDING_DIR / f
+            if p.exists():
+                p.unlink()
+        logger.info("Branding reset to default, files deleted")
+
+    logger.info(f"Branding updated: custom={is_custom}")
     return {"status": "ok"}
+
+
+@app.get("/internal/branding/{lang_code}")
+async def get_branding_translation(lang_code: str):
+    """Get translated branding text for a specific language."""
+    if lang_code in _branding_translations:
+        return _branding_translations[lang_code]
+    # Fallback: return base branding text (untranslated)
+    return {
+        "disclaimer_text": _branding.get("disclaimer_text", ""),
+        "instructions_text": _branding.get("instructions_text", ""),
+    }
 
 
 @app.get("/internal/config")
@@ -93,7 +150,12 @@ async def get_config():
         "auth_required": _config.get("auth_required", False),
     }
     if _branding:
-        cfg["branding"] = _branding
+        branding_info = {
+            "app_title": _branding.get("app_title", ""),
+            "logo_url": _branding.get("logo_url", ""),
+            "custom": _branding.get("custom", False),
+        }
+        cfg["branding"] = branding_info
     return cfg
 
 

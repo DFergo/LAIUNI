@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, type Frontend, type BrandingConfig } from './api'
+import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, type Frontend, type BrandingConfig } from './api'
 
 export default function FrontendsTab() {
   const [frontends, setFrontends] = useState<Frontend[]>([])
@@ -57,6 +57,7 @@ export default function FrontendsTab() {
   const [branding, setBranding] = useState<BrandingConfig | null>(null)
   const [brandingSaving, setBrandingSaving] = useState(false)
   const [brandingSuccess, setBrandingSuccess] = useState('')
+  const [translationStatus, setTranslationStatus] = useState<{ status: string; progress: number; total: number } | null>(null)
 
   const startEdit = (f: Frontend) => {
     setEditingId(f.id)
@@ -73,6 +74,7 @@ export default function FrontendsTab() {
     if (brandingOpen === id) {
       setBrandingOpen(null)
       setBranding(null)
+      setTranslationStatus(null)
       return
     }
     try {
@@ -87,10 +89,28 @@ export default function FrontendsTab() {
   const handleBrandingSave = async () => {
     if (!brandingOpen || !branding) return
     setBrandingSaving(true)
+    setTranslationStatus(null)
     try {
-      await updateFrontendBranding(brandingOpen, branding)
+      const result = await updateFrontendBranding(brandingOpen, branding)
       setBrandingSuccess('Branding saved and pushed to frontend')
       setTimeout(() => setBrandingSuccess(''), 3000)
+
+      // If translation started, poll progress
+      if (result.translation_status === 'translating') {
+        const fid = brandingOpen
+        const poll = setInterval(async () => {
+          try {
+            const s = await getBrandingTranslationStatus(fid)
+            setTranslationStatus(s)
+            if (s.status === 'done' || s.status === 'idle') {
+              clearInterval(poll)
+              setTimeout(() => setTranslationStatus(null), 5000)
+            }
+          } catch {
+            clearInterval(poll)
+          }
+        }, 2000)
+      }
     } catch {
       // ignore
     } finally {
@@ -259,6 +279,23 @@ export default function FrontendsTab() {
                       </button>
                       {brandingSuccess && <span className="text-xs text-green-600">{brandingSuccess}</span>}
                     </div>
+                    {translationStatus && translationStatus.status === 'translating' && (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-xs text-gray-500">
+                          <span>Translating to {translationStatus.total} languages...</span>
+                          <span>{translationStatus.progress}/{translationStatus.total}</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-1.5">
+                          <div
+                            className="bg-uni-blue h-1.5 rounded-full transition-all"
+                            style={{ width: `${(translationStatus.progress / translationStatus.total) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {translationStatus && translationStatus.status === 'done' && (
+                      <p className="text-xs text-green-600">Translations complete ({translationStatus.total} languages)</p>
+                    )}
                   </div>
                 )}
               </div>
