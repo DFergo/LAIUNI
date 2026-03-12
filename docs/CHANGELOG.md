@@ -2,6 +2,23 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 8g — Evidence Document Upload (2026-03-12)
+- Evidence upload during chat sessions via pull-inverse architecture
+- Sidecar: `POST /internal/upload/{token}` (temp storage), `GET/DELETE` for backend fetch+cleanup
+- `services/evidence_processor.py`: text extraction, LLM summarisation, per-session RAG indexing
+- Dual context injection: concise summaries as fixed system context + session-specific LlamaIndex for detail queries
+- `prompts/evidence_summary.md`: dedicated summarisation prompt focused on labor rights relevance
+- Polling integration: `_handle_upload()` fetches files, processes, sends SSE status events
+- `ChatShell.tsx`: paperclip upload button, file picker with type filter, upload status indicator
+- SSE events: `upload_received`, `upload_processed`, `upload_error` for real-time feedback
+- Text files (.txt, .md, .pdf, .doc, .docx): summarised + indexed for session RAG
+- Images (.jpg, .png): stored in evidence folder, model informed but no analysis
+- Evidence persisted to `/app/data/sessions/{token}/evidence/` + `evidence_context.json`
+- Nginx `client_max_body_size 26m` for upload support
+- `python-multipart` added to sidecar requirements
+- i18n: upload strings + disclaimer in instructions (EN/ES)
+- Idea logged: image analysis as future enhancement (Backlog)
+
 ### Sprint 8f — Inactivity Timeout + Auto-Cleanup (2026-03-12)
 - `services/session_lifecycle.py`: background scanner (every 5 min) for auto-closure and auto-cleanup
 - Auto-closure: inactive sessions get documents generated (summary, internal_summary, report) then marked completed

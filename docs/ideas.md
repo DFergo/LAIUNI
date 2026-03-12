@@ -78,3 +78,35 @@ The LLM is offering to prepare PDFs for the user to download. It doesn't have th
 
 ---
 
+### Campañas paralelas: prompts y RAG por frontend
+**Added:** 2026-03-12 | **Sprint:** 8h | **Effort:** L (sprint completo)
+
+Permitir campañas simultáneas con configuración independiente por frontend. Dos modelos distintos:
+
+**Prompts — modelo exclusivo:** Toggle en admin Prompts. O global (mismo set para todos) o específico (cada frontend con su propio set que REEMPLAZA al global). No se mezclan. Si un frontend tiene prompts propios, esos se usan; si no, los globales.
+
+**RAG — modelo aditivo con suscripción:** El panel de RAG global se mantiene. Un toggle "RAG por frontend" añade un subpanel por cada frontend registrado. Cada subpanel tiene: (1) toggle "incluir RAG global" (on por defecto), (2) gestión de documentos específicos de ese frontend. El sistema filtra por `frontend_id` de la sesión y aplica la unión de todas las fuentes a las que el frontend está suscrito (global si está activo + docs propios).
+
+**Patrón reutilizado:** Misma lógica que lifecycle (Sprint 8f) — selector de frontend, toggle, config por `frontend_id`. El `frontend_id` ya está en `session.json` desde 8f. `prompt_assembler.py` recibe `frontend_id` → busca set específico, fallback a global. `rag_service.py` recibe `frontend_id` → junta chunks de fuentes suscritas.
+
+**Analysis:** Encaja en Sprint 8h (ya planificado como Campaign-Specific RAG). Ampliar alcance para incluir prompts. Infraestructura de `frontend_id` ya validada. La parte de RAG es algo más compleja por el modelo de suscripción (índices separados por fuente, merge de chunks en query time), pero LlamaIndex soporta múltiples índices nativamente.
+
+---
+
+### Subida de documentos en batch (multi-upload)
+**Added:** 2026-03-12 | **Sprint:** 8g-b (subsprint) | **Effort:** M (1-2 días)
+
+Subir documentos uno a uno y esperar la respuesta del modelo es tedioso si hay varios. Permitir subir hasta 4 documentos a la vez. El sistema los procesa secuencialmente (extracción + resumen), y al terminar todos genera una sola respuesta automática comentando lo que ha recibido. Usar el LLM del compressor (summariser) en lugar del principal para los resúmenes individuales — ya se hace. La respuesta final podría usar también el summariser para ser más rápida, o el principal si se prefiere calidad.
+
+**Analysis:** Factible. El sidecar ya acepta uploads individuales — ampliar a `<input multiple>` en frontend con límite de 4. Backend procesa cada archivo secuencialmente en `_handle_upload`, acumula resultados, y lanza una sola inferencia al final del batch. El summariser ya se usa para resúmenes individuales (más rápido). Requiere: (1) frontend `multiple` + cola de uploads, (2) sidecar batch endpoint o múltiples POSTs, (3) backend batch handler que agrupa uploads del mismo token antes de responder.
+
+---
+
+### Análisis de imágenes subidas como evidencia
+**Added:** 2026-03-12 | **Sprint:** Backlog | **Effort:** M (1-2 días)
+
+Actualmente las imágenes (.jpg, .png) subidas como evidencia se almacenan en el dossier pero no se analizan. Una mejora futura sería usar un modelo multimodal o OCR para extraer información de imágenes (fotos de documentos, capturas de pantalla, condiciones laborales). Requiere evaluar si el LLM local soporta visión (LLaVA, etc.) o si se necesita un servicio de OCR separado (Tesseract).
+
+**Analysis:** No es prioritario — el 90% de la evidencia será texto. Depende de la capacidad del hardware (modelos multimodales son más pesados) y de la disponibilidad de modelos con visión en LM Studio/Ollama. Evaluar cuando el sistema esté en producción y haya datos reales sobre qué tipo de archivos suben los usuarios.
+
+---

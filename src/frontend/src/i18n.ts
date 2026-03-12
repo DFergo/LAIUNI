@@ -63,6 +63,7 @@ type TranslationKeys =
   | 'chat_placeholder' | 'chat_coming_soon'
   | 'end_session' | 'end_session_confirm' | 'end_session_yes' | 'end_session_no'
   | 'session_ended_notice' | 'session_summary_label'
+  | 'upload_button_title' | 'upload_doc_analyzed' | 'upload_image_stored' | 'upload_analyzing'
   | 'footer_disclaimer'
 
 type Translations = Partial<Record<TranslationKeys, string>>
@@ -89,13 +90,13 @@ const translations: Partial<Record<LangCode, Translations>> = {
     auth_verify: 'Verify',
     auth_placeholder: 'Enter 6-digit code',
     instructions_worker_title: 'How this works',
-    instructions_worker_text: 'HRDD Helper will guide you through documenting your labor rights situation. You will be asked questions about your workplace, working conditions, and any concerns you have.\n\nThe system will help you identify which international labor standards may be relevant to your case and organize the information for potential follow-up by union representatives.\n\nAll information is treated confidentially. Take your time to answer as accurately as possible.',
+    instructions_worker_text: 'HRDD Helper will guide you through documenting your labor rights situation. You will be asked questions about your workplace, working conditions, and any concerns you have.\n\nThe system will help you identify which international labor standards may be relevant to your case and organize the information for potential follow-up by union representatives.\n\nYou can upload documents during the conversation using the 📎 button. Text documents will be analyzed automatically. Images will be stored but cannot be analyzed by the system.\n\nAll information is treated confidentially. Take your time to answer as accurately as possible.',
     instructions_representative_title: 'How this works',
-    instructions_representative_text: 'HRDD Helper will guide you through documenting a labor rights situation on behalf of workers you represent. You will be asked about the workplace, working conditions, and the specific concerns raised.\n\nThe system will help you identify relevant international labor standards and organize the case information for escalation through union channels.\n\nAll information is treated confidentially. Provide as much detail as possible for a thorough assessment.',
+    instructions_representative_text: 'HRDD Helper will guide you through documenting a labor rights situation on behalf of workers you represent. You will be asked about the workplace, working conditions, and the specific concerns raised.\n\nThe system will help you identify relevant international labor standards and organize the case information for escalation through union channels.\n\nYou can upload documents during the conversation using the 📎 button. Text documents will be analyzed automatically. Images will be stored but cannot be analyzed by the system.\n\nAll information is treated confidentially. Provide as much detail as possible for a thorough assessment.',
     instructions_organizer_title: 'Organizer Tools',
-    instructions_organizer_text: 'As an organizer, you have access to specialized tools for documenting labor rights violations, conducting structured interviews, and getting advisory support on international frameworks.\n\nIn the next step, you will choose the type of interaction and provide case details. The system will adapt its approach based on your selection.\n\nAll case data is stored securely and can be used for reports and escalation.',
+    instructions_organizer_text: 'As an organizer, you have access to specialized tools for documenting labor rights violations, conducting structured interviews, and getting advisory support on international frameworks.\n\nIn the next step, you will choose the type of interaction and provide case details. The system will adapt its approach based on your selection.\n\nYou can upload documents during the conversation using the 📎 button. Text documents will be analyzed automatically. Images will be stored but cannot be analyzed by the system.\n\nAll case data is stored securely and can be used for reports and escalation.',
     instructions_officer_title: 'Officer Tools',
-    instructions_officer_text: 'As a UNI officer, you have access to the full range of HRDD Helper tools: case documentation, structured interviews, framework advisory, and training resources.\n\nIn the next step, you will choose the type of interaction and provide case details. The system will provide expert-level analysis aligned with international due diligence standards.\n\nAll case data is stored securely for institutional use.',
+    instructions_officer_text: 'As a UNI officer, you have access to the full range of HRDD Helper tools: case documentation, structured interviews, framework advisory, and training resources.\n\nIn the next step, you will choose the type of interaction and provide case details. The system will provide expert-level analysis aligned with international due diligence standards.\n\nYou can upload documents during the conversation using the 📎 button. Text documents will be analyzed automatically. Images will be stored but cannot be analyzed by the system.\n\nAll case data is stored securely for institutional use.',
     instructions_continue: 'Continue',
     survey_title: 'Tell us about your situation',
     survey_mode: 'Type of interaction',
@@ -134,6 +135,10 @@ const translations: Partial<Record<LangCode, Translations>> = {
     end_session_no: 'Cancel',
     session_ended_notice: 'This session has ended. Please save your session token if you need to reference the summary later.',
     session_summary_label: 'Session Summary',
+    upload_button_title: 'Upload document',
+    upload_doc_analyzed: 'Document received and analyzed.',
+    upload_image_stored: 'Image stored. Note: the system cannot analyze images.',
+    upload_analyzing: 'Analyzing document...',
     footer_disclaimer: 'This tool provides information, not legal advice. AI responses may contain errors.',
   },
   es: {
@@ -157,13 +162,13 @@ const translations: Partial<Record<LangCode, Translations>> = {
     auth_verify: 'Verificar',
     auth_placeholder: 'Ingrese código de 6 dígitos',
     instructions_worker_title: 'Cómo funciona',
-    instructions_worker_text: 'HRDD Helper le guiará en la documentación de su situación laboral. Se le harán preguntas sobre su lugar de trabajo, condiciones laborales y cualquier preocupación que tenga.\n\nEl sistema le ayudará a identificar qué normas internacionales pueden ser relevantes para su caso y organizará la información para un posible seguimiento por representantes sindicales.\n\nToda la información se trata de forma confidencial. Tómese su tiempo para responder con la mayor precisión posible.',
+    instructions_worker_text: 'HRDD Helper le guiará en la documentación de su situación laboral. Se le harán preguntas sobre su lugar de trabajo, condiciones laborales y cualquier preocupación que tenga.\n\nEl sistema le ayudará a identificar qué normas internacionales pueden ser relevantes para su caso y organizará la información para un posible seguimiento por representantes sindicales.\n\nPuede subir documentos durante la conversación usando el botón 📎. Los documentos de texto se analizarán automáticamente. Las imágenes se almacenarán pero el sistema no puede analizarlas.\n\nToda la información se trata de forma confidencial. Tómese su tiempo para responder con la mayor precisión posible.',
     instructions_representative_title: 'Cómo funciona',
-    instructions_representative_text: 'HRDD Helper le guiará en la documentación de una situación laboral en nombre de los trabajadores que representa. Se le preguntará sobre el lugar de trabajo, las condiciones laborales y las preocupaciones específicas planteadas.\n\nEl sistema le ayudará a identificar las normas internacionales relevantes y organizará la información del caso para su escalamiento a través de canales sindicales.\n\nToda la información se trata de forma confidencial. Proporcione todos los detalles posibles para una evaluación completa.',
+    instructions_representative_text: 'HRDD Helper le guiará en la documentación de una situación laboral en nombre de los trabajadores que representa. Se le preguntará sobre el lugar de trabajo, las condiciones laborales y las preocupaciones específicas planteadas.\n\nEl sistema le ayudará a identificar las normas internacionales relevantes y organizará la información del caso para su escalamiento a través de canales sindicales.\n\nPuede subir documentos durante la conversación usando el botón 📎. Los documentos de texto se analizarán automáticamente. Las imágenes se almacenarán pero el sistema no puede analizarlas.\n\nToda la información se trata de forma confidencial. Proporcione todos los detalles posibles para una evaluación completa.',
     instructions_organizer_title: 'Herramientas de Organizador',
-    instructions_organizer_text: 'Como organizador/a, tiene acceso a herramientas especializadas para documentar violaciones de derechos laborales, realizar entrevistas estructuradas y obtener asesoramiento sobre marcos internacionales.\n\nEn el siguiente paso, elegirá el tipo de interacción y proporcionará los detalles del caso. El sistema adaptará su enfoque según su selección.\n\nTodos los datos del caso se almacenan de forma segura y pueden utilizarse para informes y escalamiento.',
+    instructions_organizer_text: 'Como organizador/a, tiene acceso a herramientas especializadas para documentar violaciones de derechos laborales, realizar entrevistas estructuradas y obtener asesoramiento sobre marcos internacionales.\n\nEn el siguiente paso, elegirá el tipo de interacción y proporcionará los detalles del caso. El sistema adaptará su enfoque según su selección.\n\nPuede subir documentos durante la conversación usando el botón 📎. Los documentos de texto se analizarán automáticamente. Las imágenes se almacenarán pero el sistema no puede analizarlas.\n\nTodos los datos del caso se almacenan de forma segura y pueden utilizarse para informes y escalamiento.',
     instructions_officer_title: 'Herramientas de Oficial',
-    instructions_officer_text: 'Como oficial de UNI, tiene acceso a la gama completa de herramientas de HRDD Helper: documentación de casos, entrevistas estructuradas, asesoramiento sobre marcos y recursos de formación.\n\nEn el siguiente paso, elegirá el tipo de interacción y proporcionará los detalles del caso. El sistema proporcionará análisis de nivel experto alineado con estándares internacionales de debida diligencia.\n\nTodos los datos del caso se almacenan de forma segura para uso institucional.',
+    instructions_officer_text: 'Como oficial de UNI, tiene acceso a la gama completa de herramientas de HRDD Helper: documentación de casos, entrevistas estructuradas, asesoramiento sobre marcos y recursos de formación.\n\nEn el siguiente paso, elegirá el tipo de interacción y proporcionará los detalles del caso. El sistema proporcionará análisis de nivel experto alineado con estándares internacionales de debida diligencia.\n\nPuede subir documentos durante la conversación usando el botón 📎. Los documentos de texto se analizarán automáticamente. Las imágenes se almacenarán pero el sistema no puede analizarlas.\n\nTodos los datos del caso se almacenan de forma segura para uso institucional.',
     instructions_continue: 'Continuar',
     survey_title: 'Cuéntenos sobre su situación',
     survey_mode: 'Tipo de interacción',
@@ -202,6 +207,10 @@ const translations: Partial<Record<LangCode, Translations>> = {
     end_session_no: 'Cancelar',
     session_ended_notice: 'Esta sesión ha finalizado. Guarda tu código de sesión si necesitas consultar el resumen más adelante.',
     session_summary_label: 'Resumen de la sesión',
+    upload_button_title: 'Subir documento',
+    upload_doc_analyzed: 'Documento recibido y analizado.',
+    upload_image_stored: 'Imagen almacenada. Nota: el sistema no puede analizar imágenes.',
+    upload_analyzing: 'Analizando documento...',
     footer_disclaimer: 'Esta herramienta proporciona información, no asesoramiento legal. Las respuestas de IA pueden contener errores.',
   },
   fr: {

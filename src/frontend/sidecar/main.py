@@ -2,11 +2,14 @@ import asyncio
 import json
 import logging
 import os
+import shutil
+import tempfile
 import time
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO)
@@ -229,3 +232,83 @@ async def stream_sse(session_token: str):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# --- File Upload ---
+# Temp storage for uploads until backend fetches them
+UPLOAD_MAX_SIZE = 25 * 1024 * 1024  # 25MB
+ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".doc", ".docx", ".jpg", ".jpeg", ".png"}
+_upload_dir = Path(tempfile.mkdtemp(prefix="hrdd_uploads_"))
+_upload_queue: list[dict[str, str]] = []
+_upload_queue_lock = asyncio.Lock()
+
+
+@app.post("/internal/upload/{session_token}")
+async def upload_file(session_token: str, file: UploadFile = File(...)):
+    """React app uploads a file for the session."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type {ext} not allowed. Accepted: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+        )
+
+    # Read and check size
+    content = await file.read()
+    if len(content) > UPLOAD_MAX_SIZE:
+        raise HTTPException(status_code=400, detail=f"File too large. Maximum: {UPLOAD_MAX_SIZE // (1024*1024)}MB")
+
+    # Save to temp directory
+    session_dir = _upload_dir / session_token
+    session_dir.mkdir(parents=True, exist_ok=True)
+    file_path = session_dir / file.filename
+    file_path.write_bytes(content)
+
+    # Queue upload notification for backend
+    async with _upload_queue_lock:
+        _upload_queue.append({
+            "session_token": session_token,
+            "filename": file.filename,
+            "size": len(content),
+            "created_at": time.time(),
+        })
+
+    logger.info(f"Upload received: {file.filename} ({len(content)} bytes) for {session_token}")
+    return {"status": "uploaded", "filename": file.filename, "size": len(content)}
+
+
+@app.get("/internal/upload/{session_token}/{filename}")
+async def get_upload(session_token: str, filename: str):
+    """Backend fetches the uploaded file."""
+    file_path = _upload_dir / session_token / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path)
+
+
+@app.delete("/internal/upload/{session_token}/{filename}")
+async def delete_upload(session_token: str, filename: str):
+    """Backend confirms receipt — sidecar deletes temp file."""
+    file_path = _upload_dir / session_token / filename
+    if file_path.exists():
+        file_path.unlink()
+        logger.info(f"Upload cleaned: {filename} for {session_token}")
+
+    # Clean empty session dir
+    session_dir = _upload_dir / session_token
+    if session_dir.exists() and not list(session_dir.iterdir()):
+        session_dir.rmdir()
+
+    return {"status": "deleted"}
+
+
+@app.get("/internal/uploads")
+async def list_pending_uploads():
+    """Backend polls for pending uploads (alongside message queue)."""
+    async with _upload_queue_lock:
+        uploads = list(_upload_queue)
+        _upload_queue.clear()
+    return {"uploads": uploads}

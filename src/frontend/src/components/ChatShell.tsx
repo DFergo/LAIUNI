@@ -26,6 +26,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
   const [error, setError] = useState('')
   const [sessionEnded, setSessionEnded] = useState(recoveryData?.status === 'completed')
   const [showEndConfirm, setShowEndConfirm] = useState(false)
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -122,6 +123,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
       connectionFailures = 0
       accumulated += e.data
       setStreamingText(accumulated)
+      setIsStreaming(true)
       setQueuePosition(null)
     })
 
@@ -140,9 +142,48 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
       setStreamingText('')
       setIsStreaming(false)
       setQueuePosition(null)
+      setUploadStatus(null)
       if (finalizing) {
         setSessionEnded(true)
       }
+    })
+
+    eventSource.addEventListener('upload_received', (e: MessageEvent) => {
+      connectionFailures = 0
+      setUploadStatus(`Processing ${e.data}...`)
+    })
+
+    eventSource.addEventListener('upload_processed', (e: MessageEvent) => {
+      connectionFailures = 0
+      try {
+        const info = JSON.parse(e.data)
+        if (info.type === 'image') {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `📎 **${info.filename}** — ${t('upload_image_stored', lang)}`,
+          }])
+          setUploadStatus(null)
+        } else {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `📎 **${info.filename}** — ${t('upload_doc_analyzed', lang)}`,
+          }])
+          // Keep status visible until LLM response arrives (cleared on 'done')
+          setUploadStatus(t('upload_analyzing', lang))
+        }
+      } catch {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `📎 ${t('upload_doc_analyzed', lang)}`,
+        }])
+        setUploadStatus(null)
+      }
+    })
+
+    eventSource.addEventListener('upload_error', (e: MessageEvent) => {
+      connectionFailures = 0
+      setUploadStatus(null)
+      setError(e.data || 'Upload processing failed')
     })
 
     eventSource.addEventListener('error', (e: MessageEvent) => {
@@ -196,6 +237,40 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
     } catch {
       setIsStreaming(false)
       setError('Failed to end session. Please try again.')
+    }
+  }
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // Reset input so same file can be re-selected
+    e.target.value = ''
+
+    setUploadStatus(`Uploading ${file.name}...`)
+    setError('')
+
+    // Open SSE to receive upload events (if not already streaming)
+    if (!eventSourceRef.current || eventSourceRef.current.readyState === EventSource.CLOSED) {
+      listenForResponse()
+    }
+
+    const formData = new FormData()
+    formData.append('file', file)
+
+    try {
+      const resp = await fetch(`/internal/upload/${sessionToken}`, {
+        method: 'POST',
+        body: formData,
+      })
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({ detail: 'Upload failed' }))
+        throw new Error(body.detail || `HTTP ${resp.status}`)
+      }
+    } catch (err) {
+      setUploadStatus(null)
+      setError(err instanceof Error ? err.message : 'Upload failed')
     }
   }
 
@@ -358,7 +433,25 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
             {t('session_ended_notice', lang)}
           </div>
         ) : (
+          <>
           <div className="flex gap-3 items-end max-w-4xl mx-auto">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.txt,.md,.doc,.docx,.jpg,.jpeg,.png"
+              onChange={handleUpload}
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isStreaming || !!uploadStatus}
+              title={t('upload_button_title', lang)}
+              className="text-gray-400 hover:text-uni-blue transition-colors disabled:opacity-50 disabled:cursor-not-allowed px-1 py-2.5"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
+            </button>
             <textarea
               ref={textareaRef}
               value={input}
@@ -385,6 +478,15 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
               </button>
             )}
           </div>
+          {uploadStatus && (
+            <div className="max-w-4xl mx-auto mt-2">
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <span className="inline-block w-2 h-2 bg-uni-blue rounded-full animate-pulse" />
+                {uploadStatus}
+              </div>
+            </div>
+          )}
+          </>
         )}
       </div>
     </div>

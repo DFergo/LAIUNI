@@ -1,8 +1,8 @@
 # HRDD Helper — Project Status
 
-**Last Updated:** 2026-03-09
+**Last Updated:** 2026-03-12
 
-## Current State: v2 Rewrite — Sprint 7c Complete
+## Current State: v2 Rewrite — Sprint 8g Complete
 
 ### Sprint 0 — Project Setup ✅
 - [x] Product specification written (SPEC-v2.md)
@@ -500,32 +500,70 @@ New: language → disclaimer → session (new/recover) → **role selection** �
 
 ---
 
-### Sprint 8g — Evidence Document Upload (PLANNED)
+### Sprint 8g — Evidence Document Upload (DONE)
 
 **Goal:** Users can upload documents during session. Summariser processes them for safe context injection.
 
 **Depends on:** Sprint 8a (disk persistence)
 
-#### Deliverables
-- [ ] File input button in ChatShell (📎 or similar, mobile-compatible `<input type="file">`)
-- [ ] Supported formats: .pdf, .txt, .md, .doc, .docx, .jpg, .png (images OCR TBD)
-- [ ] File upload via sidecar: `POST /internal/upload/{session_token}`
-- [ ] Backend fetches uploaded file during polling
-- [ ] Security: summariser reviews document content (not raw injection — prevents prompt injection)
-- [ ] Summariser generates structured summary of document
-- [ ] Summary injected as fixed context in conversation
-- [ ] Original file stored in `/app/data/sessions/{token}/evidence/`
-- [ ] Document summary stored alongside for reference
-- [ ] Size limit: 25MB per file (spec §13)
+#### Part 1: Sidecar Upload Endpoint
+
+- [x] `POST /internal/upload/{session_token}` — accepts file via multipart form
+- [x] Validates: size ≤ 25MB, allowed extensions (.pdf, .txt, .md, .doc, .docx, .jpg, .png)
+- [x] Stores file temporarily in sidecar memory/tmpdir
+- [x] Adds upload notification to message queue (type: `upload`, includes filename + session_token)
+- [x] `GET /internal/upload/{session_token}/{filename}` — backend fetches the file
+- [x] `DELETE /internal/upload/{session_token}/{filename}` — backend confirms receipt, sidecar deletes temp file
+- [x] Sidecar never keeps files permanently — cleaned up after backend fetches
+
+#### Part 2: Backend Upload Processing
+
+- [x] Polling loop detects `upload` type messages in queue
+- [x] Fetches file from sidecar via GET, saves to `/app/data/sessions/{token}/evidence/`
+- [x] Confirms receipt (DELETE on sidecar — sidecar deletes temp copy)
+- [x] **Text files** (.txt, .md, .pdf, .doc, .docx):
+  - Extracts text content (LlamaIndex readers for pdf/docx)
+  - Sends to summariser LLM with dedicated prompt → concise structured summary
+  - Summary saved to `/app/data/sessions/{token}/evidence/{filename}.summary.md`
+  - Summary injected as fixed system context (model always knows what was uploaded)
+  - Full text indexed in **session-specific RAG** (LlamaIndex in-memory index per token)
+- [x] **Images** (.jpg, .png):
+  - Stored in evidence folder (added to dossier) but NOT analyzed
+  - Model informed that an image was uploaded but cannot be processed
+- [x] `prompts/evidence_summary.md` — dedicated prompt for document summarisation
+- [x] Session RAG index discarded when session is archived/backend restarts (originals on disk)
+
+#### Part 3: Frontend UI
+
+- [x] Upload button in ChatShell (paperclip icon, next to send button, mobile-compatible `<input type="file">`)
+- [x] Accepted types filter in file picker (accept attribute)
+- [x] Upload progress indicator (uploading... → processing... → done)
+- [x] SSE events for upload status: `upload_received`, `upload_processed`, `upload_error`
+- [x] On `upload_processed`: brief assistant-style notification in chat ("Document received and analyzed")
+- [x] On image upload: notification that image was stored but not analyzed
+- [x] Disclaimer in instructions: "You can upload documents during the chat. Text documents will be analyzed. Images will be stored but cannot be analyzed by the system."
+- [x] i18n for upload-related strings (EN/ES minimum, others English fallback)
+
+#### Part 4: Context Integration
+
+- [x] `polling.py`: inject evidence summaries as system context before inference
+- [x] Session RAG: query per-session index alongside global RAG, merge chunks
+- [x] Evidence context format: "Documents uploaded by user:\n- {filename}: {summary}\n..."
+- [x] Multiple uploads supported per session (summaries accumulate)
+- [x] Evidence summaries saved to session disk (`evidence_context.json`) for recovery
 
 #### Acceptance Criteria
-- [ ] Upload button visible in chat (doesn't leave SPA on mobile)
-- [ ] File uploaded → processing indicator shown
-- [ ] Summariser extracts key information from document
-- [ ] Summary added to conversation context (LLM can reference it)
-- [ ] Raw document content never passed directly to inference LLM
-- [ ] Original files persist in session directory
-- [ ] Upload works on mobile browsers (iOS Safari, Android Chrome)
+- [x] Upload button visible in chat, works on mobile (iOS Safari, Android Chrome)
+- [x] Text documents: summarised + indexed for session RAG
+- [x] Images: stored in evidence, model informed but no analysis
+- [x] File uploaded → processing indicator → confirmation in chat
+- [x] Summariser processes content (not raw injection — prevents prompt injection)
+- [x] Session RAG allows model to query document details during conversation
+- [x] Evidence summaries persist as fixed context (survive compression)
+- [x] Original files persist in `/app/data/sessions/{token}/evidence/`
+- [x] Sidecar deletes temp files after backend confirms receipt
+- [x] 25MB size limit enforced
+- [x] Disclaimer about image limitations shown to user
 
 ---
 
