@@ -8,7 +8,7 @@ responses) are MUCH worse than false negatives (letting some repetition
 through). Better to miss a loop than to cut a valid response.
 
 Thresholds are set high intentionally:
-- MIN_PHRASE_LENGTH = 40 chars — ignores short repeated phrases that
+- MIN_PHRASE_LENGTH = 25 chars — ignores short repeated phrases that
   could be legitimate (list items, similar framework descriptions)
 - MIN_REPETITIONS = 3 — requires the phrase to appear 3+ times before
   triggering, ruling out natural echo (e.g., "ILO Convention X... ILO Convention Y")
@@ -25,7 +25,7 @@ logger = logging.getLogger("backend.repetition")
 # Minimum length of a repeated phrase to count as a loop (chars).
 # Short repeated strings are common in legitimate output (bullet points,
 # framework names, numbered lists). Only flag substantial repetitions.
-MIN_PHRASE_LENGTH = 40
+MIN_PHRASE_LENGTH = 25
 
 # How many times a phrase must repeat to trigger detection.
 # 3 means the SAME substantial phrase appears 3+ times — this is very

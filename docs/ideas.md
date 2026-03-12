@@ -210,3 +210,36 @@ Los resúmenes de documentos subidos usan el summariser (mismo modelo que la com
 **Recurrencia:** Después de este sprint inicial, cada sprint de mejora que afecte a texto visible por el usuario final debe incluir una tarea de traducción de los nuevos textos.
 
 **Analysis:** Encaja como sprint de contenido después de la fase de test de calidad de prompts y antes de producción final. No requiere cambios de código — solo contenido en i18n.ts y las respuestas hardcoded de guardrails. Se puede hacer con herramientas de traducción o nativos.
+
+---
+
+### Navegación: botón Back + aviso de no recargar
+**Added:** 2026-03-12 | **Sprint:** Sprint 11 (Polish) o dedicado | **Effort:** M (1-2 días)
+
+**Problema:** La app es una SPA con estado en memoria. Si el usuario recarga la página, vuelve a la selección de idioma y pierde todo el progreso. Si pulsa el botón "atrás" del navegador, sale de la app.
+
+**Solución propuesta — dos partes:**
+
+1. **Botón Back en todas las páginas pre-chat:** Disclaimer, Session, Role Select, Auth, Instructions y Survey deben tener un botón para volver al paso anterior. Actualmente el usuario no tiene forma de corregir un error sin recargar (y perder todo).
+
+2. **Aviso de no recargar en Instructions page:** Antes de llegar al survey/chat, la página de instrucciones debe avisar claramente que recargar la página perderá el progreso. Algo como "No recargues la página durante la sesión — perderás la conversación."
+
+3. **`beforeunload` handler (opcional):** `window.addEventListener("beforeunload", ...)` para mostrar confirmación del navegador al recargar/cerrar durante una sesión activa. No funciona en todos los navegadores móviles pero es una capa extra.
+
+4. **`history.pushState` (opcional):** Meter cada fase como entrada en el historial del navegador para que "atrás" vaya al paso anterior en vez de salir de la app. Requiere algo de lógica pero es factible sin React Router.
+
+**Analysis:** Las partes 1 y 2 son imprescindibles y sencillas (botones + texto i18n). Las partes 3 y 4 son mejoras opcionales que añaden robustez. Encaja en Sprint 11 (polish) o como tarea en cualquier sprint de mejora UX. No tiene dependencias técnicas.
+
+---
+
+### Múltiples destinatarios de notificaciones + asignación por frontend
+**Added:** 2026-03-12 | **Sprint:** Backlog (post-Sprint 11) | **Effort:** M (1-2 días)
+
+Poder añadir más direcciones de correo electrónico para notificaciones al admin o para notificaciones de nuevo report. Idealmente, poder asignar direcciones específicas por frontend en caso de que se use para campañas distintas gestionadas por distintas personas.
+
+**Implementación:**
+- **Nivel global:** Cambiar el campo `from_address` / admin email de un solo string a una lista de emails en `smtp_config.json`. Todas las notificaciones (flagged, new report) se envían a todos los emails de la lista. UI: campo multi-email en SMTP tab (chips/tags).
+- **Nivel por frontend:** Añadir `notification_emails: string[]` a la config de campaña (`/app/data/campaigns/{frontend_id}/notification_config.json`). Si existe, las notificaciones de sesiones de ese frontend van a esos emails en vez de (o además de) los globales. UI: sección de notificaciones en el subpanel de cada frontend en SMTP tab o en Frontends tab.
+- `smtp_service.py`: `notify_admin_report()` y similares reciben `frontend_id`, resuelven lista de destinatarios (frontend-specific + global fallback), envían a todos.
+
+**Analysis:** Encaja perfectamente con la arquitectura de campañas por frontend (Sprint 8h). La infraestructura de `frontend_id` ya está en sesiones y en el sistema de campañas. Técnicamente sencillo — el cambio es principalmente en `smtp_service.py` (resolver destinatarios) y en admin UI (gestión de listas de emails). No tiene dependencias bloqueantes, pero es más útil después de tener campañas en uso real.
