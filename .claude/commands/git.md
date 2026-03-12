@@ -14,10 +14,18 @@ Generate git commit and push commands for the current work.
 
 ## Output Format
 
+Always use a SINGLE-LINE commit message. NEVER use heredoc, `cat <<EOF`, or multi-line strings — they cause `dquote>` errors in the user's terminal.
+
 ```bash
-git add -A && git commit -m "<message>"
+git add -A && git commit -m "feat: Sprint X — short summary"
 
 git push origin main && git push gitea main
+```
+
+If the message needs more detail, keep it on one line with a semicolon or dash separator:
+
+```bash
+git add -A && git commit -m "feat: Sprint X — summary; detail one, detail two"
 ```
 
 ## Rules
@@ -26,3 +34,4 @@ git push origin main && git push gitea main
 - Always include the sprint identifier in the commit message
 - Always push to both `origin` and `gitea`
 - Do NOT include Co-Authored-By lines in commit messages
+- NEVER use heredoc or multi-line commit messages — SINGLE LINE ONLY

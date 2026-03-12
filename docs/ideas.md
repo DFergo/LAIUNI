@@ -130,6 +130,24 @@ A medida que se acumulan mensajes y documentos, la ventana de contexto crece y c
 
 ---
 
+### Respuestas simples para el usuario, información completa para el informe
+**Added:** 2026-03-12 | **Sprint:** Fase de redacción de prompts + Sprint 10 (guardrails) | **Effort:** M (1-2 días)
+
+El modelo da respuestas demasiado complejas, especialmente cuando acumula mucha información (documentos, RAG, contexto largo). En modo documentación, el objetivo es **extraer** información del trabajador, no apabullarle con análisis de marcos legales que no le son útiles. El modelo debe identificar patrones y relaciones con marcos globales internamente, pero al usuario darle solo una explicación sencilla y seguir extrayendo datos.
+
+**Dos capas del problema:**
+
+1. **Prompts conversacionales (perfil worker/rep):** Instruir al modelo para que sea breve, empático, haga preguntas cortas y guarde el análisis profundo para sí mismo. No citar artículos específicos de convenios salvo que el usuario pregunte. Esto es puro trabajo de prompt — no requiere código.
+
+2. **Informe final vs. compresión:** Si la conversación no se comprime, el prompt de informe recibe la conversación completa → tiene toda la información. Si se comprime, ¿el resumen de compresión preserva las relaciones con marcos globales que el modelo identificó internamente? Opciones:
+   - **A) Conversación completa al informe siempre** — leer de `conversation.jsonl` en disco, no del contexto comprimido. El informe siempre tiene todo. Coste: más tokens en la generación del informe, pero es un solo call.
+   - **B) Compresión consciente** — ajustar el prompt de compresión para que preserve explícitamente las relaciones con marcos identificadas. Riesgo: si el modelo no las verbalizó en el chat (porque le dijimos que fuera simple), la compresión no las tiene.
+   - **C) Notas internas del modelo** — un campo "internal_notes" donde el modelo anote relaciones con marcos que no muestra al usuario. Parecido a lo que haría Letta.
+
+**Analysis:** La opción A es la más segura y simple — el informe siempre usa `conversation.jsonl` completo desde disco, ignorando la compresión. El coste extra de tokens es asumible (un solo call no-streaming). Los prompts conversacionales son trabajo de contenido, no de código. Encaja en la fase de redacción de prompts (Daniel escribirá el contenido final) y Sprint 10 (guardrails que regulan el tono). La opción C es esencialmente lo que Letta haría en Sprint 12.
+
+---
+
 ### Summariser dedicado para resúmenes de evidencia
 **Added:** 2026-03-12 | **Sprint:** Backlog | **Effort:** S (horas)
 
