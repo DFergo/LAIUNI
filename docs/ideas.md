@@ -243,3 +243,69 @@ Poder añadir más direcciones de correo electrónico para notificaciones al adm
 - `smtp_service.py`: `notify_admin_report()` y similares reciben `frontend_id`, resuelven lista de destinatarios (frontend-specific + global fallback), envían a todos.
 
 **Analysis:** Encaja perfectamente con la arquitectura de campañas por frontend (Sprint 8h). La infraestructura de `frontend_id` ya está en sesiones y en el sistema de campañas. Técnicamente sencillo — el cambio es principalmente en `smtp_service.py` (resolver destinatarios) y en admin UI (gestión de listas de emails). No tiene dependencias bloqueantes, pero es más útil después de tener campañas en uso real.
+
+---
+
+### Copyright y autoría en el código
+**Added:** 2026-03-12 | **Sprint:** Sprint 11 (pre-producción) | **Effort:** S (horas)
+
+Hay que poner autoría y copyright en el código. El diseño es de Daniel Fernandez, Head of UNI Graphical & Packaging, y la propiedad intelectual pertenece a Union Network International (UNI Global Union) con sede en Nyon, Suiza. No se permite la copia o reproducción sin autorización previa y se prohíbe expresamente el uso para fines comerciales.
+
+**Implementación:**
+- Archivo `LICENSE` en la raíz del repo con licencia propietaria/restrictiva (no open source)
+- Header de copyright en archivos clave (main.py backend, App.tsx frontend, sidecar main.py)
+- Footer visible en el frontend: "© UNI Global Union" (ya hay footer, añadir copyright)
+- Actualizar `package.json` y `pyproject.toml`/metadata con autor y licencia
+- Nota en README/INSTALL si existe
+
+**Texto propuesto:**
+```
+© 2026 Union Network International (UNI Global Union), Nyon, Switzerland.
+Designed by Daniel Fernandez, Head of UNI Graphical & Packaging.
+All rights reserved. No copying, reproduction or commercial use permitted
+without prior written authorization from UNI Global Union.
+```
+
+**Analysis:** Imprescindible antes de producción. Es trabajo de contenido, no de código — añadir headers y un archivo LICENSE. Encaja en Sprint 11 (polish/pre-producción). Sin dependencias técnicas. Nota: el repo de GitHub es público — hay que considerar si se cambia a privado o si la licencia restrictiva en un repo público es suficiente.
+
+---
+
+### Branding personalizable por frontend + logo UNI
+**Added:** 2026-03-12 | **Sprint:** Backlog (sprint de campañas avanzado) | **Effort:** L (sprint completo)
+
+**Dos partes:**
+
+**1. Personalización de UI por frontend (admin):**
+El disclaimer inicial, la página de instrucciones e incluso el branding podrían ser personalizables en un nuevo menú de admin para cada frontend. Esto complementa la lógica existente de campañas (prompts por frontend en 8h, RAG por frontend, notificaciones por frontend) para poder desplegar la herramienta en campañas para las que no fue inicialmente concebida. Un nuevo tab o sección en admin permitiría configurar por frontend:
+- Texto del disclaimer
+- Texto de instrucciones por perfil
+- Nombre/título de la app mostrado al usuario
+- Colores primarios (override de UNI blue)
+- Logo custom (upload de imagen)
+
+**2. Logo UNI y branding mejorado:**
+Revisar el branding actual (que está bastante bien) y añadir el logo de UNI en:
+- **Fondo del chat:** Logo en tonos muy apagados, casi transparente, fijo detrás de las burbujas de texto (watermark). Efecto visual elegante sin interferir con la lectura.
+- **Encabezado:** Logo pequeño junto al título "HRDD Helper"
+- **Página de inicio / selección de idioma:** Logo prominente
+- **Disclaimer:** Logo como refuerzo institucional
+
+**Relación con campañas:** Si un frontend tiene branding custom (parte 1), se usa ese. Si no, se usa el branding UNI por defecto (parte 2). Esto permite que UNI despliegue frontends con branding propio para campañas específicas (ej: una campaña sectorial con otro logo/colores) mientras el deployment principal mantiene el branding UNI.
+
+**Analysis:** Son dos ideas relacionadas pero con esfuerzos distintos. La parte 2 (logo UNI) es sencilla — S effort, encaja en Sprint 11 (polish). La parte 1 (personalización por frontend) es un sprint completo: requiere nuevo modelo de datos por frontend, endpoints admin, UI de configuración, y lógica en el frontend React para aplicar config dinámica recibida del sidecar. La infraestructura de campañas (8h) ya tiene la base (`/app/data/campaigns/{frontend_id}/`), pero la config de UI es un concepto nuevo. Backlog hasta que haya demanda real de campañas multi-marca.
+
+---
+
+### Limpiar archivos de Claude Code del repo público (GitHub)
+**Added:** 2026-03-12 | **Sprint:** Sprint 11 (pre-producción) | **Effort:** S (horas)
+
+Quitar los archivos de Claude Code del repositorio de GitHub y quedarnos solo con los archivos del HRDD Helper. Eliminar: `CLAUDE.md`, `.claude/` (settings, commands/skills), memoria del proyecto. Preservar todo en Gitea (repo privado/interno) donde sí es útil tener la configuración de desarrollo.
+
+**Implementación:**
+- Opción A — `.gitignore` selectivo: No es posible tener `.gitignore` diferente por remote con git estándar.
+- Opción B — Branch separado para GitHub: Mantener un branch `public` sin los archivos de Claude Code, push solo ese branch a GitHub. `main` con todo va a Gitea. Requiere merge discipline.
+- Opción C — Script de push a GitHub: Un script que hace `git stash` de los archivos de Claude, pushea a GitHub, y los restaura. Frágil.
+- Opción D — GitHub Actions / pre-push hook: Filtrar archivos en el push. Más complejo de lo necesario.
+- **Opción E (recomendada):** Simplemente eliminar los archivos de Claude del repo y moverlos fuera del directorio del proyecto. Claude Code puede usar `~/.claude/` para settings globales y el `CLAUDE.md` se puede mantener como archivo local no trackeado (añadir a `.gitignore`). En Gitea se puede mantener un branch o tag con la snapshot actual que incluye todo.
+
+**Analysis:** La opción más limpia es la E: `.gitignore` para `CLAUDE.md` y `.claude/`, un commit que los elimina, push a ambos remotes. Antes de eso, hacer un tag/snapshot en Gitea con la versión que incluye todo. Encaja en Sprint 11 junto con el copyright y la limpieza pre-producción.

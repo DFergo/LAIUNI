@@ -140,8 +140,11 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="bg-uni-blue text-white px-6 py-4 shadow-md flex items-center justify-between">
-        <h1 className="text-xl font-semibold">HRDD Helper</h1>
+      <header className="bg-uni-blue text-white px-6 py-3 shadow-md flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <img src="/uni-logo.png" alt="UNI" className="h-8 brightness-0 invert" />
+          <h1 className="text-xl font-semibold">HRDD Helper</h1>
+        </div>
         <span className="text-sm opacity-75">UNI Global Union</span>
       </header>
 

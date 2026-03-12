@@ -303,12 +303,17 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
   const recoveryMessages = recoveryData?.recovery_type === 'full' ? recoveryData.messages : null
 
   return (
-    <div className="max-w-4xl mx-auto flex flex-col h-[calc(100vh-64px)]">
+    <div className="max-w-4xl mx-auto flex flex-col h-[calc(100vh-64px)] relative">
       {/* Session token */}
       <div className="text-center text-xs text-gray-400 py-2 font-mono">{sessionToken}</div>
 
+      {/* UNI watermark — centered behind chat bubbles */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center z-0 opacity-[0.08]">
+        <img src="/uni-logo.png" alt="" className="w-72 max-w-[60%]" />
+      </div>
+
       {/* Messages */}
-      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 space-y-4 pb-4">
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 space-y-4 pb-4 relative z-10">
 
         {/* Recovery: previous session summary */}
         {recoverySummary && (

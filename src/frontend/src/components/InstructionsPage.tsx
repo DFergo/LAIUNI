@@ -14,6 +14,9 @@ export default function InstructionsPage({ lang, role, onContinue }: Props) {
   return (
     <div className="max-w-4xl mx-auto mt-8 p-6">
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+        <div className="flex justify-center mb-4">
+          <img src="/uni-logo.png" alt="UNI Global Union" className="h-[7.5rem]" />
+        </div>
         <h2 className="text-xl font-semibold text-gray-800 mb-4">
           {t(titleKey, lang)}
         </h2>

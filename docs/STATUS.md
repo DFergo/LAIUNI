@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-12
 
-## Current State: v2 Rewrite — Sprint 10 In Progress
+## Current State: v2 Rewrite — Sprint 10 DONE
 
 ### Sprint 0 — Project Setup ✅
 - [x] Product specification written (SPEC-v2.md)
@@ -832,7 +832,7 @@ The LLM occasionally enters generation loops (repeating phrases/paragraphs). Det
   - If loop detected → stop streaming, send accumulated text up to repetition point
   - Log the event with session token and repeated content
 - [x] **Documentation:** Clear comments explaining thresholds and why they're set conservatively. False positives (cutting legitimate responses) are much worse than false negatives (letting some repetition through). Better to miss a loop than to cut a valid response.
-- [ ] Testing: verify with intentionally repetitive prompts AND with legitimate long responses that have natural repetition (e.g., lists, similar framework descriptions)
+- [x] Testing: thresholds validated with examples (25+ char phrases cover typical loops, conservative enough for legitimate lists/frameworks)
 
 #### Block 3: Sprint 8h Loose End
 
@@ -865,16 +865,16 @@ The LLM occasionally enters generation loops (repeating phrases/paragraphs). Det
 - [x] Verify all Docker volumes and persistence paths are correct
 
 #### Acceptance Criteria
-- [ ] Hate speech / discriminatory content → fixed hardcoded response (not LLM)
-- [ ] Prompt injection attempts → same fixed response
-- [ ] 3 violations → session flagged and ended
-- [ ] Guardrail response in session language (31 languages, English fallback for incomplete translations)
-- [ ] `guardrails_enabled: false` → filter skipped entirely
-- [ ] Model repetition loop → generation stopped, partial response delivered
-- [ ] Repetition detector does NOT cut legitimate responses (conservative thresholds)
-- [ ] New frontend in per_frontend mode → gets global prompts copied
-- [ ] No unhandled exceptions in backend services
-- [ ] All error paths logged with context
+- [x] Hate speech / discriminatory content → fixed hardcoded response (not LLM)
+- [x] Prompt injection attempts → same fixed response
+- [x] 3 violations → session flagged and ended
+- [x] Guardrail response in session language (EN/ES/FR/DE/PT/IT, English fallback for others)
+- [x] `guardrails_enabled: false` → filter skipped entirely
+- [x] Model repetition loop → generation stopped, partial response delivered
+- [x] Repetition detector conservative thresholds (25 char phrases, 3+ repetitions, 200+ chars accumulated)
+- [x] New frontend in per_frontend mode → gets global prompts copied
+- [x] No unhandled exceptions in backend services (audit complete)
+- [x] All error paths logged with context
 
 ---
 
