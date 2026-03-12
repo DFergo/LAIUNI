@@ -39,10 +39,13 @@ def _load_config() -> dict[str, Any]:
         "send_report_to_user": False,
     }
     if _SETTINGS_PATH.exists():
-        data = json.loads(_SETTINGS_PATH.read_text())
-        for key, val in defaults.items():
-            data.setdefault(key, val)
-        return data
+        try:
+            data = json.loads(_SETTINGS_PATH.read_text())
+            for key, val in defaults.items():
+                data.setdefault(key, val)
+            return data
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Failed to load SMTP config: {e}, using defaults")
     return defaults
 
 

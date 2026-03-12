@@ -33,70 +33,71 @@ _is_processing = False
 async def poll_frontends():
     """Poll all enabled frontends for pending messages."""
     client = httpx.AsyncClient(timeout=10.0)
-    enabled = registry.list_enabled()
+    try:
+        enabled = registry.list_enabled()
 
-    for frontend in enabled:
-        url = frontend["url"]
-        fid = frontend["id"]
-        try:
-            resp = await client.get(f"{url}/internal/queue")
-            resp.raise_for_status()
-            data = resp.json()
-            messages = data.get("messages", [])
-            registry.set_status(fid, "online")
-
-            for msg in messages:
-                msg["_frontend_url"] = url
-                msg["_frontend_name"] = frontend.get("name", "")
-                msg["_frontend_id"] = fid
-                async with _processing_lock:
-                    _processing_queue.append(msg)
-                logger.info(f"Queued message {msg.get('message_id')} from {fid}")
-
-            # Handle recovery requests (pull-inverse: backend resolves, pushes back)
-            recovery_requests = data.get("recovery_requests", [])
-            for token in recovery_requests:
-                await _handle_recovery(url, token)
-
-            # Handle auth requests (pull-inverse: sidecar queues, backend resolves)
-            auth_requests = data.get("auth_requests", [])
-            for auth_req in auth_requests:
-                await _handle_auth_request(client, url, auth_req)
-
-            # Handle file uploads — collect all uploads, process, then respond per token
+        for frontend in enabled:
+            url = frontend["url"]
+            fid = frontend["id"]
             try:
-                all_results: dict[str, list[dict]] = {}  # token -> list of results
+                resp = await client.get(f"{url}/internal/queue")
+                resp.raise_for_status()
+                data = resp.json()
+                messages = data.get("messages", [])
+                registry.set_status(fid, "online")
 
-                # Keep polling until no more uploads arrive (batch may span multiple poll cycles)
-                while True:
-                    upload_resp = await client.get(f"{url}/internal/uploads")
-                    upload_resp.raise_for_status()
-                    uploads = upload_resp.json().get("uploads", [])
-                    if not uploads:
-                        break
+                for msg in messages:
+                    msg["_frontend_url"] = url
+                    msg["_frontend_name"] = frontend.get("name", "")
+                    msg["_frontend_id"] = fid
+                    async with _processing_lock:
+                        _processing_queue.append(msg)
+                    logger.info(f"Queued message {msg.get('message_id')} from {fid}")
 
-                    for upload in uploads:
-                        tk = upload.get("session_token", "")
-                        if not tk:
-                            continue
-                        result = await _handle_upload(client, url, upload)
-                        if result:
-                            all_results.setdefault(tk, []).append(result)
+                # Handle recovery requests (pull-inverse: backend resolves, pushes back)
+                recovery_requests = data.get("recovery_requests", [])
+                for token in recovery_requests:
+                    await _handle_recovery(url, token)
 
-                    # After processing this batch, re-poll to catch files that arrived
-                    # while we were processing (summarisation takes time)
+                # Handle auth requests (pull-inverse: sidecar queues, backend resolves)
+                auth_requests = data.get("auth_requests", [])
+                for auth_req in auth_requests:
+                    await _handle_auth_request(client, url, auth_req)
 
-                # Generate one response per token for all accumulated uploads
-                for tk, results in all_results.items():
-                    await _respond_to_upload(client, url, tk, results, fid)
+                # Handle file uploads — collect all uploads, process, then respond per token
+                try:
+                    all_results: dict[str, list[dict]] = {}  # token -> list of results
+
+                    # Keep polling until no more uploads arrive (batch may span multiple poll cycles)
+                    while True:
+                        upload_resp = await client.get(f"{url}/internal/uploads")
+                        upload_resp.raise_for_status()
+                        uploads = upload_resp.json().get("uploads", [])
+                        if not uploads:
+                            break
+
+                        for upload in uploads:
+                            tk = upload.get("session_token", "")
+                            if not tk:
+                                continue
+                            result = await _handle_upload(client, url, upload)
+                            if result:
+                                all_results.setdefault(tk, []).append(result)
+
+                        # After processing this batch, re-poll to catch files that arrived
+                        # while we were processing (summarisation takes time)
+
+                    # Generate one response per token for all accumulated uploads
+                    for tk, results in all_results.items():
+                        await _respond_to_upload(client, url, tk, results, fid)
+                except Exception as e:
+                    logger.warning(f"Failed to poll uploads from {fid}: {e}")
+
             except Exception as e:
-                logger.warning(f"Failed to poll uploads from {fid}: {e}")
-
-        except Exception as e:
-            registry.set_status(fid, "offline")
-            logger.warning(f"Failed to poll {fid} ({url}): {e}")
-
-    await client.aclose()
+                registry.set_status(fid, "offline")
+                logger.warning(f"Failed to poll {fid} ({url}): {e}")
+    finally:
+        await client.aclose()
 
 
 async def process_queue():
@@ -132,19 +133,18 @@ async def _send_queue_positions():
     async with _processing_lock:
         items = list(_processing_queue)
 
-    client = httpx.AsyncClient(timeout=5.0)
-    for i, msg in enumerate(items):
-        url = msg.get("_frontend_url", "")
-        token = msg.get("session_token", "")
-        if url and token:
-            try:
-                await client.post(
-                    f"{url}/internal/stream/{token}/chunk",
-                    json={"event": "queue_position", "data": str(i + 1)},
-                )
-            except Exception:
-                pass
-    await client.aclose()
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for i, msg in enumerate(items):
+            url = msg.get("_frontend_url", "")
+            token = msg.get("session_token", "")
+            if url and token:
+                try:
+                    await client.post(
+                        f"{url}/internal/stream/{token}/chunk",
+                        json={"event": "queue_position", "data": str(i + 1)},
+                    )
+                except Exception:
+                    pass
 
 
 async def _safe_process(msg: dict[str, Any]):
@@ -362,8 +362,12 @@ async def _finalize_session(
                 summary_prompt_path = os.path.join(
                     os.path.dirname(os.path.dirname(__file__)), "prompts", "session_summary.md"
                 )
-        with open(summary_prompt_path) as f:
-            summary_instruction = f.read()
+        try:
+            with open(summary_prompt_path) as f:
+                summary_instruction = f.read()
+        except OSError as e:
+            logger.error(f"Cannot read summary prompt {summary_prompt_path}: {e}")
+            summary_instruction = "Generate a brief summary of this session for the user."
 
         # Build messages: full conversation + summary instruction
         llm_messages = history.get_llm_messages(session_token)
@@ -417,13 +421,18 @@ async def _finalize_session(
         # Save summary as conversation message (so it appears on recovery)
         history.add_message(session_token, "assistant", clean_response)
 
-        # Save summary to disk
+        # Save summary to disk (atomic: tmp + rename)
         session_dir = f"/app/data/sessions/{session_token}"
         os.makedirs(session_dir, exist_ok=True)
         summary_path = os.path.join(session_dir, "summary.md")
-        with open(summary_path, "w") as f:
-            f.write(clean_response)
-        logger.info(f"Summary saved to {summary_path}")
+        try:
+            tmp_path = summary_path + ".tmp"
+            with open(tmp_path, "w") as f:
+                f.write(clean_response)
+            os.replace(tmp_path, summary_path)
+            logger.info(f"Summary saved to {summary_path}")
+        except OSError as e:
+            logger.error(f"Failed to save summary for {session_token}: {e}")
 
         # Mark session as completed
         history.set_status(session_token, "completed")
@@ -468,8 +477,10 @@ async def _generate_internal_documents(
         )
         if uni_summary:
             path = os.path.join(session_dir, "internal_summary.md")
-            with open(path, "w") as f:
+            tmp = path + ".tmp"
+            with open(tmp, "w") as f:
                 f.write(uni_summary)
+            os.replace(tmp, path)
             logger.info(f"Internal UNI summary saved: {path}")
     except Exception as e:
         logger.error(f"Internal UNI summary failed for {session_token}: {e}")
@@ -485,8 +496,10 @@ async def _generate_internal_documents(
             )
             if report_content:
                 path = os.path.join(session_dir, "report.md")
-                with open(path, "w") as f:
+                tmp = path + ".tmp"
+                with open(tmp, "w") as f:
                     f.write(report_content)
+                os.replace(tmp, path)
                 logger.info(f"Report saved: {path}")
         except Exception as e:
             logger.error(f"Report generation failed for {session_token}: {e}")
@@ -535,8 +548,12 @@ async def _generate_document(
         logger.warning(f"Prompt file not found: {prompt_file}")
         return None
 
-    with open(prompt_path) as f:
-        prompt_instruction = f.read()
+    try:
+        with open(prompt_path) as f:
+            prompt_instruction = f.read()
+    except OSError as e:
+        logger.error(f"Cannot read prompt file {prompt_path}: {e}")
+        return None
 
     # Build messages: replace system prompt with document prompt + full conversation
     llm_messages = history.get_llm_messages(session_token)

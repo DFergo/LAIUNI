@@ -844,11 +844,25 @@ The LLM occasionally enters generation loops (repeating phrases/paragraphs). Det
 
 #### Block 4: Code Audit & Polish
 
-- [ ] Error handling audit: scan all services for unhandled exceptions, missing try-except
-- [ ] Log review: ensure errors are logged with enough context, no silent failures
-- [ ] Dead code cleanup: remove unused imports, commented-out code, stale TODOs
-- [ ] Edge case review: empty sessions, missing files, corrupt JSON, concurrent access
-- [ ] Verify all Docker volumes and persistence paths are correct
+- [x] Error handling audit: scan all services for unhandled exceptions, missing try-except
+  - SMTP config load wrapped in try-except (crash on empty/corrupt JSON)
+  - poll_frontends() AsyncClient wrapped in try/finally (resource leak)
+  - _send_queue_positions() converted to async with (resource leak)
+  - _finalize_session prompt read with fallback (FileNotFoundError)
+  - _generate_document prompt read with try-except (FileNotFoundError)
+  - context_compressor JSON response parsing with specific exceptions
+- [x] Log review: ensure errors are logged with enough context, no silent failures
+  - rag_service: silent `except: pass` replaced with logged warnings
+  - admin smtp _load_config: silent failure now caught
+- [x] Dead code cleanup: remove unused imports, commented-out code, stale TODOs
+  - Removed `import time` from session_store.py (unused)
+  - Deleted session_history.py (replaced by session_store.py in Sprint 8a)
+- [x] Edge case review: empty sessions, missing files, corrupt JSON, concurrent access
+  - All file writes in polling.py converted to atomic tmp+rename pattern
+  - session_lifecycle.py auto-close write converted to atomic
+  - admin smtp _save_config: parent dir creation added
+  - Race conditions: low risk (processing is sequential) — documented, not fixed
+- [x] Verify all Docker volumes and persistence paths are correct
 
 #### Acceptance Criteria
 - [ ] Hate speech / discriminatory content → fixed hardcoded response (not LLM)

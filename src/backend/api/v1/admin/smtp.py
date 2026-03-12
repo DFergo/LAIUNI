@@ -35,14 +35,18 @@ _DEFAULTS = {
 
 def _load_config() -> dict[str, Any]:
     if _SETTINGS_PATH.exists():
-        data = json.loads(_SETTINGS_PATH.read_text())
-        for key, val in _DEFAULTS.items():
-            data.setdefault(key, val)
-        return data
+        try:
+            data = json.loads(_SETTINGS_PATH.read_text())
+            for key, val in _DEFAULTS.items():
+                data.setdefault(key, val)
+            return data
+        except (json.JSONDecodeError, OSError):
+            pass
     return dict(_DEFAULTS)
 
 
 def _save_config(config: dict[str, Any]):
+    _SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = _SETTINGS_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(config, indent=2))
     tmp.rename(_SETTINGS_PATH)

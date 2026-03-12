@@ -421,8 +421,12 @@ async def _compress_messages(
                     f"Request: model={model}, provider={provider}"
                 )
                 return ""
-            data = resp.json()
-            response = data["choices"][0]["message"]["content"]
+            try:
+                data = resp.json()
+                response = data["choices"][0]["message"]["content"]
+            except (json.JSONDecodeError, KeyError, IndexError) as e:
+                logger.error(f"Malformed compression response: {e}")
+                return ""
 
         # Strip <think> blocks if present (Qwen3)
         if "<think>" in response:

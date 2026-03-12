@@ -227,8 +227,8 @@ def get_campaign_rag_config(frontend_id: str) -> dict:
     if config_path.exists():
         try:
             return json.loads(config_path.read_text())
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Failed to read campaign RAG config for {frontend_id}: {e}")
     return {"include_global_rag": True}
 
 
@@ -371,5 +371,6 @@ def get_index_stats() -> dict:
     try:
         node_count = len(_index.docstore.docs) if hasattr(_index, 'docstore') else 0
         return {"status": "indexed", "node_count": node_count}
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to get index stats: {e}")
         return {"status": "unknown", "node_count": 0}

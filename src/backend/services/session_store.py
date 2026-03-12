@@ -10,7 +10,6 @@ In-memory cache keeps active sessions fast. Disk is source of truth.
 
 import json
 import logging
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any

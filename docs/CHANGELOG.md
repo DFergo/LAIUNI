@@ -2,7 +2,7 @@
 
 ## v2.0 — Clean Rewrite
 
-### Sprint 10 — Guardrails + Repetition Detection + Polish (2026-03-12) [Blocks 1-3]
+### Sprint 10 — Guardrails + Repetition Detection + Polish (2026-03-12)
 - **Pre-LLM content filter** (`services/guardrails.py`): pattern-based detection of hate speech, discriminatory content, and prompt injection attempts
   - Fixed hardcoded response strings (NOT LLM-generated) in EN/ES/FR/DE/PT/IT, English fallback for others
   - Violation counter per session persisted in session.json
@@ -15,6 +15,17 @@
 - **Sprint 8h loose end**: auto-copy global prompts when registering new frontend in per_frontend mode
 - `session_store.py`: `guardrail_violations` field in session metadata, `increment_guardrail_violations()` and `get_guardrail_violations()` methods
 - Admin sessions list includes `guardrail_violations` count
+- **Block 4 — Code audit:**
+  - SMTP config load: try-except for corrupt/empty JSON (was crash)
+  - `poll_frontends()`: AsyncClient in try/finally (was resource leak on exception)
+  - `_send_queue_positions()`: converted to `async with` (was resource leak)
+  - All document writes (summary.md, report.md, internal_summary.md) now atomic (tmp+rename)
+  - Prompt file reads wrapped in try-except with fallback
+  - Context compressor: JSON response parsing with specific exception types
+  - RAG service: silent `except: pass` replaced with logged warnings
+  - Admin SMTP: parent dir creation, corrupt JSON handling
+  - Removed dead `session_history.py` (replaced by session_store.py in Sprint 8a)
+  - Removed unused `import time` from session_store.py
 
 ### Sprint 9 — SMTP + Email Auth + Guardrails Prompt + Production Prompts (2026-03-12)
 - Full SMTP integration with aiosmtplib (auth codes, notifications, report/summary forwarding)

@@ -157,8 +157,10 @@ async def _auto_close_session(token: str, session_meta: dict[str, Any]):
             content = await _generate_document(token, "session_summary.md", language, settings)
         if content:
             path = os.path.join(session_dir, "summary.md")
-            with open(path, "w") as f:
+            tmp = path + ".tmp"
+            with open(tmp, "w") as f:
                 f.write(content)
+            os.replace(tmp, path)
             # Save as conversation message too
             store.add_message(token, "assistant", content)
             logger.info(f"Auto-close summary saved: {token}")
