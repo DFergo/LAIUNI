@@ -243,12 +243,18 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    // Reset input so same file can be re-selected
+    const fileList = e.target.files
+    if (!fileList || fileList.length === 0) return
+    // Copy FileList to array BEFORE resetting input (reset clears the FileList)
+    const files = Array.from(fileList)
     e.target.value = ''
 
-    setUploadStatus(`Uploading ${file.name}...`)
+    // Limit to 4 files per batch
+    if (files.length > 4) {
+      setError(t('upload_batch_limit', lang))
+      return
+    }
+
     setError('')
 
     // Open SSE to receive upload events (if not already streaming)
@@ -256,21 +262,32 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
       listenForResponse()
     }
 
-    const formData = new FormData()
-    formData.append('file', file)
+    const total = files.length
 
-    try {
-      const resp = await fetch(`/internal/upload/${sessionToken}`, {
-        method: 'POST',
-        body: formData,
-      })
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({ detail: 'Upload failed' }))
-        throw new Error(body.detail || `HTTP ${resp.status}`)
+    for (let i = 0; i < total; i++) {
+      const file = files[i]
+      setUploadStatus(total > 1
+        ? `${t('upload_batch_progress', lang).replace('{n}', String(i + 1)).replace('{total}', String(total))}`
+        : `Uploading ${file.name}...`
+      )
+
+      const formData = new FormData()
+      formData.append('file', file)
+
+      try {
+        const resp = await fetch(`/internal/upload/${sessionToken}`, {
+          method: 'POST',
+          body: formData,
+        })
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => ({ detail: 'Upload failed' }))
+          throw new Error(body.detail || `HTTP ${resp.status}`)
+        }
+      } catch (err) {
+        setUploadStatus(null)
+        setError(err instanceof Error ? err.message : 'Upload failed')
+        return
       }
-    } catch (err) {
-      setUploadStatus(null)
-      setError(err instanceof Error ? err.message : 'Upload failed')
     }
   }
 
@@ -394,6 +411,18 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
           </div>
         )}
 
+        {/* Upload processing indicator — shown as assistant bubble while waiting for LLM response */}
+        {!isStreaming && uploadStatus && (
+          <div className="flex justify-start">
+            <div className="max-w-[80%] rounded-lg px-4 py-3 bg-white border border-gray-200 text-gray-800">
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <span className="inline-block w-2 h-2 bg-uni-blue rounded-full animate-pulse" />
+                {uploadStatus}
+              </div>
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="text-center">
             <span className="text-sm text-uni-red">{error}</span>
@@ -439,6 +468,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
               ref={fileInputRef}
               type="file"
               accept=".pdf,.txt,.md,.doc,.docx,.jpg,.jpeg,.png"
+              multiple
               onChange={handleUpload}
               className="hidden"
             />
@@ -478,14 +508,6 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
               </button>
             )}
           </div>
-          {uploadStatus && (
-            <div className="max-w-4xl mx-auto mt-2">
-              <div className="flex items-center gap-2 text-xs text-gray-500">
-                <span className="inline-block w-2 h-2 bg-uni-blue rounded-full animate-pulse" />
-                {uploadStatus}
-              </div>
-            </div>
-          )}
           </>
         )}
       </div>

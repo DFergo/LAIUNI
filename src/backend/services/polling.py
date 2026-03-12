@@ -52,13 +52,32 @@ async def poll_frontends():
             for token in recovery_requests:
                 await _handle_recovery(url, token)
 
-            # Handle file uploads
+            # Handle file uploads — collect all uploads, process, then respond per token
             try:
-                upload_resp = await client.get(f"{url}/internal/uploads")
-                upload_resp.raise_for_status()
-                uploads = upload_resp.json().get("uploads", [])
-                for upload in uploads:
-                    await _handle_upload(client, url, upload)
+                all_results: dict[str, list[dict]] = {}  # token -> list of results
+
+                # Keep polling until no more uploads arrive (batch may span multiple poll cycles)
+                while True:
+                    upload_resp = await client.get(f"{url}/internal/uploads")
+                    upload_resp.raise_for_status()
+                    uploads = upload_resp.json().get("uploads", [])
+                    if not uploads:
+                        break
+
+                    for upload in uploads:
+                        tk = upload.get("session_token", "")
+                        if not tk:
+                            continue
+                        result = await _handle_upload(client, url, upload)
+                        if result:
+                            all_results.setdefault(tk, []).append(result)
+
+                    # After processing this batch, re-poll to catch files that arrived
+                    # while we were processing (summarisation takes time)
+
+                # Generate one response per token for all accumulated uploads
+                for tk, results in all_results.items():
+                    await _respond_to_upload(client, url, tk, results)
             except Exception as e:
                 logger.warning(f"Failed to poll uploads from {fid}: {e}")
 
@@ -577,12 +596,12 @@ async def _handle_recovery(frontend_url: str, token: str):
         await client.aclose()
 
 
-async def _handle_upload(client: httpx.AsyncClient, frontend_url: str, upload: dict[str, Any]):
-    """Fetch uploaded file from sidecar, process it, notify user via SSE."""
+async def _handle_upload(client: httpx.AsyncClient, frontend_url: str, upload: dict[str, Any]) -> dict[str, str] | None:
+    """Fetch uploaded file from sidecar, process it, notify user via SSE. Returns result dict or None."""
     token = upload.get("session_token", "")
     filename = upload.get("filename", "")
     if not token or not filename:
-        return
+        return None
 
     try:
         # Fetch file from sidecar
@@ -624,9 +643,7 @@ async def _handle_upload(client: httpx.AsyncClient, frontend_url: str, upload: d
             pass
 
         logger.info(f"Upload processed: {filename} for {token} ({result['type']})")
-
-        # Trigger automatic LLM response about the uploaded document
-        await _respond_to_upload(client, frontend_url, token, filename, result)
+        return result
 
     except Exception as e:
         logger.error(f"Upload processing failed for {filename} ({token}): {e}")
@@ -637,26 +654,38 @@ async def _handle_upload(client: httpx.AsyncClient, frontend_url: str, upload: d
             )
         except Exception:
             pass
+        return None
 
 
 async def _respond_to_upload(
     client: httpx.AsyncClient,
     frontend_url: str,
     token: str,
-    filename: str,
-    result: dict[str, Any],
+    results: list[dict[str, Any]],
 ):
-    """Generate an automatic LLM response acknowledging the uploaded document."""
+    """Generate an automatic LLM response acknowledging uploaded document(s)."""
     try:
-        # Build an internal user message describing the upload
-        if result["type"] == "image":
-            internal_msg = f"[The user has uploaded an image file: {filename}. It has been stored as evidence but cannot be analyzed by the system. Acknowledge receipt briefly.]"
-        else:
-            summary = result.get("summary", "")
-            internal_msg = f"[The user has uploaded a document: {filename}. It has been processed and added to the session evidence. Briefly acknowledge receipt and mention the key points you found in the document. Do not repeat the full summary — just show the user you understood what the document contains.]"
+        # Build internal message describing all uploads
+        filenames = [r["filename"] for r in results]
+        text_docs = [r for r in results if r["type"] == "text"]
+        image_docs = [r for r in results if r["type"] == "image"]
 
-        # Add as a system message (not user — the user didn't type this)
-        history.add_message(token, "user", f"[Uploaded file: {filename}]")
+        if len(results) == 1:
+            r = results[0]
+            if r["type"] == "image":
+                internal_msg = f"[The user has uploaded an image file: {r['filename']}. It has been stored as evidence but cannot be analyzed by the system. Acknowledge receipt briefly.]"
+            else:
+                internal_msg = f"[The user has uploaded a document: {r['filename']}. It has been processed and added to the session evidence. Briefly acknowledge receipt and mention the key points you found in the document. Do not repeat the full summary — just show the user you understood what the document contains.]"
+        else:
+            parts = [f"[The user has uploaded {len(results)} files:"]
+            for r in text_docs:
+                parts.append(f"- {r['filename']} (text document, processed and indexed)")
+            for r in image_docs:
+                parts.append(f"- {r['filename']} (image, stored but not analyzed)")
+            parts.append("Briefly acknowledge receipt of all documents. For text documents, mention the key points you found. Do not repeat full summaries — just show the user you understood what each document contains.]")
+            internal_msg = "\n".join(parts)
+
+        history.add_message(token, "user", f"[Uploaded: {', '.join(filenames)}]")
 
         # Build LLM messages with evidence context already loaded
         llm_messages = history.get_llm_messages(token)
@@ -679,9 +708,10 @@ async def _respond_to_upload(
         # Replace the last user message with the instruction
         llm_messages[-1] = {"role": "user", "content": internal_msg}
 
-        # RAG chunks for the document
-        session_rag_chunks = get_session_rag_chunks(token, filename)
-        rag_chunks = get_relevant_chunks(filename)
+        # RAG chunks for the uploaded documents
+        query = " ".join(filenames)
+        session_rag_chunks = get_session_rag_chunks(token, query)
+        rag_chunks = get_relevant_chunks(query)
         all_chunks = rag_chunks + session_rag_chunks
         if all_chunks:
             rag_context = (
@@ -725,7 +755,7 @@ async def _respond_to_upload(
             f"{frontend_url}/internal/stream/{token}/chunk",
             json={"event": "done", "data": clean_response},
         )
-        logger.info(f"Auto-response to upload {filename} for {token}")
+        logger.info(f"Auto-response to upload [{', '.join(filenames)}] for {token}")
 
     except Exception as e:
         logger.error(f"Auto-response to upload failed for {token}: {e}")

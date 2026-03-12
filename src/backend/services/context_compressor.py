@@ -78,20 +78,25 @@ def estimate_messages_tokens(messages: list[dict[str, str]]) -> int:
 
 
 def _get_inference_budget(settings: dict[str, Any]) -> dict[str, int]:
-    """Calculate inference context budget."""
+    """Calculate inference context budget using progressive compression thresholds.
+
+    Progressive compression: first compression at `compression_first_threshold` tokens,
+    then every `compression_step_size` tokens after that.
+    Example: first=20000, step=15000 → compress at 20k, 35k, 50k, 65k...
+    """
     num_ctx = settings.get("inference_num_ctx", 32768)
-    threshold = settings.get("compression_threshold", 0.75)
     max_tokens = settings.get("inference_max_tokens", 2048)
+    first_threshold = settings.get("compression_first_threshold", 20000)
+    step_size = settings.get("compression_step_size", 15000)
 
     available = num_ctx - max_tokens
-    trigger_at = int(available * threshold)
 
     return {
         "num_ctx": num_ctx,
         "max_tokens": max_tokens,
         "available": available,
-        "trigger_at": trigger_at,
-        "threshold_pct": threshold,
+        "first_threshold": first_threshold,
+        "step_size": step_size,
     }
 
 
@@ -106,23 +111,45 @@ def _get_summariser_budget(settings: dict[str, Any]) -> int:
     return summariser_ctx - summariser_max_tokens - prompt_overhead
 
 
+def _get_current_threshold(session_token: str, settings: dict[str, Any]) -> int:
+    """Calculate the current compression threshold based on how many times we've compressed.
+
+    Progressive: first at `first_threshold`, then every `step_size` after that.
+    Example: first=20000, step=15000 → 20k, 35k, 50k, 65k...
+    """
+    budget = _get_inference_budget(settings)
+    session_state = _session_summaries.get(session_token, {})
+    compression_count = session_state.get("compression_count", 0)
+
+    if compression_count == 0:
+        return budget["first_threshold"]
+    return budget["first_threshold"] + (compression_count * budget["step_size"])
+
+
 def _needs_inference_compression(
     messages: list[dict[str, str]],
     settings: dict[str, Any],
+    session_token: str = "",
 ) -> bool:
-    """Check if inference context needs compression."""
+    """Check if inference context needs compression (progressive thresholds)."""
     if not settings.get("summariser_enabled", False):
         return False
 
     budget = _get_inference_budget(settings)
     current_tokens = estimate_messages_tokens(messages)
+    threshold = _get_current_threshold(session_token, settings)
+
+    # Safety: never exceed the model's context window
+    hard_limit = budget["available"]
+    if threshold > hard_limit:
+        threshold = hard_limit
 
     logger.info(
         f"Inference context: {current_tokens} tokens, "
-        f"threshold: {budget['trigger_at']} ({budget['threshold_pct']:.0%} of {budget['available']})"
+        f"next compression at: {threshold:,} tokens"
     )
 
-    return current_tokens > budget["trigger_at"]
+    return current_tokens > threshold
 
 
 def _needs_incremental_update(
@@ -188,7 +215,7 @@ async def compress_if_needed(
         await _update_running_summary(session_token, conversation, settings)
 
     # Phase 2: Check if inference needs compression NOW
-    if not _needs_inference_compression(messages, settings):
+    if not _needs_inference_compression(messages, settings, session_token):
         return messages
 
     # Get the running summary
@@ -207,6 +234,7 @@ async def compress_if_needed(
         _session_summaries[session_token] = {
             "summary": summary,
             "compressed_up_to": len(conversation) - _DEFAULT_PRESERVE_RECENT,
+            "compression_count": 1,
         }
         _persist_summary(session_token)
 
@@ -233,10 +261,18 @@ async def compress_if_needed(
     result.extend(to_keep)
 
     after_tokens = estimate_messages_tokens(result)
+
+    # Increment compression count for progressive thresholds
+    current_state = _session_summaries.get(session_token, {})
+    current_state["compression_count"] = current_state.get("compression_count", 0) + 1
+    _session_summaries[session_token] = current_state
+    _persist_summary(session_token)
+
     logger.info(
         f"Context compressed for {session_token}: "
         f"{before_tokens} → {after_tokens} tokens "
-        f"({len(conversation)} msgs → summary + {len(to_keep)} recent)"
+        f"({len(conversation)} msgs → summary + {len(to_keep)} recent) "
+        f"[compression #{current_state['compression_count']}]"
     )
 
     return result

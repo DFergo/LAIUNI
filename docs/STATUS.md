@@ -567,6 +567,43 @@ New: language → disclaimer → session (new/recover) → **role selection** �
 
 ---
 
+### Sprint 8g-b — Batch Document Upload + UX Polish (DONE)
+
+**Goal:** Users can upload up to 4 documents at once. Processing indicator as assistant bubble. Single LLM response for batch.
+
+**Depends on:** Sprint 8g (single upload)
+
+#### Part 1: Frontend — Multi-file Selection + UX
+
+- [x] `<input type="file" multiple>` — allow selecting multiple files at once
+- [x] Client-side limit: max 4 files per batch. If >4, show error and reject
+- [x] Upload loop: POST each file individually to sidecar (reuse existing endpoint)
+- [x] Upload status shows progress: "Uploading 1/3...", "Uploading 2/3...", etc.
+- [x] Processing indicator as assistant bubble (same style as "Processing..." for messages) with pulse animation
+- [x] Message: "Processing document. This may take a minute — please don't leave the page."
+- [x] Indicator visible from upload_processed until LLM response (done event)
+- [x] i18n: `upload_batch_progress`, `upload_batch_limit`, `upload_analyzing` (EN/ES)
+
+#### Part 2: Backend — Batch Processing + Single Response
+
+- [x] `poll_frontends()`: group uploads by `session_token` before processing
+- [x] `_handle_upload()` returns result instead of triggering response
+- [x] `_respond_to_upload()` accepts list of results, builds batch-aware message
+- [x] Single LLM response for all files in batch using inference model
+- [x] Each file still gets individual `upload_processed` SSE event
+- [x] Mixed batches (text + images) handled: text summarised, images noted
+
+#### Acceptance Criteria
+- [x] User can select 1-4 files in file picker
+- [x] >4 files → error message, upload rejected
+- [x] Progress indicator shows file-by-file upload status
+- [x] Assistant bubble with pulse shows processing status
+- [x] Single LLM response after entire batch is processed
+- [x] Auto-response references all documents in batch
+- [x] Mixed text+image batches handled correctly
+
+---
+
 ### Sprint 8h — Campaign-Specific RAG (PLANNED)
 
 **Goal:** Campaign documents attached to specific frontend deployments.

@@ -64,6 +64,7 @@ type TranslationKeys =
   | 'end_session' | 'end_session_confirm' | 'end_session_yes' | 'end_session_no'
   | 'session_ended_notice' | 'session_summary_label'
   | 'upload_button_title' | 'upload_doc_analyzed' | 'upload_image_stored' | 'upload_analyzing'
+  | 'upload_batch_progress' | 'upload_batch_limit'
   | 'footer_disclaimer'
 
 type Translations = Partial<Record<TranslationKeys, string>>
@@ -138,7 +139,9 @@ const translations: Partial<Record<LangCode, Translations>> = {
     upload_button_title: 'Upload document',
     upload_doc_analyzed: 'Document received and analyzed.',
     upload_image_stored: 'Image stored. Note: the system cannot analyze images.',
-    upload_analyzing: 'Analyzing document...',
+    upload_analyzing: 'Processing document. This may take a minute — please don\'t leave the page.',
+    upload_batch_progress: 'Uploading {n}/{total}...',
+    upload_batch_limit: 'Maximum 4 files at a time.',
     footer_disclaimer: 'This tool provides information, not legal advice. AI responses may contain errors.',
   },
   es: {
@@ -210,7 +213,9 @@ const translations: Partial<Record<LangCode, Translations>> = {
     upload_button_title: 'Subir documento',
     upload_doc_analyzed: 'Documento recibido y analizado.',
     upload_image_stored: 'Imagen almacenada. Nota: el sistema no puede analizar imágenes.',
-    upload_analyzing: 'Analizando documento...',
+    upload_analyzing: 'Procesando documento. Puede tardar un minuto — no abandone la página.',
+    upload_batch_progress: 'Subiendo {n}/{total}...',
+    upload_batch_limit: 'Máximo 4 archivos a la vez.',
     footer_disclaimer: 'Esta herramienta proporciona información, no asesoramiento legal. Las respuestas de IA pueden contener errores.',
   },
   fr: {

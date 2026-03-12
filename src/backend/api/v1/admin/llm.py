@@ -32,7 +32,9 @@ _DEFAULTS = {
     "summariser_temperature": 0.3,
     "summariser_max_tokens": 1024,
     "summariser_num_ctx": config.ollama_num_ctx,
-    "compression_threshold": 0.75,
+    "compression_threshold": 0.75,  # legacy — kept for migration
+    "compression_first_threshold": 20000,  # first compression at N tokens
+    "compression_step_size": 15000,  # compress again every N tokens after first
 }
 
 
@@ -76,7 +78,9 @@ class LLMSettingsRequest(BaseModel):
     summariser_temperature: float | None = None
     summariser_max_tokens: int | None = None
     summariser_num_ctx: int | None = None
-    compression_threshold: float | None = None
+    compression_threshold: float | None = None  # legacy
+    compression_first_threshold: int | None = None
+    compression_step_size: int | None = None
 
 
 @router.get("/health")

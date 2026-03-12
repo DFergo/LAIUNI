@@ -102,11 +102,39 @@ Subir documentos uno a uno y esperar la respuesta del modelo es tedioso si hay v
 
 ---
 
-### Análisis de imágenes subidas como evidencia
+### Análisis de imágenes subidas como evidencia (modelo multimodal)
 **Added:** 2026-03-12 | **Sprint:** Backlog | **Effort:** M (1-2 días)
 
-Actualmente las imágenes (.jpg, .png) subidas como evidencia se almacenan en el dossier pero no se analizan. Una mejora futura sería usar un modelo multimodal o OCR para extraer información de imágenes (fotos de documentos, capturas de pantalla, condiciones laborales). Requiere evaluar si el LLM local soporta visión (LLaVA, etc.) o si se necesita un servicio de OCR separado (Tesseract).
+Actualmente las imágenes (.jpg, .png) subidas como evidencia se almacenan en el dossier pero no se analizan. Usar un modelo multimodal (Qwen3.5-9b-mlx ya disponible en LM Studio) para describir/resumir imágenes al subirlas. El resumen se inyectaría como contexto igual que los documentos de texto, aunque las imágenes no irían al RAG de sesión.
 
-**Analysis:** No es prioritario — el 90% de la evidencia será texto. Depende de la capacidad del hardware (modelos multimodales son más pesados) y de la disponibilidad de modelos con visión en LM Studio/Ollama. Evaluar cuando el sistema esté en producción y haya datos reales sobre qué tipo de archivos suben los usuarios.
+**Implementación:** `evidence_processor.py` necesita enviar la imagen como base64 al modelo vía formato OpenAI multimodal (`image_url` en content array). `llm_provider.py` necesita soportar mensajes multimodales. Se podría usar el mismo modelo del summariser o uno dedicado configurable en admin LLM tab. El resumen de imagen se guardaría en `{filename}.summary.md` igual que los textos.
+
+**Analysis:** Factible — el modelo ya está disponible en el hardware actual. Requiere: (1) soporte multimodal en `llm_provider.py` (~30 líneas), (2) ruta de imagen en `evidence_processor.py` (~20 líneas), (3) configuración de modelo multimodal en admin. No prioritario pero útil para fotos de documentos, capturas de condiciones laborales, etc.
+
+---
+
+### Compresión de contexto progresiva (anti-slowdown)
+**Added:** 2026-03-12 | **Sprint:** Backlog (Sprint 12 si se integra con Letta) | **Effort:** M (1-2 días)
+
+A medida que se acumulan mensajes y documentos, la ventana de contexto crece y cada inferencia es más lenta. Actualmente la compresión se dispara al llegar al threshold (75% de la ventana) — pero para entonces ya hay mucho contexto y la respuesta tarda.
+
+**Opción A — Compresión escalonada:** Comprimir al llegar a 20k tokens, luego a 30k, 40k... con saltos de 15-20k. La conversación eventualmente podría llegar a los 200k del modelo, pero sería fluida entre compresiones. Cada compresión reduce los mensajes antiguos a un resumen ejecutivo. Riesgo: pérdida de detalle en conversaciones muy largas. La calidad depende del prompt de compresión y del modelo summariser.
+
+**Opción B — Techo fijo:** No permitir que el contexto supere un límite (ej. 30k tokens). Comprimir agresivamente siempre que se acerque. Más predecible en latencia pero más pérdida de información.
+
+**Opción C — Letta/MemGPT (Sprint 12):** Letta gestiona contexto, compresión, documentos y RAG de sesión de forma unificada. En lugar de tener sistemas separados (context_compressor + evidence_processor + session RAG + global RAG), Letta mantiene una "memoria" estructurada del agente que incluye hechos clave, documentos y contexto relevante. El modelo siempre trabaja con una ventana manejable. Es la solución más elegante pero requiere integración completa.
+
+**Pregunta clave:** ¿Merece la pena iterar sobre la compresión manual (A/B) o esperar a Letta (C)? A/B son incrementales y rápidas de implementar. C es un cambio de paradigma que resuelve el problema de raíz pero es un sprint completo.
+
+**Analysis:** A corto plazo, la opción A es la más pragmática — cambiar `compress_if_needed` para usar thresholds escalonados en vez de un solo umbral. A largo plazo, Letta (Sprint 12) unificaría todo. Las opciones no son excluyentes: A mejora el sistema actual, C lo reemplaza eventualmente.
+
+---
+
+### Summariser dedicado para resúmenes de evidencia
+**Added:** 2026-03-12 | **Sprint:** Backlog | **Effort:** S (horas)
+
+Los resúmenes de documentos subidos usan el summariser (mismo modelo que la compresión de contexto). Para documentos largos puede ser lento. Permitir configurar un modelo específico para resúmenes de evidencia en el admin LLM tab — por ejemplo, Qwen3.5-9b-mlx que es más rápido que modelos más grandes. Actualmente el summariser se comparte con la compresión de contexto.
+
+**Analysis:** Cambio menor. Añadir `evidence_summariser_model` y `evidence_summariser_provider` a LLM settings. `evidence_processor.py` ya lee settings para elegir provider/model — solo cambiar las keys que consulta. UI: un selector más en admin LLM tab.
 
 ---

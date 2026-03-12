@@ -320,18 +320,33 @@ export default function LLMTab() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Compression Threshold ({Math.round(settings.compression_threshold * 100)}%)
+                      First Compression ({(settings.compression_first_threshold ?? 20000).toLocaleString()} tokens)
                     </label>
                     <input
                       type="range"
-                      min="0.5"
-                      max="0.9"
-                      step="0.05"
-                      value={settings.compression_threshold}
-                      onChange={e => updateField('compression_threshold', parseFloat(e.target.value))}
+                      min="10000"
+                      max="50000"
+                      step="5000"
+                      value={settings.compression_first_threshold ?? 20000}
+                      onChange={e => updateField('compression_first_threshold', parseInt(e.target.value))}
                       className="w-full"
                     />
-                    {hint(`Compress when inference context reaches this %. At ${settings.inference_num_ctx} ctx = triggers at ~${Math.round(settings.inference_num_ctx * settings.compression_threshold).toLocaleString()} tokens.`)}
+                    {hint('First compression triggers when context reaches this token count.')}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Compression Step ({(settings.compression_step_size ?? 15000).toLocaleString()} tokens)
+                    </label>
+                    <input
+                      type="range"
+                      min="10000"
+                      max="50000"
+                      step="5000"
+                      value={settings.compression_step_size ?? 15000}
+                      onChange={e => updateField('compression_step_size', parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                    {hint(`After first compression, compress again every ${((settings.compression_step_size ?? 15000) / 1000).toFixed(0)}k tokens. Next compressions at: ${[1,2,3].map(i => ((settings.compression_first_threshold ?? 20000) + i * (settings.compression_step_size ?? 15000)) / 1000).map(v => v + 'k').join(', ')}...`)}
                   </div>
                 </div>
               </>

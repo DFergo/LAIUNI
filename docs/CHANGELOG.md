@@ -2,6 +2,17 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 8g-b — Batch Upload + UX Polish (2026-03-12)
+- Multi-file upload: select up to 4 files at once (`<input multiple>`, client-side limit)
+- Upload progress: "Uploading 1/3..." for batch uploads
+- Processing indicator as assistant bubble with pulse animation (same style as message processing)
+- "Processing document. This may take a minute — please don't leave the page." message
+- Backend: uploads grouped by session token, single LLM response per batch
+- `_respond_to_upload()` handles batch: references all documents, distinguishes text vs image
+- `docx2txt` added to backend requirements (fixes .docx text extraction)
+- Improved error message when text extraction fails
+- i18n: `upload_analyzing`, `upload_batch_progress`, `upload_batch_limit` (EN/ES)
+
 ### Sprint 8g — Evidence Document Upload (2026-03-12)
 - Evidence upload during chat sessions via pull-inverse architecture
 - Sidecar: `POST /internal/upload/{token}` (temp storage), `GET/DELETE` for backend fetch+cleanup

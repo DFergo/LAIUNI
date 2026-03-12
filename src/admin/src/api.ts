@@ -94,6 +94,8 @@ export interface LLMSettings {
   summariser_max_tokens: number
   summariser_num_ctx: number
   compression_threshold: number
+  compression_first_threshold: number
+  compression_step_size: number
 }
 
 export async function getLLMHealth(): Promise<LLMHealth> {
