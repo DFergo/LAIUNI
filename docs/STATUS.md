@@ -604,7 +604,7 @@ New: language → disclaimer → session (new/recover) → **role selection** �
 
 ---
 
-### Sprint 8h — Campaign-Specific Prompts & RAG (IN PROGRESS)
+### Sprint 8h — Campaign-Specific Prompts & RAG (DONE)
 
 **Goal:** Per-frontend prompt sets and RAG document collections for parallel campaigns.
 
@@ -694,7 +694,7 @@ RAG is always additive. Global RAG panel stays. Each frontend can have its own d
 
 ---
 
-### Sprint 9 — SMTP Integration + Email Auth (IN PROGRESS)
+### Sprint 9 — SMTP Integration + Email Auth + Guardrails + Production Prompts (DONE)
 
 **Goal:** Email service for auth codes, report forwarding, and admin notifications. Everything disableable — system works fully without SMTP.
 
@@ -798,9 +798,9 @@ RAG is always additive. Global RAG panel stays. Each frontend can have its own d
 ---
 
 ### What's Needed After Sprint 9
-- **Sprint 10:** Ethical guardrails + content safety
-- **Sprint 11:** Polish + production deployment + repetition detection
-- **Sprint 12:** Letta/MemGPT integration (experimental)
+- **Prompt quality testing phase:** Deep testing of production prompts across all profiles/cases with real scenarios. Evaluate tone, scope honesty, extract-don't-dump behavior, framework connections, internal document quality. Iterate prompts based on findings.
+- **Sprint 10:** Polish + production deployment + repetition detection
+- **Sprint 11:** Letta/MemGPT integration (experimental)
 
 ---
 
