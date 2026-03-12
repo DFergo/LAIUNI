@@ -1,16 +1,17 @@
 import { LANGUAGES } from '../i18n'
-import type { LangCode } from '../types'
+import type { LangCode, BrandingConfig } from '../types'
 
 interface Props {
   onSelect: (lang: LangCode) => void
+  branding?: BrandingConfig
 }
 
-export default function LanguageSelector({ onSelect }: Props) {
+export default function LanguageSelector({ onSelect, branding }: Props) {
   return (
     <div className="max-w-4xl mx-auto mt-8 p-6">
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
         <div className="flex justify-center mb-4">
-          <img src="/uni-logo.png" alt="UNI Global Union" className="h-28" />
+          <img src={branding?.logo_url || '/uni-logo.png'} alt="UNI Global Union" className="h-28" />
         </div>
         <h2 className="text-xl font-semibold text-gray-800 mb-1 text-center">Select your language</h2>
         <p className="text-sm text-gray-400 mb-6 text-center">Choose your preferred language to continue</p>

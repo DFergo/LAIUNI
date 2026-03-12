@@ -2,6 +2,13 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 11 — Polish, Copyright, Branding, Notifications (2026-03-12)
+- **Copyright + Licensing**: `LICENSE` file (proprietary, UNI Global Union), copyright headers in key source files, visible footer "© 2026 UNI Global Union", package.json author/license fields
+- **Navigation UX**: Back button on all pre-chat pages (Disclaimer, Session, RoleSelect, Auth, Instructions, Survey), `history.pushState` so browser back navigates to previous step, `beforeunload` handler warns on reload during chat/survey, amber warning box on Instructions page about not reloading
+- **Multiple notification recipients**: `admin_notify_address` (single string) migrated to `notification_emails` (list), admin SMTP tab chip/tag UI for global recipients, per-frontend notification emails in `/app/data/campaigns/{fid}/notification_config.json`, admin SMTP tab per-frontend section, `notify_admin_report()` resolves frontend-specific + global recipients (deduplicates)
+- **Per-frontend branding**: admin Frontends tab "Branding" button with editor (app title, logo URL, disclaimer text, instructions text), branding pushed to sidecar via `POST /internal/branding` (on save + during polling), sidecar serves branding in `/internal/config`, React pages use branding when available (header title, logo on language/disclaimer/instructions pages, disclaimer text, instructions text), UNI defaults when branding not configured
+- i18n: `nav_back`, `instructions_no_reload` keys (EN/ES)
+
 ### Sprint 10 — Guardrails + Repetition Detection + Polish (2026-03-12)
 - **Pre-LLM content filter** (`services/guardrails.py`): pattern-based detection of hate speech, discriminatory content, and prompt injection attempts
   - Fixed hardcoded response strings (NOT LLM-generated) in EN/ES/FR/DE/PT/IT, English fallback for others
@@ -9,12 +16,13 @@
   - After 3 violations: session auto-flagged and ended gracefully
   - Respects `guardrails_enabled` and `guardrail_max_triggers` from deployment config
 - **Model repetition detector** (`services/repetition_detector.py`): streaming analysis to detect and stop generation loops
-  - Conservative thresholds: 40+ char phrases repeated 3+ times, only checks after 200+ chars
+  - Conservative thresholds: 25+ char phrases repeated 3+ times, only checks after 200+ chars
   - Stops streaming at repetition point, delivers clean partial response
   - Documented design principle: false positives worse than false negatives
 - **Sprint 8h loose end**: auto-copy global prompts when registering new frontend in per_frontend mode
 - `session_store.py`: `guardrail_violations` field in session metadata, `increment_guardrail_violations()` and `get_guardrail_violations()` methods
 - Admin sessions list includes `guardrail_violations` count
+- **UNI Global Union branding**: logo in header (inverted white), language selector (h-28), disclaimer/instructions (h-[7.5rem]), chat watermark (opacity 8%)
 - **Block 4 — Code audit:**
   - SMTP config load: try-except for corrupt/empty JSON (was crash)
   - `poll_frontends()`: AsyncClient in try/finally (was resource leak on exception)

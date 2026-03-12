@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react'
+// Copyright (c) 2026 UNI Global Union. All rights reserved. See LICENSE.
+
+import { useState, useEffect, useCallback } from 'react'
 import { t } from './i18n'
 import type { Phase, LangCode, Role, DeploymentConfig, SurveyData, RecoveryData } from './types'
 import LanguageSelector from './components/LanguageSelector'
@@ -24,6 +26,37 @@ function App() {
     fetchConfig()
   }, [])
 
+  // Push browser history entry on phase change (so browser back works)
+  const navigateTo = useCallback((next: Phase) => {
+    window.history.pushState({ phase: next }, '', '')
+    setPhase(next)
+  }, [])
+
+  // Handle browser back button
+  useEffect(() => {
+    const onPopState = (e: PopStateEvent) => {
+      if (e.state?.phase) {
+        setPhase(e.state.phase)
+      } else {
+        // No state — go to language selector
+        setPhase('language')
+      }
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  // Warn before reload/close during active session
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (phase === 'chat' || phase === 'survey') {
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [phase])
+
   async function fetchConfig() {
     try {
       const res = await fetch('/internal/config')
@@ -37,24 +70,34 @@ function App() {
     setPhase('language')
   }
 
+  // Back handlers for each phase
+  const goBackFrom: Partial<Record<Phase, () => void>> = {
+    disclaimer: () => navigateTo('language'),
+    session: () => navigateTo(config?.disclaimer_enabled === false ? 'language' : 'disclaimer'),
+    role_select: () => navigateTo('session'),
+    auth: () => navigateTo('role_select'),
+    instructions: () => navigateTo(config?.auth_required ? 'auth' : 'role_select'),
+    survey: () => navigateTo('instructions'),
+  }
+
   // language → disclaimer (or skip) → session
   const handleLanguage = (selected: LangCode) => {
     setLang(selected)
     if (config?.disclaimer_enabled === false) {
-      setPhase('session')
+      navigateTo('session')
     } else {
-      setPhase('disclaimer')
+      navigateTo('disclaimer')
     }
   }
 
   const handleDisclaimer = () => {
-    setPhase('session')
+    navigateTo('session')
   }
 
   // session → role_select
   const handleNewSession = (token: string) => {
     setSessionToken(token)
-    setPhase('role_select')
+    navigateTo('role_select')
   }
 
   const handleRecover = async (token: string): Promise<string | null> => {
@@ -89,7 +132,7 @@ function App() {
           setSelectedRole(data.role as Role)
           setSurvey(data.survey)
           setRecoveryData(data)
-          setPhase('chat')
+          navigateTo('chat')
           return null // success
         }
 
@@ -110,20 +153,20 @@ function App() {
   const handleRoleSelect = (role: Role) => {
     setSelectedRole(role)
     if (config?.auth_required) {
-      setPhase('auth')
+      navigateTo('auth')
     } else {
-      setPhase('instructions')
+      navigateTo('instructions')
     }
   }
 
   const handleAuth = (email: string) => {
     setVerifiedEmail(email)
-    setPhase('instructions')
+    navigateTo('instructions')
   }
 
   // instructions → survey
   const handleInstructions = () => {
-    setPhase('survey')
+    navigateTo('survey')
   }
 
   // survey → chat
@@ -133,7 +176,7 @@ function App() {
       data.email = verifiedEmail
     }
     setSurvey(data)
-    setPhase('chat')
+    navigateTo('chat')
   }
 
   const showFooter = phase !== 'chat' && phase !== 'loading'
@@ -142,8 +185,8 @@ function App() {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-uni-blue text-white px-6 py-3 shadow-md flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <img src="/uni-logo.png" alt="UNI" className="h-8 brightness-0 invert" />
-          <h1 className="text-xl font-semibold">HRDD Helper</h1>
+          <img src={config?.branding?.logo_url || '/uni-logo.png'} alt="UNI" className="h-8 brightness-0 invert" />
+          <h1 className="text-xl font-semibold">{config?.branding?.app_title || 'HRDD Helper'}</h1>
         </div>
         <span className="text-sm opacity-75">UNI Global Union</span>
       </header>
@@ -154,13 +197,13 @@ function App() {
             <p className="text-gray-400">Loading...</p>
           </div>
         )}
-        {phase === 'language' && <LanguageSelector onSelect={handleLanguage} />}
-        {phase === 'disclaimer' && <DisclaimerPage lang={lang} onAccept={handleDisclaimer} />}
-        {phase === 'session' && <SessionPage lang={lang} onNewSession={handleNewSession} onRecover={handleRecover} />}
-        {phase === 'role_select' && config && <RoleSelectPage lang={lang} config={config} onSelect={handleRoleSelect} />}
-        {phase === 'auth' && <AuthPage lang={lang} onVerified={handleAuth} />}
-        {phase === 'instructions' && selectedRole && <InstructionsPage lang={lang} role={selectedRole} onContinue={handleInstructions} />}
-        {phase === 'survey' && config && selectedRole && <SurveyPage lang={lang} config={config} role={selectedRole} onSubmit={handleSurvey} />}
+        {phase === 'language' && <LanguageSelector onSelect={handleLanguage} branding={config?.branding} />}
+        {phase === 'disclaimer' && <DisclaimerPage lang={lang} onAccept={handleDisclaimer} onBack={goBackFrom.disclaimer!} branding={config?.branding} />}
+        {phase === 'session' && <SessionPage lang={lang} onNewSession={handleNewSession} onRecover={handleRecover} onBack={goBackFrom.session!} />}
+        {phase === 'role_select' && config && <RoleSelectPage lang={lang} config={config} onSelect={handleRoleSelect} onBack={goBackFrom.role_select!} />}
+        {phase === 'auth' && <AuthPage lang={lang} onVerified={handleAuth} onBack={goBackFrom.auth!} />}
+        {phase === 'instructions' && selectedRole && <InstructionsPage lang={lang} role={selectedRole} onContinue={handleInstructions} onBack={goBackFrom.instructions!} branding={config?.branding} />}
+        {phase === 'survey' && config && selectedRole && <SurveyPage lang={lang} config={config} role={selectedRole} onSubmit={handleSurvey} onBack={goBackFrom.survey!} />}
         {phase === 'chat' && survey && (
           <ChatShell
             lang={lang}
@@ -172,8 +215,9 @@ function App() {
       </main>
 
       {showFooter && (
-        <footer className="text-center text-xs text-gray-400 py-3">
-          {t('footer_disclaimer', lang)}
+        <footer className="text-center text-xs text-gray-400 py-3 space-y-1">
+          <p>{t('footer_disclaimer', lang)}</p>
+          <p>© 2026 UNI Global Union</p>
         </footer>
       )}
     </div>

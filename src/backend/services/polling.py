@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from collections import deque
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -30,6 +31,37 @@ _processing_lock = asyncio.Lock()
 _is_processing = False
 
 
+_branding_pushed: set[str] = set()  # Track which frontends have branding pushed
+
+
+def invalidate_branding_cache(frontend_id: str = ""):
+    """Clear branding push cache so it gets re-pushed on next poll."""
+    if frontend_id:
+        _branding_pushed.discard(frontend_id)
+    else:
+        _branding_pushed.clear()
+
+
+async def _push_branding_if_needed(client: httpx.AsyncClient, url: str, fid: str):
+    """Push branding config to sidecar (once per session, or on change)."""
+    if fid in _branding_pushed:
+        return
+    branding_path = Path(f"/app/data/campaigns/{fid}/branding.json")
+    if not branding_path.exists():
+        _branding_pushed.add(fid)
+        return
+    try:
+        data = json.loads(branding_path.read_text())
+        # Only push if there's actual branding content
+        if any(data.get(k) for k in ("app_title", "logo_url", "disclaimer_text", "instructions_text")):
+            await client.post(f"{url}/internal/branding", json=data)
+            logger.info(f"Branding pushed to {fid}")
+    except Exception as e:
+        logger.debug(f"Branding push to {fid} failed: {e}")
+        return  # Don't mark as pushed — retry next poll
+    _branding_pushed.add(fid)
+
+
 async def poll_frontends():
     """Poll all enabled frontends for pending messages."""
     client = httpx.AsyncClient(timeout=10.0)
@@ -45,6 +77,9 @@ async def poll_frontends():
                 data = resp.json()
                 messages = data.get("messages", [])
                 registry.set_status(fid, "online")
+
+                # Push branding config if exists (survives sidecar restarts)
+                await _push_branding_if_needed(client, url, fid)
 
                 for msg in messages:
                     msg["_frontend_url"] = url
@@ -167,7 +202,7 @@ async def _safe_process(msg: dict[str, Any]):
 
         # Finalize: generate summary instead of normal processing
         if finalize:
-            await _finalize_session(client, frontend_url, session_token, language)
+            await _finalize_session(client, frontend_url, session_token, language, frontend_id)
             return
 
         # Add user message to history
@@ -339,6 +374,7 @@ async def _finalize_session(
     frontend_url: str,
     session_token: str,
     language: str,
+    frontend_id: str = "",
 ):
     """Generate session summary, save to disk, mark session completed."""
     import os
@@ -511,7 +547,7 @@ async def _generate_internal_documents(
         user_email = session_data.get("survey", {}).get("email", "") if session_data else ""
 
         if report_content:
-            await notify_admin_report(session_token, report_content)
+            await notify_admin_report(session_token, report_content, frontend_id)
 
         if user_email and is_email_authorized(user_email):
             # Read summary from disk (saved by _finalize_session)

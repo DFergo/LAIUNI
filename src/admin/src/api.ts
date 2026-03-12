@@ -303,7 +303,7 @@ export interface SMTPConfig {
   password: string
   use_tls: boolean
   from_address: string
-  admin_notify_address: string
+  notification_emails: string[]
   notify_on_report: boolean
   send_summary_to_user: boolean
   send_report_to_user: boolean
@@ -330,6 +330,37 @@ export async function getAuthorizedEmails(): Promise<{ emails: string[] }> {
 
 export async function updateAuthorizedEmails(emails: string[]): Promise<{ emails: string[] }> {
   return request('/admin/smtp/authorized-emails', {
+    method: 'PUT',
+    body: JSON.stringify({ emails }),
+  });
+}
+
+export async function getFrontendNotificationEmails(frontendId: string): Promise<{ emails: string[] }> {
+  return request(`/admin/smtp/frontend-notifications/${frontendId}`);
+}
+
+// --- Branding API ---
+
+export interface BrandingConfig {
+  app_title: string
+  logo_url: string
+  disclaimer_text: string
+  instructions_text: string
+}
+
+export async function getFrontendBranding(frontendId: string): Promise<BrandingConfig> {
+  return request(`/admin/frontends/${frontendId}/branding`);
+}
+
+export async function updateFrontendBranding(frontendId: string, data: BrandingConfig): Promise<BrandingConfig> {
+  return request(`/admin/frontends/${frontendId}/branding`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateFrontendNotificationEmails(frontendId: string, emails: string[]): Promise<{ emails: string[] }> {
+  return request(`/admin/smtp/frontend-notifications/${frontendId}`, {
     method: 'PUT',
     body: JSON.stringify({ emails }),
   });

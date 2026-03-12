@@ -5,9 +5,10 @@ interface Props {
   lang: LangCode
   config: DeploymentConfig
   onSelect: (role: Role) => void
+  onBack: () => void
 }
 
-export default function RoleSelectPage({ lang, config, onSelect }: Props) {
+export default function RoleSelectPage({ lang, config, onSelect, onBack }: Props) {
   const roles: { role: Role; key: string }[] =
     config.frontend_type === 'worker'
       ? [
@@ -45,6 +46,12 @@ export default function RoleSelectPage({ lang, config, onSelect }: Props) {
             </button>
           ))}
         </div>
+        <button
+          onClick={onBack}
+          className="w-full text-gray-500 text-sm hover:text-gray-700 mt-4"
+        >
+          &larr; {t('nav_back', lang)}
+        </button>
       </div>
     </div>
   )

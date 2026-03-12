@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getSMTPConfig, updateSMTPConfig, testSMTP, getAuthorizedEmails, updateAuthorizedEmails, type SMTPConfig } from './api'
+import { getSMTPConfig, updateSMTPConfig, testSMTP, getAuthorizedEmails, updateAuthorizedEmails, getFrontendNotificationEmails, updateFrontendNotificationEmails, listFrontends, type SMTPConfig, type Frontend } from './api'
 
 export default function SMTPTab() {
   const [config, setConfig] = useState<SMTPConfig | null>(null)
@@ -9,14 +9,24 @@ export default function SMTPTab() {
   const [success, setSuccess] = useState('')
   const [testResult, setTestResult] = useState<{ status: string; message: string } | null>(null)
 
+  // Notification emails (global)
+  const [newNotifyEmail, setNewNotifyEmail] = useState('')
+
   // Authorized emails
   const [emails, setEmails] = useState<string[]>([])
   const [newEmail, setNewEmail] = useState('')
   const [emailsSaving, setEmailsSaving] = useState(false)
 
+  // Per-frontend notification emails
+  const [frontends, setFrontends] = useState<Frontend[]>([])
+  const [feNotifyEmails, setFeNotifyEmails] = useState<Record<string, string[]>>({})
+  const [newFeEmail, setNewFeEmail] = useState<Record<string, string>>({})
+  const [feSaving, setFeSaving] = useState<Record<string, boolean>>({})
+
   useEffect(() => {
     loadConfig()
     loadEmails()
+    loadFrontends()
   }, [])
 
   const loadConfig = async () => {
@@ -34,6 +44,70 @@ export default function SMTPTab() {
       setEmails(data.emails || [])
     } catch {
       // Authorized emails may not exist yet
+    }
+  }
+
+  const loadFrontends = async () => {
+    try {
+      const data = await listFrontends()
+      const fes = data.frontends || []
+      setFrontends(fes)
+      // Load per-frontend notification emails
+      const emailMap: Record<string, string[]> = {}
+      for (const fe of fes) {
+        try {
+          const feData = await getFrontendNotificationEmails(fe.id)
+          emailMap[fe.id] = feData.emails || []
+        } catch {
+          emailMap[fe.id] = []
+        }
+      }
+      setFeNotifyEmails(emailMap)
+    } catch {
+      // Frontends may not exist yet
+    }
+  }
+
+  const handleAddNotifyEmail = () => {
+    if (!config) return
+    const trimmed = newNotifyEmail.trim().toLowerCase()
+    if (!trimmed || config.notification_emails.includes(trimmed)) return
+    setConfig({ ...config, notification_emails: [...config.notification_emails, trimmed] })
+    setNewNotifyEmail('')
+  }
+
+  const handleRemoveNotifyEmail = (email: string) => {
+    if (!config) return
+    setConfig({ ...config, notification_emails: config.notification_emails.filter(e => e !== email) })
+  }
+
+  const handleAddFeEmail = async (feId: string) => {
+    const trimmed = (newFeEmail[feId] || '').trim().toLowerCase()
+    if (!trimmed) return
+    const current = feNotifyEmails[feId] || []
+    if (current.includes(trimmed)) return
+    setFeSaving(prev => ({ ...prev, [feId]: true }))
+    try {
+      const updated = await updateFrontendNotificationEmails(feId, [...current, trimmed])
+      setFeNotifyEmails(prev => ({ ...prev, [feId]: updated.emails }))
+      setNewFeEmail(prev => ({ ...prev, [feId]: '' }))
+    } catch {
+      // ignore
+    } finally {
+      setFeSaving(prev => ({ ...prev, [feId]: false }))
+    }
+  }
+
+  const handleRemoveFeEmail = async (feId: string, email: string) => {
+    const current = feNotifyEmails[feId] || []
+    setFeSaving(prev => ({ ...prev, [feId]: true }))
+    try {
+      const updated = await updateFrontendNotificationEmails(feId, current.filter(e => e !== email))
+      setFeNotifyEmails(prev => ({ ...prev, [feId]: updated.emails }))
+    } catch {
+      // ignore
+    } finally {
+      setFeSaving(prev => ({ ...prev, [feId]: false }))
     }
   }
 
@@ -168,15 +242,35 @@ export default function SMTPTab() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Admin Notification Address</label>
-            <input
-              type="email"
-              value={config.admin_notify_address}
-              onChange={e => updateField('admin_notify_address', e.target.value)}
-              placeholder="admin@example.com"
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-            />
-            <p className="text-xs text-gray-400 mt-1">Receives alerts for completed/flagged sessions</p>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notification Recipients</label>
+            <div className="flex gap-2 mb-2">
+              <input
+                type="email"
+                value={newNotifyEmail}
+                onChange={e => setNewNotifyEmail(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddNotifyEmail())}
+                placeholder="admin@example.com"
+                className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+              />
+              <button
+                onClick={handleAddNotifyEmail}
+                disabled={!newNotifyEmail.trim()}
+                className="bg-uni-blue text-white rounded-lg px-3 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+              >
+                Add
+              </button>
+            </div>
+            {config.notification_emails.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-1">
+                {config.notification_emails.map(email => (
+                  <span key={email} className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 border border-blue-200 rounded-full text-xs text-gray-700">
+                    {email}
+                    <button onClick={() => handleRemoveNotifyEmail(email)} className="text-gray-400 hover:text-uni-red">&times;</button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-gray-400 mt-1">Receive alerts for completed/flagged sessions. Save to apply changes.</p>
           </div>
         </div>
 
@@ -326,6 +420,61 @@ export default function SMTPTab() {
           </div>
         )}
       </div>
+
+      {/* Per-frontend notification emails */}
+      {frontends.length > 0 && (
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-1">Per-Frontend Notifications</h3>
+          <p className="text-xs text-gray-400 mb-4">
+            Additional notification recipients per frontend. These receive notifications alongside the global recipients above.
+          </p>
+
+          <div className="space-y-4">
+            {frontends.map(fe => (
+              <div key={fe.id} className="border border-gray-200 rounded-lg p-4">
+                <h4 className="text-sm font-medium text-gray-700 mb-2">
+                  {fe.name || fe.url} <span className="text-xs text-gray-400 font-normal">({fe.frontend_type})</span>
+                </h4>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="email"
+                    value={newFeEmail[fe.id] || ''}
+                    onChange={e => setNewFeEmail(prev => ({ ...prev, [fe.id]: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddFeEmail(fe.id))}
+                    placeholder="recipient@example.com"
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                  />
+                  <button
+                    onClick={() => handleAddFeEmail(fe.id)}
+                    disabled={feSaving[fe.id] || !(newFeEmail[fe.id] || '').trim()}
+                    className="bg-uni-blue text-white rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50"
+                  >
+                    Add
+                  </button>
+                </div>
+                {(feNotifyEmails[fe.id] || []).length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {(feNotifyEmails[fe.id] || []).map(email => (
+                      <span key={email} className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 border border-blue-200 rounded-full text-xs text-gray-700">
+                        {email}
+                        <button
+                          onClick={() => handleRemoveFeEmail(fe.id, email)}
+                          disabled={feSaving[fe.id]}
+                          className="text-gray-400 hover:text-uni-red"
+                        >
+                          &times;
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400 italic">No additional recipients — using global only.</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

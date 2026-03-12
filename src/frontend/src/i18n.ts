@@ -67,6 +67,8 @@ type TranslationKeys =
   | 'session_ended_notice' | 'session_summary_label'
   | 'upload_button_title' | 'upload_doc_analyzed' | 'upload_image_stored' | 'upload_analyzing'
   | 'upload_batch_progress' | 'upload_batch_limit'
+  | 'nav_back'
+  | 'instructions_no_reload'
   | 'footer_disclaimer'
 
 type Translations = Partial<Record<TranslationKeys, string>>
@@ -151,6 +153,8 @@ const translations: Partial<Record<LangCode, Translations>> = {
     upload_analyzing: 'Processing document. This may take a minute — please don\'t leave the page.',
     upload_batch_progress: 'Uploading {n}/{total}...',
     upload_batch_limit: 'Maximum 4 files at a time.',
+    nav_back: 'Back',
+    instructions_no_reload: 'Important: Do not reload the page during the session — you will lose the conversation.',
     footer_disclaimer: 'This tool provides information, not legal advice. AI responses may contain errors.',
   },
   es: {
@@ -232,6 +236,8 @@ const translations: Partial<Record<LangCode, Translations>> = {
     upload_analyzing: 'Procesando documento. Puede tardar un minuto — no abandone la página.',
     upload_batch_progress: 'Subiendo {n}/{total}...',
     upload_batch_limit: 'Máximo 4 archivos a la vez.',
+    nav_back: 'Volver',
+    instructions_no_reload: 'Importante: No recargues la página durante la sesión — perderás la conversación.',
     footer_disclaimer: 'Esta herramienta proporciona información, no asesoramiento legal. Las respuestas de IA pueden contener errores.',
   },
   fr: {

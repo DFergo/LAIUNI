@@ -7,9 +7,10 @@ interface Props {
   lang: LangCode
   onNewSession: (token: string) => void
   onRecover: (token: string) => Promise<string | null>  // returns error message or null on success
+  onBack: () => void
 }
 
-export default function SessionPage({ lang, onNewSession, onRecover }: Props) {
+export default function SessionPage({ lang, onNewSession, onRecover, onBack }: Props) {
   const [mode, setMode] = useState<'choose' | 'new' | 'recover'>('choose')
   const [newToken, setNewToken] = useState('')
   const [recoverToken, setRecoverToken] = useState('')
@@ -55,6 +56,12 @@ export default function SessionPage({ lang, onNewSession, onRecover }: Props) {
               className="w-full border border-gray-300 text-gray-700 rounded-lg px-4 py-3 font-medium transition-colors hover:bg-gray-50"
             >
               {t('session_recover', lang)}
+            </button>
+            <button
+              onClick={onBack}
+              className="w-full text-gray-500 text-sm hover:text-gray-700"
+            >
+              &larr; {t('nav_back', lang)}
             </button>
           </div>
         )}

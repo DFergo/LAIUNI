@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { listFrontends, registerFrontend, updateFrontend, removeFrontend, type Frontend } from './api'
+import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, type Frontend, type BrandingConfig } from './api'
 
 export default function FrontendsTab() {
   const [frontends, setFrontends] = useState<Frontend[]>([])
@@ -52,6 +52,12 @@ export default function FrontendsTab() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
 
+  // Branding
+  const [brandingOpen, setBrandingOpen] = useState<string | null>(null)
+  const [branding, setBranding] = useState<BrandingConfig | null>(null)
+  const [brandingSaving, setBrandingSaving] = useState(false)
+  const [brandingSuccess, setBrandingSuccess] = useState('')
+
   const startEdit = (f: Frontend) => {
     setEditingId(f.id)
     setEditName(f.name)
@@ -61,6 +67,35 @@ export default function FrontendsTab() {
     await updateFrontend(id, { name: editName })
     setEditingId(null)
     await refresh()
+  }
+
+  const toggleBranding = async (id: string) => {
+    if (brandingOpen === id) {
+      setBrandingOpen(null)
+      setBranding(null)
+      return
+    }
+    try {
+      const data = await getFrontendBranding(id)
+      setBranding(data)
+      setBrandingOpen(id)
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleBrandingSave = async () => {
+    if (!brandingOpen || !branding) return
+    setBrandingSaving(true)
+    try {
+      await updateFrontendBranding(brandingOpen, branding)
+      setBrandingSuccess('Branding saved and pushed to frontend')
+      setTimeout(() => setBrandingSuccess(''), 3000)
+    } catch {
+      // ignore
+    } finally {
+      setBrandingSaving(false)
+    }
   }
 
   const statusColor = (s: string) => {
@@ -115,50 +150,117 @@ export default function FrontendsTab() {
         ) : (
           <div className="space-y-3">
             {frontends.map(f => (
-              <div key={f.id} className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className={`w-2.5 h-2.5 rounded-full ${statusColor(f.status)}`} />
-                  <div>
-                    {editingId === f.id ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={editName}
-                          onChange={e => setEditName(e.target.value)}
-                          onKeyDown={e => e.key === 'Enter' && saveEdit(f.id)}
-                          className="border border-gray-300 rounded px-2 py-0.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                          autoFocus
-                        />
-                        <button onClick={() => saveEdit(f.id)} className="text-xs text-uni-blue hover:underline">Save</button>
-                        <button onClick={() => setEditingId(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
-                      </div>
-                    ) : (
-                      <div className="text-sm font-medium text-gray-800">
-                        {f.name}
-                        <button onClick={() => startEdit(f)} className="ml-2 text-xs text-gray-400 hover:text-uni-blue">edit</button>
-                      </div>
-                    )}
-                    <div className="text-xs text-gray-400">{f.url} — {f.frontend_type}</div>
+              <div key={f.id} className="border border-gray-200 rounded-lg px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2.5 h-2.5 rounded-full ${statusColor(f.status)}`} />
+                    <div>
+                      {editingId === f.id ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={e => setEditName(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && saveEdit(f.id)}
+                            className="border border-gray-300 rounded px-2 py-0.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                            autoFocus
+                          />
+                          <button onClick={() => saveEdit(f.id)} className="text-xs text-uni-blue hover:underline">Save</button>
+                          <button onClick={() => setEditingId(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
+                        </div>
+                      ) : (
+                        <div className="text-sm font-medium text-gray-800">
+                          {f.name}
+                          <button onClick={() => startEdit(f)} className="ml-2 text-xs text-gray-400 hover:text-uni-blue">edit</button>
+                        </div>
+                      )}
+                      <div className="text-xs text-gray-400">{f.url} — {f.frontend_type}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => toggleBranding(f.id)}
+                      className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium transition-colors"
+                    >
+                      {brandingOpen === f.id ? 'Close Branding' : 'Branding'}
+                    </button>
+                    <button
+                      onClick={() => handleToggle(f)}
+                      className={`text-xs px-3 py-1 rounded-lg border font-medium transition-colors ${
+                        f.enabled
+                          ? 'border-green-300 text-green-700 hover:bg-green-50'
+                          : 'border-gray-300 text-gray-500 hover:bg-gray-50'
+                      }`}
+                    >
+                      {f.enabled ? 'Enabled' : 'Disabled'}
+                    </button>
+                    <button
+                      onClick={() => handleRemove(f)}
+                      className="text-xs px-3 py-1 rounded-lg border border-uni-red text-uni-red hover:bg-red-50 font-medium transition-colors"
+                    >
+                      Remove
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleToggle(f)}
-                    className={`text-xs px-3 py-1 rounded-lg border font-medium transition-colors ${
-                      f.enabled
-                        ? 'border-green-300 text-green-700 hover:bg-green-50'
-                        : 'border-gray-300 text-gray-500 hover:bg-gray-50'
-                    }`}
-                  >
-                    {f.enabled ? 'Enabled' : 'Disabled'}
-                  </button>
-                  <button
-                    onClick={() => handleRemove(f)}
-                    className="text-xs px-3 py-1 rounded-lg border border-uni-red text-uni-red hover:bg-red-50 font-medium transition-colors"
-                  >
-                    Remove
-                  </button>
-                </div>
+
+                {/* Branding editor */}
+                {brandingOpen === f.id && branding && (
+                  <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
+                    <p className="text-xs text-gray-400">Custom branding for this frontend. Leave empty to use UNI defaults.</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">App Title (header)</label>
+                        <input
+                          type="text"
+                          value={branding.app_title}
+                          onChange={e => setBranding({ ...branding, app_title: e.target.value })}
+                          placeholder="HRDD Helper"
+                          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Logo URL (optional)</label>
+                        <input
+                          type="text"
+                          value={branding.logo_url}
+                          onChange={e => setBranding({ ...branding, logo_url: e.target.value })}
+                          placeholder="https://example.com/logo.png"
+                          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Disclaimer text (overrides default)</label>
+                      <textarea
+                        value={branding.disclaimer_text}
+                        onChange={e => setBranding({ ...branding, disclaimer_text: e.target.value })}
+                        rows={3}
+                        placeholder="Leave empty for default disclaimer"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Instructions text (overrides default for all roles)</label>
+                      <textarea
+                        value={branding.instructions_text}
+                        onChange={e => setBranding({ ...branding, instructions_text: e.target.value })}
+                        rows={3}
+                        placeholder="Leave empty for default instructions"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none resize-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={handleBrandingSave}
+                        disabled={brandingSaving}
+                        className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                      >
+                        {brandingSaving ? 'Saving...' : 'Save Branding'}
+                      </button>
+                      {brandingSuccess && <span className="text-xs text-green-600">{brandingSuccess}</span>}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

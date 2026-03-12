@@ -4,12 +4,20 @@ export type Role = 'worker' | 'representative' | 'organizer' | 'officer'
 
 export type ConsultationMode = 'documentation' | 'interview' | 'advisory' | 'submit' | 'training'
 
+export interface BrandingConfig {
+  app_title?: string
+  logo_url?: string
+  disclaimer_text?: string
+  instructions_text?: string
+}
+
 export interface DeploymentConfig {
   role: string
   frontend_type: 'worker' | 'organizer'
   session_resume_window_hours: number
   disclaimer_enabled: boolean
   auth_required: boolean
+  branding?: BrandingConfig
 }
 
 export interface SurveyData {

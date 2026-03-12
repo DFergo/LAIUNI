@@ -1,3 +1,5 @@
+# Copyright (c) 2026 UNI Global Union. All rights reserved. See LICENSE.
+
 import asyncio
 import json
 import logging
@@ -68,15 +70,31 @@ async def health():
     return {"status": "ok"}
 
 
+# --- Branding (pushed by backend) ---
+_branding: dict[str, Any] = {}
+
+
+@app.post("/internal/branding")
+async def update_branding(data: dict[str, Any]):
+    """Backend pushes branding config for this frontend."""
+    global _branding
+    _branding = data
+    logger.info(f"Branding updated: {list(data.keys())}")
+    return {"status": "ok"}
+
+
 @app.get("/internal/config")
 async def get_config():
-    return {
+    cfg = {
         "role": "frontend",
         "frontend_type": _config.get("frontend_type", "worker"),
         "session_resume_window_hours": _config.get("session_resume_window_hours", 48),
         "disclaimer_enabled": _config.get("disclaimer_enabled", True),
         "auth_required": _config.get("auth_required", False),
     }
+    if _branding:
+        cfg["branding"] = _branding
+    return cfg
 
 
 # --- Message Queue ---

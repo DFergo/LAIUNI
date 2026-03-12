@@ -5,9 +5,10 @@ import type { LangCode } from '../types'
 interface Props {
   lang: LangCode
   onVerified: (email: string) => void
+  onBack: () => void
 }
 
-export default function AuthPage({ lang, onVerified }: Props) {
+export default function AuthPage({ lang, onVerified, onBack }: Props) {
   const [email, setEmail] = useState('')
   const [codeSent, setCodeSent] = useState(false)
   const [code, setCode] = useState('')
@@ -166,6 +167,14 @@ export default function AuthPage({ lang, onVerified }: Props) {
               <p className="text-sm text-gray-500 text-center">{t('auth_contact_admin', lang)}</p>
             )}
           </form>
+        )}
+        {!codeSent && !loading && (
+          <button
+            onClick={onBack}
+            className="w-full text-gray-500 text-sm hover:text-gray-700 mt-4"
+          >
+            &larr; {t('nav_back', lang)}
+          </button>
         )}
       </div>
     </div>

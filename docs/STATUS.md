@@ -2,7 +2,70 @@
 
 **Last Updated:** 2026-03-12
 
-## Current State: v2 Rewrite — Sprint 10 DONE
+## Current State: v2 Rewrite — Sprint 11 DONE
+
+### Sprint 11 — Polish, Copyright, Branding, Notifications
+
+**Goal:** Pre-production polish — legal compliance, UX navigation, per-frontend branding, notification routing.
+
+#### Block 1 — Copyright + Licensing (S) ✅
+- [x] `LICENSE` file at repo root (proprietary, UNI Global Union)
+- [x] Copyright headers in key files (backend main.py, frontend App.tsx, sidecar main.py)
+- [x] Visible footer "© UNI Global Union" in frontend
+- [x] Update package.json with author + license
+
+#### Block 2 — Navigation UX: Back buttons + reload warning (M) ✅
+- [x] Back button on all pre-chat pages (Disclaimer, Session, RoleSelect, Auth, Instructions, Survey)
+- [x] Warning in Instructions page about not reloading
+- [x] `beforeunload` handler during active session (chat + survey phases)
+- [x] `history.pushState` so browser back goes to previous step (not out of app)
+
+#### Block 3 — Multiple notification recipients (M) ✅
+- [x] SMTP config: `notification_emails` as list (not single address), backward compat migration
+- [x] Admin SMTP tab: multi-email chip/tag input for global notification recipients
+- [x] Per-frontend notification emails in campaign config (`/app/data/campaigns/{fid}/notification_config.json`)
+- [x] Admin SMTP tab: per-frontend notification recipients section
+- [x] `smtp_service.py`: `_resolve_notification_recipients()` merges frontend-specific + global, deduplicates
+- [x] `notify_admin_report` accepts `frontend_id`, sends to all resolved recipients
+- [x] Backend API: `GET/PUT /admin/smtp/frontend-notifications/{frontend_id}`
+
+#### Block 4 — Per-frontend branding (M) ✅
+- [x] Admin config per frontend: app title, disclaimer text, instructions text, logo URL
+- [x] Admin Frontends tab: "Branding" button per frontend with expandable editor
+- [x] Backend API: `GET/PUT /admin/frontends/{id}/branding`
+- [x] Backend pushes branding to sidecar via `POST /internal/branding` (on save + during polling)
+- [x] Sidecar stores branding in memory, serves via `/internal/config` response
+- [x] React pages use per-frontend branding when available, UNI defaults when not
+- [x] Header title, disclaimer text, instructions text, and logo on all pages (language, disclaimer, instructions) use branding
+- [x] Persisted to `/app/data/campaigns/{frontend_id}/branding.json`
+
+#### Acceptance Criteria
+- [ ] LICENSE file present, copyright in key source files
+- [ ] Back button works on every pre-chat page
+- [ ] Browser reload during session shows confirmation dialog
+- [ ] Browser back navigates to previous step
+- [ ] Admin can configure title, disclaimer, instructions per frontend
+- [ ] Frontend displays per-frontend branding or UNI defaults
+- [ ] Admin can configure multiple notification emails (global + per frontend)
+- [ ] Notifications sent to all configured recipients
+
+---
+
+### Upcoming Sprints
+
+| Sprint | Content |
+|--------|---------|
+| **12** | Redactar presentación/disclaimer/instrucciones + traducción completa 31 idiomas |
+| **13** | Migración frontends Mac Mini + Monitorización Telegram |
+| **14** | Test de calidad intensivo (E2E, prompts can/cannot, respuestas simples, security) |
+| **15** | Letta/MemGPT |
+| **Final** | Limpieza archivos Claude Code del repo público GitHub |
+
+---
+
+## Completed Sprints
+
+### Sprint 10 — Guardrails + Repetition Detection + Polish ✅
 
 ### Sprint 0 — Project Setup ✅
 - [x] Product specification written (SPEC-v2.md)

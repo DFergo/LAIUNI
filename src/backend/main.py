@@ -1,3 +1,5 @@
+# Copyright (c) 2026 UNI Global Union. All rights reserved. See LICENSE.
+
 import asyncio
 import logging
 from contextlib import asynccontextmanager

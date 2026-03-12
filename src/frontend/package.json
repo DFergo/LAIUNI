@@ -1,6 +1,8 @@
 {
   "name": "hrdd-helper-frontend",
   "private": true,
+  "author": "Daniel Fernandez / UNI Global Union",
+  "license": "SEE LICENSE IN LICENSE",
   "version": "2.0.0",
   "type": "module",
   "scripts": {

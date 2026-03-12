@@ -26,7 +26,7 @@ _DEFAULTS = {
     "password": "",
     "use_tls": True,
     "from_address": "",
-    "admin_notify_address": "",
+    "notification_emails": [],
     "notify_on_report": False,
     "send_summary_to_user": False,
     "send_report_to_user": False,
@@ -37,6 +37,12 @@ def _load_config() -> dict[str, Any]:
     if _SETTINGS_PATH.exists():
         try:
             data = json.loads(_SETTINGS_PATH.read_text())
+            # Migrate: old single admin_notify_address → notification_emails list
+            if "admin_notify_address" in data and "notification_emails" not in data:
+                old = data.pop("admin_notify_address", "")
+                data["notification_emails"] = [old] if old else []
+            elif "admin_notify_address" in data:
+                data.pop("admin_notify_address", None)
             for key, val in _DEFAULTS.items():
                 data.setdefault(key, val)
             return data
@@ -59,7 +65,7 @@ class SMTPConfigRequest(BaseModel):
     password: str | None = None
     use_tls: bool | None = None
     from_address: str | None = None
-    admin_notify_address: str | None = None
+    notification_emails: list[str] | None = None
     notify_on_report: bool | None = None
     send_summary_to_user: bool | None = None
     send_report_to_user: bool | None = None
@@ -117,3 +123,20 @@ async def update_authorized_emails(req: AuthorizedEmailsRequest, _: dict = Depen
     from src.services.smtp_service import save_authorized_emails, load_authorized_emails
     save_authorized_emails(req.emails)
     return {"emails": load_authorized_emails()}
+
+
+# --- Per-frontend notification emails ---
+
+@router.get("/frontend-notifications/{frontend_id}")
+async def get_frontend_notification_emails(frontend_id: str, _: dict = Depends(require_admin)):
+    """Get notification emails for a specific frontend."""
+    from src.services.smtp_service import load_frontend_notification_emails
+    return {"emails": load_frontend_notification_emails(frontend_id)}
+
+
+@router.put("/frontend-notifications/{frontend_id}")
+async def update_frontend_notification_emails(frontend_id: str, req: AuthorizedEmailsRequest, _: dict = Depends(require_admin)):
+    """Update notification emails for a specific frontend."""
+    from src.services.smtp_service import save_frontend_notification_emails, load_frontend_notification_emails
+    save_frontend_notification_emails(frontend_id, req.emails)
+    return {"emails": load_frontend_notification_emails(frontend_id)}

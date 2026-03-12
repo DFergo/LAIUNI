@@ -33,7 +33,7 @@ def _load_config() -> dict[str, Any]:
         "password": "",
         "use_tls": True,
         "from_address": "",
-        "admin_notify_address": "",
+        "notification_emails": [],
         "notify_on_report": False,
         "send_summary_to_user": False,
         "send_report_to_user": False,
@@ -41,6 +41,12 @@ def _load_config() -> dict[str, Any]:
     if _SETTINGS_PATH.exists():
         try:
             data = json.loads(_SETTINGS_PATH.read_text())
+            # Migrate: old single admin_notify_address → notification_emails list
+            if "admin_notify_address" in data and "notification_emails" not in data:
+                old = data.pop("admin_notify_address", "")
+                data["notification_emails"] = [old] if old else []
+            elif "admin_notify_address" in data:
+                data.pop("admin_notify_address", None)
             for key, val in defaults.items():
                 data.setdefault(key, val)
             return data
@@ -128,15 +134,17 @@ async def test_connection() -> dict[str, str]:
             await smtp.login(cfg["username"], cfg["password"])
         await smtp.quit()
 
-        # Send test email if admin address configured
-        if cfg.get("admin_notify_address"):
+        # Send test email if notification emails configured
+        notify_emails = cfg.get("notification_emails", [])
+        if notify_emails:
+            first = notify_emails[0]
             sent = await send_email(
-                cfg["admin_notify_address"],
+                first,
                 "HRDD Helper — SMTP Test",
                 "This is a test email from HRDD Helper. SMTP is working correctly."
             )
             if sent:
-                return {"status": "ok", "message": f"Connected and test email sent to {cfg['admin_notify_address']}"}
+                return {"status": "ok", "message": f"Connected and test email sent to {first}"}
             return {"status": "warning", "message": "Connected but failed to send test email"}
 
         return {"status": "ok", "message": "Connection successful"}
@@ -220,16 +228,78 @@ async def send_auth_code(email: str, code: str, language: str = "en") -> bool:
     return await send_email(email, subject, body)
 
 
+# --- Notification recipients ---
+
+_CAMPAIGNS_DIR = Path("/app/data/campaigns")
+
+def _resolve_notification_recipients(frontend_id: str = "") -> list[str]:
+    """Resolve notification recipients: per-frontend list + global fallback."""
+    recipients: list[str] = []
+
+    # Per-frontend notification emails
+    if frontend_id:
+        fe_config_path = _CAMPAIGNS_DIR / frontend_id / "notification_config.json"
+        if fe_config_path.exists():
+            try:
+                data = json.loads(fe_config_path.read_text())
+                fe_emails = data.get("notification_emails", [])
+                recipients.extend(e.lower().strip() for e in fe_emails if e.strip())
+            except (json.JSONDecodeError, OSError):
+                pass
+
+    # Global notification emails (always added)
+    cfg = _load_config()
+    global_emails = cfg.get("notification_emails", [])
+    recipients.extend(e.lower().strip() for e in global_emails if e.strip())
+
+    # Deduplicate preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for e in recipients:
+        if e not in seen:
+            seen.add(e)
+            unique.append(e)
+    return unique
+
+
+def save_frontend_notification_emails(frontend_id: str, emails: list[str]):
+    """Save per-frontend notification emails."""
+    dir_path = _CAMPAIGNS_DIR / frontend_id
+    dir_path.mkdir(parents=True, exist_ok=True)
+    config_path = dir_path / "notification_config.json"
+    clean = sorted(set(e.lower().strip() for e in emails if e.strip()))
+    tmp = config_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"notification_emails": clean}, indent=2))
+    tmp.rename(config_path)
+    logger.info(f"Frontend {frontend_id} notification emails updated: {len(clean)} entries")
+
+
+def load_frontend_notification_emails(frontend_id: str) -> list[str]:
+    """Load per-frontend notification emails."""
+    config_path = _CAMPAIGNS_DIR / frontend_id / "notification_config.json"
+    if config_path.exists():
+        try:
+            data = json.loads(config_path.read_text())
+            return [e.lower().strip() for e in data.get("notification_emails", []) if e.strip()]
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
+
+
 # --- Notifications ---
 
-async def notify_admin_report(session_token: str, report_content: str):
-    """Notify admin that a report was generated."""
+async def notify_admin_report(session_token: str, report_content: str, frontend_id: str = ""):
+    """Notify all configured recipients that a report was generated."""
     cfg = _load_config()
-    if not cfg.get("notify_on_report") or not cfg.get("admin_notify_address"):
+    if not cfg.get("notify_on_report"):
+        return
+    recipients = _resolve_notification_recipients(frontend_id)
+    if not recipients:
         return
     subject = f"HRDD Helper — Report generated for session {session_token}"
     body = f"A report has been generated for session {session_token}.\n\n---\n\n{report_content}"
-    await send_email(cfg["admin_notify_address"], subject, body)
+    for addr in recipients:
+        await send_email(addr, subject, body)
 
 
 async def send_user_summary(email: str, session_token: str, summary: str, language: str = "en"):

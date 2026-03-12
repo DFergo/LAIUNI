@@ -1,3 +1,7 @@
+import json
+import logging
+from pathlib import Path
+
 import httpx
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -5,6 +9,9 @@ from pydantic import BaseModel
 from src.api.v1.admin.auth import require_admin
 from src.services.frontend_registry import registry
 from src.services.prompt_assembler import get_prompt_mode, copy_global_to_frontend
+
+logger = logging.getLogger("backend.admin.frontends")
+_CAMPAIGNS_DIR = Path("/app/data/campaigns")
 
 router = APIRouter(prefix="/admin/frontends", tags=["admin-frontends"])
 
@@ -65,3 +72,56 @@ async def remove_frontend(frontend_id: str, _: dict = Depends(require_admin)):
     if not registry.remove(frontend_id):
         raise HTTPException(status_code=404, detail="Frontend not found")
     return {"status": "removed"}
+
+
+# --- Branding ---
+
+class BrandingRequest(BaseModel):
+    app_title: str = ""
+    logo_url: str = ""
+    disclaimer_text: str = ""
+    instructions_text: str = ""
+
+
+def _branding_path(frontend_id: str) -> Path:
+    return _CAMPAIGNS_DIR / frontend_id / "branding.json"
+
+
+@router.get("/{frontend_id}/branding")
+async def get_branding(frontend_id: str, _: dict = Depends(require_admin)):
+    path = _branding_path(frontend_id)
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"app_title": "", "logo_url": "", "disclaimer_text": "", "instructions_text": ""}
+
+
+@router.put("/{frontend_id}/branding")
+async def update_branding(frontend_id: str, req: BrandingRequest, _: dict = Depends(require_admin)):
+    """Save branding config and push to the frontend sidecar."""
+    data = req.model_dump()
+    # Save to disk
+    path = _branding_path(frontend_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.rename(path)
+    logger.info(f"Branding saved for frontend {frontend_id}")
+
+    # Clear push cache so polling re-pushes on sidecar restart
+    from src.services.polling import invalidate_branding_cache
+    invalidate_branding_cache(frontend_id)
+
+    # Push to sidecar
+    fe = registry.get(frontend_id)
+    if fe and fe.get("enabled"):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(f"{fe['url']}/internal/branding", json=data)
+                logger.info(f"Branding pushed to {fe['url']}")
+        except Exception as e:
+            logger.warning(f"Failed to push branding to {fe['url']}: {e}")
+
+    return data

@@ -7,6 +7,7 @@ interface Props {
   config: DeploymentConfig
   role: Role
   onSubmit: (data: SurveyData) => void
+  onBack: () => void
 }
 
 // Modes available per profile
@@ -17,7 +18,7 @@ const MODES_BY_ROLE: Record<Role, ConsultationMode[]> = {
   officer: ['documentation', 'interview', 'advisory', 'submit', 'training'],
 }
 
-export default function SurveyPage({ lang, config, role, onSubmit }: Props) {
+export default function SurveyPage({ lang, config, role, onSubmit, onBack }: Props) {
   const availableModes = MODES_BY_ROLE[role]
   const showMode = availableModes.length > 0
 
@@ -171,6 +172,13 @@ export default function SurveyPage({ lang, config, role, onSubmit }: Props) {
             className="w-full bg-uni-blue text-white rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90"
           >
             {t('survey_submit', lang)}
+          </button>
+          <button
+            type="button"
+            onClick={onBack}
+            className="w-full text-gray-500 text-sm hover:text-gray-700 mt-2"
+          >
+            &larr; {t('nav_back', lang)}
           </button>
         </form>
       </div>
