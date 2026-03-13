@@ -309,3 +309,50 @@ Quitar los archivos de Claude Code del repositorio de GitHub y quedarnos solo co
 - **Opción E (recomendada):** Simplemente eliminar los archivos de Claude del repo y moverlos fuera del directorio del proyecto. Claude Code puede usar `~/.claude/` para settings globales y el `CLAUDE.md` se puede mantener como archivo local no trackeado (añadir a `.gitignore`). En Gitea se puede mantener un branch o tag con la snapshot actual que incluye todo.
 
 **Analysis:** La opción más limpia es la E: `.gitignore` para `CLAUDE.md` y `.claude/`, un commit que los elimina, push a ambos remotes. Antes de eso, hacer un tag/snapshot en Gitea con la versión que incluye todo. Encaja en Sprint 11 junto con el copyright y la limpieza pre-producción.
+
+---
+
+### Frontworker no expone selección de modo — traducciones de modos solo para frontorganizer
+**Added:** 2026-03-13 | **Sprint:** 12 | **Effort:** S (horas)
+
+El branding custom (disclaimer, instrucciones, título, logo) solo se aplica al frontworker. El frontorganizer NO es personalizable — usa siempre los textos fijos de i18n.ts. Los textos de selección de modo (Document Violation, Interview, Advisory, etc.) solo existen en el frontorganizer y van como traducciones estáticas en i18n.ts, no por el sistema de branding/traducción LLM. El frontworker no expone selección de modo (worker/representative no tienen modos).
+
+**Analysis:** Ya es así en el código. Las traducciones de modo van en i18n.ts junto con el resto de textos fijos del frontorganizer. No requiere cambio de código, solo tenerlo en cuenta al organizar el sprint de traducción.
+
+---
+
+### Placeholder [DATA_PROTECTION_EMAIL] configurable
+**Added:** 2026-03-13 | **Sprint:** 12 | **Effort:** S (horas)
+
+El placeholder `[DATA_PROTECTION_EMAIL]` en el disclaimer debe ser configurable en `deployment_backend.json` e inyectado al frontend en build time o vía el endpoint `/internal/config`. Lo mismo para cualquier dato de contacto legal futuro.
+
+**Implementación:** Añadir `data_protection_email` a `deployment_backend.json`. El sidecar lo recibe vía el endpoint `/internal/config` (el backend lo pushea o el sidecar lo expone desde su propia config). El frontend sustituye `[DATA_PROTECTION_EMAIL]` en el texto del disclaimer por el valor real. Para branding custom (frontworker), el email también se inyecta en el texto traducido por el LLM.
+
+**Analysis:** Encaja en Sprint 12. Config global en deployment_backend.json. Técnicamente trivial: un campo más en config, un string replace en el frontend antes de renderizar el disclaimer. Aprobado por Daniel como placeholder dinámico.
+
+---
+
+### Descripciones de modo como helper text dinámico en el survey
+**Added:** 2026-03-13 | **Sprint:** 12 | **Effort:** S (horas)
+
+Las descripciones cortas de cada modo de consulta (Document Violation, Interview, Advisory, Submit Materials, Training) deben renderizarse como texto de ayuda directamente debajo del selector de modo en el formulario de survey. Aparecen dinámicamente cuando se selecciona un modo o en hover/focus. No mostrar todas las descripciones a la vez — mantener la UI limpia.
+
+**Analysis:** Ya existe un selector de modo en SurveyPage.tsx para organizer/officer. Añadir un `<p>` condicional debajo del selector con la descripción del modo seleccionado. Los textos van en i18n.ts. Trivial en código, el esfuerzo está en traducir los textos.
+
+---
+
+### En Interview mode, clarificar que el asistente ayuda al organizador
+**Added:** 2026-03-13 | **Sprint:** 12 (prompts + UX) | **Effort:** S (horas)
+
+En modo Interview, el organizador puede estar usando la herramienta sentado con el trabajador. La UI debe dejar claro que el asistente ayuda al organizador, no habla directamente al trabajador. Esto afecta tanto a las instrucciones como al prompt del LLM.
+
+**Analysis:** Dos capas: (1) texto de instrucciones para Interview mode — ya cubierto en el documento de textos hardcoded. (2) Prompt del LLM para Interview — dejar explícito que se dirige al organizador, no al trabajador. Ambas son trabajo de contenido, no de código.
+
+---
+
+### Training mode solo para officers (ya implementado)
+**Added:** 2026-03-13 | **Sprint:** N/A (ya hecho) | **Effort:** N/A
+
+El modo Training solo debe estar disponible para officers. Si el rol es "organizer", esta opción no debe aparecer en el selector de modo.
+
+**Analysis:** Ya implementado en SurveyPage.tsx — `MODES_BY_ROLE.organizer` no incluye 'training', solo `MODES_BY_ROLE.officer` lo tiene. No requiere cambio.

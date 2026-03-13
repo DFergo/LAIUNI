@@ -18,6 +18,7 @@ export interface DeploymentConfig {
   session_resume_window_hours: number
   disclaimer_enabled: boolean
   auth_required: boolean
+  data_protection_email?: string
   branding?: BrandingConfig
 }
 

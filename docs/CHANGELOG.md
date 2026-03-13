@@ -2,6 +2,15 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 12 — UI Texts, Disclaimer Rewrite, Translation (2026-03-13)
+- **Disclaimer page restructured**: 3 sections with headings (What Is This Tool, How Your Data Is Handled, Disclaimer), scrollable container, UNI logo centered at top
+- **`data_protection_email` dynamic config**: configurable in deployment JSONs, served via sidecar `/internal/config`, replaces `[DATA_PROTECTION_EMAIL]` placeholder in disclaimer legal text at render time
+- **Instruction texts rewritten by role**: worker (personal story, empathy, anonymity, "contact your local trade union"), representative (case-building, patterns, escalation, "share with your national union"), organizer (mode selection, framework context), officer (organizer + training paragraph)
+- **Mode descriptions expanded**: longer descriptive texts for all 5 consultation modes (documentation, interview, advisory, submit evidence, training)
+- **i18n.ts — complete 31-language coverage**: EN/ES/FR manually written with full new content; 13 existing languages (de, pt, ar, zh, hi, id, ja, ko, ru, tr, vi, th, sw) updated with all new keys + auth error messages translated; 15 new languages added (bn, mr, te, ta, ur, it, pl, nl, el, uk, ro, hr, xh, hu, sv) — 88+ keys per language, zero English fallbacks
+- `BrandingConfig` type: added `custom` field for branding translation toggle
+- `App.tsx`: `fetchBrandingText()` for per-language branding, `mergedBranding` combines base + translated text
+
 ### Sprint 11 — Polish, Copyright, Branding, Notifications (2026-03-12)
 - **Copyright + Licensing**: `LICENSE` file (proprietary, UNI Global Union), copyright headers in key source files, visible footer "© 2026 UNI Global Union", package.json author/license fields
 - **Navigation UX**: Back button on all pre-chat pages (Disclaimer, Session, RoleSelect, Auth, Instructions, Survey), `history.pushState` so browser back navigates to previous step, `beforeunload` handler warns on reload during chat/survey, amber warning box on Instructions page about not reloading

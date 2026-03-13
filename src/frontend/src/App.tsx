@@ -221,7 +221,7 @@ function App() {
           </div>
         )}
         {phase === 'language' && <LanguageSelector onSelect={handleLanguage} branding={mergedBranding} />}
-        {phase === 'disclaimer' && <DisclaimerPage lang={lang} onAccept={handleDisclaimer} onBack={goBackFrom.disclaimer!} branding={mergedBranding} />}
+        {phase === 'disclaimer' && <DisclaimerPage lang={lang} onAccept={handleDisclaimer} onBack={goBackFrom.disclaimer!} branding={mergedBranding} dataProtectionEmail={config?.data_protection_email} />}
         {phase === 'session' && <SessionPage lang={lang} onNewSession={handleNewSession} onRecover={handleRecover} onBack={goBackFrom.session!} />}
         {phase === 'role_select' && config && <RoleSelectPage lang={lang} config={config} onSelect={handleRoleSelect} onBack={goBackFrom.role_select!} />}
         {phase === 'auth' && <AuthPage lang={lang} onVerified={handleAuth} onBack={goBackFrom.auth!} />}

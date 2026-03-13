@@ -1,10 +1,42 @@
 # HRDD Helper — Project Status
 
-**Last Updated:** 2026-03-12
+**Last Updated:** 2026-03-13
 
-## Current State: v2 Rewrite — Sprint 11 DONE
+## Current State: v2 Rewrite — Sprint 12 COMPLETE ✅
 
-### Sprint 11 — Polish, Copyright, Branding, Notifications
+### Sprint 12 — UI Texts, Disclaimer Rewrite, Translation (31 languages) ✅
+
+**Goal:** Replace placeholder UI texts with final content. Restructure disclaimer page. Add dynamic config placeholder. Complete i18n translations for all 31 supported languages.
+
+#### Block A — Disclaimer rewrite + new content (M) ✅
+- [x] **DisclaimerPage** restructured: 3 sections with headings (What Is This Tool, How Your Data Is Handled, Disclaimer), scrollable
+- [x] `data_protection_email` config field in deployment JSONs → sidecar `/internal/config` → frontend replaces `[DATA_PROTECTION_EMAIL]` in disclaimer text
+- [x] i18n.ts: new keys for disclaimer sections (`disclaimer_what_heading`, `disclaimer_what_body`, `disclaimer_data_heading`, `disclaimer_data_body`, `disclaimer_legal_heading`, `disclaimer_legal_body`)
+- [x] i18n.ts: rewrite `instructions_worker_text` — focus on personal story, empathy, "contact your local trade union"
+- [x] i18n.ts: rewrite `instructions_representative_text` — focus on case-building, patterns, escalation
+- [x] i18n.ts: rewrite `instructions_organizer_text` — based on Daniel's doc (mode selection, framework advisory)
+- [x] i18n.ts: rewrite `instructions_officer_text` — organizer + training paragraph
+- [x] i18n.ts: update `mode_*_desc` keys with longer descriptive texts from Daniel's doc
+- [x] **SurveyPage**: mode description as helper text already implemented (lines 83-85)
+
+#### Block B — Translation to 31 languages (L) ✅
+- [x] Update existing 16 languages (en, es, fr, de, pt, ar, zh, hi, id, ja, ko, ru, tr, vi, th, sw) with all new/changed keys
+- [x] Add 15 new languages (bn, mr, te, ta, ur, it, pl, nl, el, uk, ro, hr, xh, hu, sv) — full translation of all keys
+- [x] All 31 languages have complete coverage (88+ keys each, no fallback to English)
+
+#### Acceptance Criteria
+- [x] Disclaimer page shows 3 distinct sections with headings, scrollable via `max-h-[80vh] overflow-y-auto`
+- [x] `[DATA_PROTECTION_EMAIL]` replaced with configured email address at render time
+- [x] Worker instructions focus on personal story, empathy, anonymity
+- [x] Representative instructions focus on case-building, patterns, escalation
+- [x] Organizer/officer instructions match Daniel's approved text
+- [x] Mode descriptions appear as helper text when a mode is selected in survey (already implemented)
+- [x] All 31 languages have complete translations — zero English fallbacks
+- [x] Existing functionality unchanged (branding override still works, back buttons, etc.)
+
+---
+
+### Sprint 11 — Polish, Copyright, Branding, Notifications ✅
 
 **Goal:** Pre-production polish — legal compliance, UX navigation, per-frontend branding, notification routing.
 

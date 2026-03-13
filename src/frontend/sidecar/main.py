@@ -148,6 +148,7 @@ async def get_config():
         "session_resume_window_hours": _config.get("session_resume_window_hours", 48),
         "disclaimer_enabled": _config.get("disclaimer_enabled", True),
         "auth_required": _config.get("auth_required", False),
+        "data_protection_email": _config.get("data_protection_email", ""),
     }
     if _branding:
         branding_info = {
