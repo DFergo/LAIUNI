@@ -118,6 +118,7 @@ async def poll_frontends():
                             tk = upload.get("session_token", "")
                             if not tk:
                                 continue
+                            upload["_frontend_id"] = fid
                             result = await _handle_upload(client, url, upload)
                             if result:
                                 all_results.setdefault(tk, []).append(result)
@@ -287,7 +288,7 @@ async def _safe_process(msg: dict[str, Any]):
             logger.debug(f"Injected {len(all_chunks)} RAG chunks ({len(session_rag_chunks)} from evidence) for {session_token}")
 
         # Compress context if approaching limit (ADR-009)
-        settings = get_llm_settings()
+        settings = get_llm_settings(frontend_id)
         context_tokens = estimate_messages_tokens(llm_messages)
         logger.info(f"[{session_token}] Context size: {context_tokens} tokens ({len(llm_messages)} messages)")
         llm_messages = await compress_if_needed(llm_messages, settings, session_token)
@@ -416,7 +417,7 @@ async def _finalize_session(
         llm_messages.append({"role": "user", "content": f"{summary_instruction}\n\n{lang_instruction}"})
 
         # Generate summary using inference LLM (not summariser)
-        settings = get_llm_settings()
+        settings = get_llm_settings(frontend_id)
         raw_response = ""
         visible_response = ""
         in_think = False
@@ -485,7 +486,7 @@ async def _finalize_session(
 
         # Background: generate internal documents (user doesn't see these)
         mode = session.get("survey", {}).get("type", "documentation") if session else "documentation"
-        await _generate_internal_documents(session_token, language, mode, settings)
+        await _generate_internal_documents(session_token, language, mode, settings, frontend_id)
 
     except Exception as e:
         logger.error(f"Finalization failed for {session_token}: {e}")
@@ -503,6 +504,7 @@ async def _generate_internal_documents(
     language: str,
     mode: str,
     settings: dict[str, Any],
+    frontend_id: str = "",
 ):
     """Generate internal documents after session closure (user doesn't see these)."""
     import os
@@ -822,8 +824,10 @@ async def _handle_upload(client: httpx.AsyncClient, frontend_url: str, upload: d
         except Exception:
             pass
 
-        # Process the file
-        settings = get_llm_settings()
+        # Process the file — use per-frontend LLM if configured
+        # frontend_id not directly available here, but _handle_upload is called
+        # within poll_frontends loop where fid is known. Pass it via upload dict.
+        settings = get_llm_settings(upload.get("_frontend_id", ""))
         result = await process_upload(token, filename, file_bytes, settings)
 
         # Confirm receipt — sidecar deletes temp file
@@ -925,8 +929,8 @@ async def _respond_to_upload(
             )
             llm_messages.insert(-1, {"role": "system", "content": rag_context})
 
-        # Stream response
-        settings = get_llm_settings()
+        # Stream response — use per-frontend LLM if configured
+        settings = get_llm_settings(frontend_id)
         raw_response = ""
         visible_response = ""
         in_think = False

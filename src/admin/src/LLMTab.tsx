@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getLLMHealth, getLLMSettings, updateLLMSettings, resetLLMSettings, type LLMHealth, type LLMSettings } from './api'
+import { getLLMHealth, getLLMSettings, updateLLMSettings, resetLLMSettings, listFrontends, getFrontendLLMSettings, updateFrontendLLMSettings, deleteFrontendLLMSettings, type LLMHealth, type LLMSettings, type Frontend } from './api'
 
 export default function LLMTab() {
   const [health, setHealth] = useState<LLMHealth | null>(null)
@@ -82,6 +82,71 @@ export default function LLMTab() {
     if (!settings) return
     dirty.current = true
     setSettings({ ...settings, [key]: value })
+  }
+
+  // Per-frontend LLM overrides
+  const [frontends, setFrontends] = useState<Frontend[]>([])
+  const [feOverrides, setFeOverrides] = useState<Record<string, Partial<LLMSettings>>>({})
+  const [feOpen, setFeOpen] = useState<string | null>(null)
+  const [feSaving, setFeSaving] = useState(false)
+  const [feSuccess, setFeSuccess] = useState('')
+
+  useEffect(() => {
+    listFrontends().then(({ frontends: list }) => setFrontends(list)).catch(() => {})
+  }, [])
+
+  const toggleFeOverride = async (fid: string) => {
+    if (feOpen === fid) {
+      setFeOpen(null)
+      return
+    }
+    try {
+      const { override } = await getFrontendLLMSettings(fid)
+      setFeOverrides(prev => ({ ...prev, [fid]: override }))
+      setFeOpen(fid)
+    } catch {
+      // ignore
+    }
+  }
+
+  const updateFeField = <K extends keyof LLMSettings>(fid: string, key: K, value: LLMSettings[K]) => {
+    setFeOverrides(prev => ({
+      ...prev,
+      [fid]: { ...prev[fid], [key]: value },
+    }))
+  }
+
+  const clearFeField = (fid: string, key: keyof LLMSettings) => {
+    setFeOverrides(prev => {
+      const copy = { ...prev[fid] }
+      delete copy[key]
+      return { ...prev, [fid]: copy }
+    })
+  }
+
+  const handleFeSave = async (fid: string) => {
+    setFeSaving(true)
+    try {
+      const override = feOverrides[fid] || {}
+      await updateFrontendLLMSettings(fid, override)
+      setFeSuccess('Saved')
+      setTimeout(() => setFeSuccess(''), 3000)
+    } catch {
+      // ignore
+    } finally {
+      setFeSaving(false)
+    }
+  }
+
+  const handleFeReset = async (fid: string) => {
+    try {
+      await deleteFrontendLLMSettings(fid)
+      setFeOverrides(prev => ({ ...prev, [fid]: {} }))
+      setFeSuccess('Reset to global')
+      setTimeout(() => setFeSuccess(''), 3000)
+    } catch {
+      // ignore
+    }
   }
 
   const statusDot = (status: string) =>
@@ -377,6 +442,169 @@ export default function LLMTab() {
             {success && <span className="text-sm text-green-600">{success}</span>}
             {error && <span className="text-sm text-uni-red">{error}</span>}
           </div>
+
+          {/* Per-Frontend LLM Overrides */}
+          {frontends.length > 0 && (
+            <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-1">Per-Frontend LLM</h3>
+              <p className="text-xs text-gray-400 mb-4">
+                Override inference provider/model for specific frontends. Frontends without overrides use the global settings above.
+              </p>
+              <div className="space-y-3">
+                {frontends.map(f => {
+                  const override = feOverrides[f.id] || {}
+                  const hasOverride = Object.keys(override).length > 0
+                  return (
+                    <div key={f.id} className="border border-gray-200 rounded-lg px-4 py-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-2.5 h-2.5 rounded-full ${statusDot(f.status)}`} />
+                          <div>
+                            <span className="text-sm font-medium text-gray-800">{f.name}</span>
+                            <span className="text-xs text-gray-400 ml-2">{f.url}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {feOpen !== f.id && hasOverride && (
+                            <span className="text-xs text-uni-blue font-medium">Custom LLM</span>
+                          )}
+                          {feOpen !== f.id && !hasOverride && (
+                            <span className="text-xs text-gray-400">Using global</span>
+                          )}
+                          <button
+                            onClick={() => toggleFeOverride(f.id)}
+                            className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium transition-colors"
+                          >
+                            {feOpen === f.id ? 'Close' : 'Configure'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {feOpen === f.id && settings && (
+                        <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Provider
+                                {override.inference_provider
+                                  ? <button onClick={() => clearFeField(f.id, 'inference_provider')} className="ml-2 text-xs text-gray-400 hover:text-uni-red">reset</button>
+                                  : <span className="ml-2 text-xs text-gray-400">(global: {settings.inference_provider})</span>
+                                }
+                              </label>
+                              <select
+                                value={override.inference_provider ?? settings.inference_provider}
+                                onChange={e => updateFeField(f.id, 'inference_provider', e.target.value)}
+                                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                              >
+                                <option value="lm_studio">LM Studio</option>
+                                <option value="ollama">Ollama</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Model
+                                {override.inference_model
+                                  ? <button onClick={() => clearFeField(f.id, 'inference_model')} className="ml-2 text-xs text-gray-400 hover:text-uni-red">reset</button>
+                                  : <span className="ml-2 text-xs text-gray-400">(global: {settings.inference_model})</span>
+                                }
+                              </label>
+                              {(() => {
+                                const provider = override.inference_provider ?? settings.inference_provider
+                                const models = allModels(provider)
+                                const current = override.inference_model ?? settings.inference_model
+                                return models.length > 0 ? (
+                                  <select
+                                    value={models.includes(current) ? current : models[0]}
+                                    onChange={e => updateFeField(f.id, 'inference_model', e.target.value)}
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                                  >
+                                    {models.map(m => (
+                                      <option key={m} value={m}>{m}</option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={current}
+                                    onChange={e => updateFeField(f.id, 'inference_model', e.target.value)}
+                                    placeholder="e.g. qwen3-235b-a22b"
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                                  />
+                                )
+                              })()}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Temperature ({(override.inference_temperature ?? settings.inference_temperature)})
+                                {override.inference_temperature != null
+                                  ? <button onClick={() => clearFeField(f.id, 'inference_temperature')} className="ml-1 text-xs text-gray-400 hover:text-uni-red">reset</button>
+                                  : null
+                                }
+                              </label>
+                              <input
+                                type="range" min="0" max="2" step="0.1"
+                                value={override.inference_temperature ?? settings.inference_temperature}
+                                onChange={e => updateFeField(f.id, 'inference_temperature', parseFloat(e.target.value))}
+                                className="w-full"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Max Tokens
+                                {override.inference_max_tokens != null
+                                  ? <button onClick={() => clearFeField(f.id, 'inference_max_tokens')} className="ml-1 text-xs text-gray-400 hover:text-uni-red">reset</button>
+                                  : null
+                                }
+                              </label>
+                              <input
+                                type="number"
+                                value={override.inference_max_tokens ?? settings.inference_max_tokens}
+                                onChange={e => updateFeField(f.id, 'inference_max_tokens', parseInt(e.target.value) || 2048)}
+                                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Context Window
+                                {override.inference_num_ctx != null
+                                  ? <button onClick={() => clearFeField(f.id, 'inference_num_ctx')} className="ml-1 text-xs text-gray-400 hover:text-uni-red">reset</button>
+                                  : null
+                                }
+                              </label>
+                              <input
+                                type="number"
+                                value={override.inference_num_ctx ?? settings.inference_num_ctx}
+                                onChange={e => updateFeField(f.id, 'inference_num_ctx', parseInt(e.target.value) || 32768)}
+                                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => handleFeSave(f.id)}
+                              disabled={feSaving}
+                              className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                            >
+                              {feSaving ? 'Saving...' : 'Save Override'}
+                            </button>
+                            <button
+                              onClick={() => handleFeReset(f.id)}
+                              className="text-xs text-gray-400 hover:text-uni-red transition-colors px-2"
+                            >
+                              Remove Override (use global)
+                            </button>
+                            {feSuccess && feOpen === f.id && <span className="text-xs text-green-600">{feSuccess}</span>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

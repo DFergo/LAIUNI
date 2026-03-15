@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from src.api.v1.admin.auth import router as auth_router
 from src.api.v1.admin.frontends import router as frontends_router
-from src.api.v1.admin.llm import router as llm_router
+from src.api.v1.admin.llm import router as llm_router, fe_router as llm_fe_router
 from src.api.v1.admin.prompts import router as prompts_router
 from src.api.v1.admin.sessions import router as sessions_router
 from src.api.v1.admin.rag import router as rag_router
@@ -58,6 +58,7 @@ app = FastAPI(title="HRDD Helper Backend", version="2.0.0", lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(frontends_router)
 app.include_router(llm_router)
+app.include_router(llm_fe_router)
 app.include_router(prompts_router)
 app.include_router(sessions_router)
 app.include_router(rag_router)

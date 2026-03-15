@@ -128,7 +128,8 @@ async def generate_document(token: str, doc_type: str, _: dict = Depends(require
 
     language = session.get("language", "en")
     role = session.get("survey", {}).get("role", "worker")
-    settings = get_llm_settings()
+    frontend_id = session.get("frontend_id", "")
+    settings = get_llm_settings(frontend_id)
     session_dir = os.path.join(SESSIONS_DIR, token)
     os.makedirs(session_dir, exist_ok=True)
 

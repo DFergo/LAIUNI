@@ -350,6 +350,22 @@ En modo Interview, el organizador puede estar usando la herramienta sentado con 
 
 ---
 
+### LLM por frontend: asignar modelo de inferencia distinto por frontend ✅ DONE
+**Added:** 2026-03-15 | **Completed:** 2026-03-15 | **Effort:** M
+
+Poder asignar un LLM distinto (provider + modelo) para inferencia a cada frontend registrado. Esto permite tener dos modelos distintos respondiendo a dos frontends distintos simultáneamente — por ejemplo, un modelo grande (Qwen 32B) para el frontorganizer y uno más rápido (Mistral 7B) para el frontworker.
+
+**Implementación:**
+- `get_llm_settings(frontend_id)` busca primero en `/app/data/campaigns/{frontend_id}/llm_settings.json`, fallback a global
+- Modificar ~5 call sites en `polling.py` para pasar `frontend_id` a `get_llm_settings()`
+- Nuevos endpoints admin: `GET/PUT /admin/frontends/{frontend_id}/llm-settings`
+- UI en admin Frontends tab: selector de provider/model por frontend (o "usar global")
+- Backward compatible: si no hay config por frontend, usa la global
+
+**Analysis:** Técnicamente sencillo. `frontend_id` ya se pasa por todo el pipeline de procesamiento. El patrón de config por frontend ya existe para prompts, RAG, branding y notificaciones (`/app/data/campaigns/{frontend_id}/`). Solo hay que extenderlo a LLM settings. No rompe nada existente.
+
+---
+
 ### Training mode solo para officers (ya implementado)
 **Added:** 2026-03-13 | **Sprint:** N/A (ya hecho) | **Effort:** N/A
 

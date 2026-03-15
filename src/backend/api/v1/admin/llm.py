@@ -61,9 +61,53 @@ def _save_settings(settings: dict[str, Any]):
     tmp.rename(_SETTINGS_PATH)
 
 
-def get_llm_settings() -> dict[str, Any]:
-    """Get current LLM settings (used by other services)."""
-    return _load_settings()
+def get_llm_settings(frontend_id: str = "") -> dict[str, Any]:
+    """Get LLM settings — per-frontend override if exists, else global."""
+    global_settings = _load_settings()
+    if not frontend_id:
+        return global_settings
+    fe_path = Path(f"/app/data/campaigns/{frontend_id}/llm_settings.json")
+    if not fe_path.exists():
+        return global_settings
+    try:
+        override = json.loads(fe_path.read_text())
+        # Merge: override only non-null fields on top of global
+        merged = dict(global_settings)
+        for key, val in override.items():
+            if val is not None:
+                merged[key] = val
+        return merged
+    except Exception as e:
+        logger.warning(f"Failed to load per-frontend LLM settings for {frontend_id}: {e}")
+        return global_settings
+
+
+def get_frontend_llm_override(frontend_id: str) -> dict[str, Any]:
+    """Get raw per-frontend LLM override (only overridden fields)."""
+    fe_path = Path(f"/app/data/campaigns/{frontend_id}/llm_settings.json")
+    if fe_path.exists():
+        try:
+            return json.loads(fe_path.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def save_frontend_llm_override(frontend_id: str, override: dict[str, Any]):
+    """Save per-frontend LLM override."""
+    campaign_dir = Path(f"/app/data/campaigns/{frontend_id}")
+    campaign_dir.mkdir(parents=True, exist_ok=True)
+    fe_path = campaign_dir / "llm_settings.json"
+    tmp = fe_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(override, indent=2))
+    tmp.rename(fe_path)
+
+
+def delete_frontend_llm_override(frontend_id: str):
+    """Remove per-frontend LLM override (revert to global)."""
+    fe_path = Path(f"/app/data/campaigns/{frontend_id}/llm_settings.json")
+    if fe_path.exists():
+        fe_path.unlink()
 
 
 class LLMSettingsRequest(BaseModel):
@@ -129,3 +173,32 @@ async def reset_settings(_: dict = Depends(require_admin)):
     _save_settings(dict(_DEFAULTS))
     logger.info("LLM settings reset to defaults")
     return dict(_DEFAULTS)
+
+
+# --- Per-frontend LLM overrides ---
+
+fe_router = APIRouter(prefix="/admin/frontends", tags=["admin-frontend-llm"])
+
+
+@fe_router.get("/{frontend_id}/llm-settings")
+async def get_fe_llm_settings(frontend_id: str, _: dict = Depends(require_admin)):
+    """Get per-frontend LLM override."""
+    return {"frontend_id": frontend_id, "override": get_frontend_llm_override(frontend_id)}
+
+
+@fe_router.put("/{frontend_id}/llm-settings")
+async def update_fe_llm_settings(frontend_id: str, req: LLMSettingsRequest, _: dict = Depends(require_admin)):
+    """Update per-frontend LLM override. Only non-null fields are stored."""
+    override = req.model_dump(exclude_none=True)
+    if override:
+        save_frontend_llm_override(frontend_id, override)
+        logger.info(f"Per-frontend LLM override saved for {frontend_id}: {list(override.keys())}")
+    return {"frontend_id": frontend_id, "override": override}
+
+
+@fe_router.delete("/{frontend_id}/llm-settings")
+async def delete_fe_llm_settings(frontend_id: str, _: dict = Depends(require_admin)):
+    """Remove per-frontend LLM override (revert to global)."""
+    delete_frontend_llm_override(frontend_id)
+    logger.info(f"Per-frontend LLM override removed for {frontend_id}")
+    return {"frontend_id": frontend_id, "override": {}}

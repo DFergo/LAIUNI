@@ -2,6 +2,14 @@
 
 ## v2.0 — Clean Rewrite
 
+### Per-Frontend LLM Assignment (2026-03-15)
+- **Per-frontend LLM override**: each registered frontend can now use a different inference provider/model instead of the global default
+- Backend: `get_llm_settings(frontend_id)` loads per-frontend config from `/app/data/campaigns/{fid}/llm_settings.json`, falls back to global
+- New API endpoints: `GET/PUT/DELETE /admin/frontends/{fid}/llm-settings`
+- All LLM call sites updated: `polling.py` (chat, finalize, uploads), `session_lifecycle.py` (auto-close), `sessions.py` (admin doc generation)
+- Admin LLM tab: new "Per-Frontend LLM" section with provider/model/temperature/max_tokens/context_window per frontend, reset-to-global option
+- Bugfix: `_generate_internal_documents` now receives `frontend_id` (was missing, caused NameError in email notifications)
+
 ### Sprint 12 — UI Texts, Disclaimer Rewrite, Translation (2026-03-13)
 - **Disclaimer page restructured**: 3 sections with headings (What Is This Tool, How Your Data Is Handled, Disclaimer), scrollable container, UNI logo centered at top
 - **`data_protection_email` dynamic config**: configurable in deployment JSONs, served via sidecar `/internal/config`, replaces `[DATA_PROTECTION_EMAIL]` placeholder in disclaimer legal text at render time

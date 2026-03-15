@@ -143,7 +143,8 @@ async def _auto_close_session(token: str, session_meta: dict[str, Any]):
     language = full_session.get("language", "en")
     role = full_session.get("survey", {}).get("role", "worker")
     mode = full_session.get("survey", {}).get("type", "documentation")
-    settings = get_llm_settings()
+    fe_id = full_session.get("frontend_id", "") or session_meta.get("frontend_id", "")
+    settings = get_llm_settings(fe_id)
     session_dir = f"/app/data/sessions/{token}"
 
     import os
@@ -172,7 +173,7 @@ async def _auto_close_session(token: str, session_meta: dict[str, Any]):
 
     # 3. Generate internal documents (same as manual closure)
     try:
-        await _generate_internal_documents(token, language, mode, settings)
+        await _generate_internal_documents(token, language, mode, settings, fe_id)
     except Exception as e:
         logger.error(f"Auto-close internal docs failed for {token}: {e}")
 

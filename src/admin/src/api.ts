@@ -121,6 +121,23 @@ export async function resetLLMSettings(): Promise<LLMSettings> {
   return request('/admin/llm/settings/reset', { method: 'POST' });
 }
 
+// --- Per-frontend LLM overrides ---
+
+export async function getFrontendLLMSettings(frontendId: string): Promise<{ frontend_id: string; override: Partial<LLMSettings> }> {
+  return request(`/admin/frontends/${frontendId}/llm-settings`);
+}
+
+export async function updateFrontendLLMSettings(frontendId: string, data: Partial<LLMSettings>): Promise<{ frontend_id: string; override: Partial<LLMSettings> }> {
+  return request(`/admin/frontends/${frontendId}/llm-settings`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteFrontendLLMSettings(frontendId: string): Promise<{ frontend_id: string; override: Record<string, never> }> {
+  return request(`/admin/frontends/${frontendId}/llm-settings`, { method: 'DELETE' });
+}
+
 // --- Prompts API ---
 
 export interface PromptFile {

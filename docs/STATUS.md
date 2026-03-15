@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-03-13
 
-## Current State: v2 Rewrite — Sprint 12 COMPLETE ✅
+## Current State: v2 Rewrite — Sprint 12 COMPLETE + Per-Frontend LLM ✅
 
 ### Sprint 12 — UI Texts, Disclaimer Rewrite, Translation (31 languages) ✅
 
