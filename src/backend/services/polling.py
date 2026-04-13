@@ -116,7 +116,7 @@ async def poll_frontends():
                 # Handle auth requests (pull-inverse: sidecar queues, backend resolves)
                 auth_requests = data.get("auth_requests", [])
                 for auth_req in auth_requests:
-                    await _handle_auth_request(client, url, auth_req)
+                    await _handle_auth_request(client, url, auth_req, fid)
 
                 # Handle file uploads — process each file silently.
                 # Sprint 16: no automatic LLM response after upload. Files are
@@ -588,7 +588,7 @@ async def _generate_internal_documents(
         if report_content:
             await notify_admin_report(session_token, report_content, frontend_id)
 
-        if user_email and is_email_authorized(user_email):
+        if user_email and is_email_authorized(user_email, frontend_id):
             # Read summary from disk (saved by _finalize_session)
             import os
             summary_path = os.path.join(f"/app/data/sessions/{session_token}", "summary.md")
@@ -807,7 +807,7 @@ async def _handle_recovery(frontend_url: str, token: str):
         await client.aclose()
 
 
-async def _handle_auth_request(client: httpx.AsyncClient, frontend_url: str, auth_req: dict[str, Any]):
+async def _handle_auth_request(client: httpx.AsyncClient, frontend_url: str, auth_req: dict[str, Any], frontend_id: str = ""):
     """Handle an auth request from the sidecar (pull-inverse)."""
     session_token = auth_req.get("session_token", "")
     email = auth_req.get("email", "").lower().strip()
@@ -828,7 +828,7 @@ async def _handle_auth_request(client: httpx.AsyncClient, frontend_url: str, aut
             }
         else:
             # Code request — check whitelist, generate code, send email
-            if not is_email_authorized(email):
+            if not is_email_authorized(email, frontend_id):
                 result = {
                     "session_token": session_token,
                     "status": "not_authorized",

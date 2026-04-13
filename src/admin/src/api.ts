@@ -395,6 +395,87 @@ export async function updateFrontendNotificationEmails(frontendId: string, email
   });
 }
 
+// --- Authorized Contacts API (Sprint 18) ---
+
+export interface Contact {
+  email: string
+  first_name: string
+  last_name: string
+  organization: string
+  country: string
+  sector: string
+  registered_by: string
+}
+
+export interface FrontendContactsOverride {
+  mode: 'replace' | 'append'
+  contacts: Contact[]
+}
+
+export interface ContactsStore {
+  global: Contact[]
+  per_frontend: Record<string, FrontendContactsOverride>
+}
+
+export async function getContacts(): Promise<ContactsStore> {
+  return request('/admin/contacts')
+}
+
+export async function updateGlobalContacts(contacts: Contact[]): Promise<{ global: Contact[] }> {
+  return request('/admin/contacts/global', {
+    method: 'PUT',
+    body: JSON.stringify({ contacts }),
+  })
+}
+
+export async function updateFrontendContacts(
+  frontendId: string,
+  mode: 'replace' | 'append',
+  contacts: Contact[]
+): Promise<{ frontend_id: string; override: FrontendContactsOverride }> {
+  return request(`/admin/contacts/frontend/${frontendId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ mode, contacts }),
+  })
+}
+
+export async function deleteFrontendContacts(frontendId: string): Promise<{ frontend_id: string; removed: boolean }> {
+  return request(`/admin/contacts/frontend/${frontendId}`, { method: 'DELETE' })
+}
+
+export async function copyContactsFromFrontend(
+  frontendId: string,
+  srcFrontendId: string,
+  mode: 'replace' | 'append' = 'replace'
+): Promise<{ frontend_id: string; override: FrontendContactsOverride }> {
+  return request(`/admin/contacts/frontend/${frontendId}/copy-from/${srcFrontendId}?mode=${mode}`, {
+    method: 'POST',
+  })
+}
+
+export function exportContactsURL(scope: string): string {
+  return `/admin/contacts/export?scope=${encodeURIComponent(scope)}`
+}
+
+export async function importContacts(
+  file: File,
+  scope: string
+): Promise<{ added: number; updated: number; ignored_malformed: number; scope: string }> {
+  const token = localStorage.getItem('hrdd_admin_token')
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch(`/admin/contacts/import?scope=${encodeURIComponent(scope)}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: 'Import failed' }))
+    throw new Error(body.detail || `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
 // --- Knowledge Base API ---
 
 export interface GlossaryTerm {

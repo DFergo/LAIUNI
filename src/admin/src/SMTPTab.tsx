@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getSMTPConfig, updateSMTPConfig, testSMTP, getAuthorizedEmails, updateAuthorizedEmails, getFrontendNotificationEmails, updateFrontendNotificationEmails, listFrontends, type SMTPConfig, type Frontend } from './api'
+import { getSMTPConfig, updateSMTPConfig, testSMTP, getFrontendNotificationEmails, updateFrontendNotificationEmails, listFrontends, type SMTPConfig, type Frontend } from './api'
 
 export default function SMTPTab() {
   const [config, setConfig] = useState<SMTPConfig | null>(null)
@@ -12,11 +12,6 @@ export default function SMTPTab() {
   // Notification emails (global)
   const [newNotifyEmail, setNewNotifyEmail] = useState('')
 
-  // Authorized emails
-  const [emails, setEmails] = useState<string[]>([])
-  const [newEmail, setNewEmail] = useState('')
-  const [emailsSaving, setEmailsSaving] = useState(false)
-
   // Per-frontend notification emails
   const [frontends, setFrontends] = useState<Frontend[]>([])
   const [feNotifyEmails, setFeNotifyEmails] = useState<Record<string, string[]>>({})
@@ -25,7 +20,6 @@ export default function SMTPTab() {
 
   useEffect(() => {
     loadConfig()
-    loadEmails()
     loadFrontends()
   }, [])
 
@@ -35,15 +29,6 @@ export default function SMTPTab() {
       setConfig(cfg)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load SMTP config')
-    }
-  }
-
-  const loadEmails = async () => {
-    try {
-      const data = await getAuthorizedEmails()
-      setEmails(data.emails || [])
-    } catch {
-      // Authorized emails may not exist yet
     }
   }
 
@@ -144,33 +129,6 @@ export default function SMTPTab() {
       setError(err instanceof Error ? err.message : 'Test failed')
     } finally {
       setTesting(false)
-    }
-  }
-
-  const handleAddEmail = async () => {
-    const trimmed = newEmail.trim().toLowerCase()
-    if (!trimmed || emails.includes(trimmed)) return
-    setEmailsSaving(true)
-    try {
-      const updated = await updateAuthorizedEmails([...emails, trimmed])
-      setEmails(updated.emails)
-      setNewEmail('')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add email')
-    } finally {
-      setEmailsSaving(false)
-    }
-  }
-
-  const handleRemoveEmail = async (email: string) => {
-    setEmailsSaving(true)
-    try {
-      const updated = await updateAuthorizedEmails(emails.filter(e => e !== email))
-      setEmails(updated.emails)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove email')
-    } finally {
-      setEmailsSaving(false)
     }
   }
 
@@ -375,50 +333,14 @@ export default function SMTPTab() {
         </div>
       </div>
 
-      {/* Authorized Emails */}
+      {/* Authorized users moved to Registered Users tab (Sprint 18) */}
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-1">Authorized Emails</h3>
-        <p className="text-xs text-gray-400 mb-4">
-          Whitelist of email addresses allowed for organizer authentication. Only these addresses can request verification codes.
-          User notifications (summary/report) are also restricted to authorized emails.
+        <h3 className="text-lg font-semibold text-gray-800 mb-1">Authorized Users</h3>
+        <p className="text-xs text-gray-500">
+          The whitelist of authorised emails is now managed in the{' '}
+          <span className="font-medium text-uni-blue">Registered Users</span> tab, where you can also store
+          extended contact details (name, organisation, country, sector) and configure per-frontend overrides.
         </p>
-
-        <div className="flex gap-2 mb-4">
-          <input
-            type="email"
-            value={newEmail}
-            onChange={e => setNewEmail(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleAddEmail()}
-            placeholder="email@example.com"
-            className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-          />
-          <button
-            onClick={handleAddEmail}
-            disabled={emailsSaving || !newEmail.trim()}
-            className="bg-uni-blue text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50"
-          >
-            Add
-          </button>
-        </div>
-
-        {emails.length === 0 ? (
-          <p className="text-sm text-gray-400 italic">No authorized emails configured. Auth will reject all requests.</p>
-        ) : (
-          <div className="space-y-1">
-            {emails.map(email => (
-              <div key={email} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg">
-                <span className="text-sm text-gray-700 font-mono">{email}</span>
-                <button
-                  onClick={() => handleRemoveEmail(email)}
-                  disabled={emailsSaving}
-                  className="text-xs text-gray-400 hover:text-uni-red transition-colors disabled:opacity-50"
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Per-frontend notification emails */}

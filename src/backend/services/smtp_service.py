@@ -16,7 +16,12 @@ import aiosmtplib
 logger = logging.getLogger("backend.smtp")
 
 _SETTINGS_PATH = Path("/app/data/smtp_config.json")
-_AUTHORIZED_EMAILS_PATH = Path("/app/data/authorized_emails.json")
+_AUTHORIZED_EMAILS_PATH = Path("/app/data/authorized_emails.json")  # legacy — migrated on first load
+_AUTHORIZED_CONTACTS_PATH = Path("/app/data/authorized_contacts.json")
+
+# Contact schema — keys on every contact record
+_CONTACT_FIELDS = ("email", "first_name", "last_name", "organization", "country", "sector", "registered_by")
+_OVERRIDE_MODES = ("replace", "append")
 
 # In-memory auth code store: {session_token: {email, code, expires_at}}
 _pending_codes: dict[str, dict[str, Any]] = {}
@@ -61,29 +66,186 @@ def is_configured() -> bool:
     return bool(cfg.get("host") and cfg.get("from_address"))
 
 
-# --- Authorized Emails ---
+# --- Authorized Contacts (Sprint 18) ---
+
+def _empty_contact(email: str) -> dict[str, str]:
+    return {k: "" for k in _CONTACT_FIELDS} | {"email": email.lower().strip()}
+
+
+def _normalise_contact(raw: dict[str, Any]) -> dict[str, str] | None:
+    """Coerce a raw contact dict into the canonical schema. Returns None if invalid."""
+    email = str(raw.get("email", "")).lower().strip()
+    if not email or "@" not in email:
+        return None
+    contact = {k: "" for k in _CONTACT_FIELDS}
+    for field in _CONTACT_FIELDS:
+        val = raw.get(field, "")
+        contact[field] = str(val).strip() if val is not None else ""
+    contact["email"] = email
+    return contact
+
+
+def _migrate_authorized_emails_if_needed() -> bool:
+    """One-shot migration: authorized_emails.json → authorized_contacts.json.
+
+    Runs once. Renames the legacy file to .bak after successful write.
+    Returns True if migration ran, False if not needed.
+    """
+    if _AUTHORIZED_CONTACTS_PATH.exists():
+        return False
+    if not _AUTHORIZED_EMAILS_PATH.exists():
+        return False
+    try:
+        data = json.loads(_AUTHORIZED_EMAILS_PATH.read_text())
+        legacy_emails = data.get("emails", []) if isinstance(data, dict) else []
+        contacts = []
+        seen: set[str] = set()
+        for e in legacy_emails:
+            if not isinstance(e, str):
+                continue
+            norm = e.lower().strip()
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            contacts.append(_empty_contact(norm))
+        payload = {"global": contacts, "per_frontend": {}}
+        _AUTHORIZED_CONTACTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _AUTHORIZED_CONTACTS_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, indent=2))
+        tmp.rename(_AUTHORIZED_CONTACTS_PATH)
+        # Rename legacy file so we don't re-migrate
+        bak = _AUTHORIZED_EMAILS_PATH.with_suffix(".json.bak")
+        _AUTHORIZED_EMAILS_PATH.rename(bak)
+        logger.info(f"Migrated {len(contacts)} authorized emails → authorized_contacts.json (legacy saved as {bak.name})")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to migrate authorized_emails.json: {e}")
+        return False
+
+
+def _empty_contacts_store() -> dict[str, Any]:
+    return {"global": [], "per_frontend": {}}
+
+
+def load_authorized_contacts() -> dict[str, Any]:
+    """Load the full contacts store {global, per_frontend}. Runs migration on first call."""
+    _migrate_authorized_emails_if_needed()
+    if not _AUTHORIZED_CONTACTS_PATH.exists():
+        return _empty_contacts_store()
+    try:
+        data = json.loads(_AUTHORIZED_CONTACTS_PATH.read_text())
+        if not isinstance(data, dict):
+            return _empty_contacts_store()
+        data.setdefault("global", [])
+        data.setdefault("per_frontend", {})
+        # Normalise global list
+        data["global"] = [c for c in (_normalise_contact(r) for r in data["global"] if isinstance(r, dict)) if c]
+        # Normalise per_frontend overrides
+        clean_pf: dict[str, Any] = {}
+        for fid, override in (data.get("per_frontend") or {}).items():
+            if not isinstance(override, dict):
+                continue
+            mode = override.get("mode", "replace")
+            if mode not in _OVERRIDE_MODES:
+                mode = "replace"
+            raw_contacts = override.get("contacts", [])
+            contacts = [c for c in (_normalise_contact(r) for r in raw_contacts if isinstance(r, dict)) if c]
+            clean_pf[str(fid)] = {"mode": mode, "contacts": contacts}
+        data["per_frontend"] = clean_pf
+        return data
+    except Exception as e:
+        logger.warning(f"Failed to load authorized_contacts.json: {e}")
+        return _empty_contacts_store()
+
+
+def save_authorized_contacts(store: dict[str, Any]) -> dict[str, Any]:
+    """Validate, normalise and persist the contacts store. Returns the normalised store."""
+    clean: dict[str, Any] = _empty_contacts_store()
+
+    seen_global: set[str] = set()
+    for raw in store.get("global", []) or []:
+        if not isinstance(raw, dict):
+            continue
+        c = _normalise_contact(raw)
+        if not c or c["email"] in seen_global:
+            continue
+        seen_global.add(c["email"])
+        clean["global"].append(c)
+    clean["global"].sort(key=lambda c: c["email"])
+
+    for fid, override in (store.get("per_frontend") or {}).items():
+        if not isinstance(override, dict):
+            continue
+        mode = override.get("mode", "replace")
+        if mode not in _OVERRIDE_MODES:
+            mode = "replace"
+        seen: set[str] = set()
+        contacts: list[dict[str, str]] = []
+        for raw in override.get("contacts", []) or []:
+            if not isinstance(raw, dict):
+                continue
+            c = _normalise_contact(raw)
+            if not c or c["email"] in seen:
+                continue
+            seen.add(c["email"])
+            contacts.append(c)
+        contacts.sort(key=lambda c: c["email"])
+        clean["per_frontend"][str(fid)] = {"mode": mode, "contacts": contacts}
+
+    _AUTHORIZED_CONTACTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _AUTHORIZED_CONTACTS_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(clean, indent=2))
+    tmp.rename(_AUTHORIZED_CONTACTS_PATH)
+    pf_count = sum(len(v.get("contacts", [])) for v in clean["per_frontend"].values())
+    logger.info(
+        f"Authorized contacts saved: {len(clean['global'])} global, "
+        f"{len(clean['per_frontend'])} frontend override(s), {pf_count} per-frontend entries"
+    )
+    return clean
+
+
+def _resolve_authorized_emails(frontend_id: str | None) -> set[str]:
+    """Return the effective set of authorised emails for a given frontend (or global if None)."""
+    store = load_authorized_contacts()
+    global_emails = {c["email"] for c in store.get("global", [])}
+    if not frontend_id:
+        return global_emails
+    override = (store.get("per_frontend") or {}).get(frontend_id)
+    if not override:
+        return global_emails
+    fe_emails = {c["email"] for c in override.get("contacts", [])}
+    mode = override.get("mode", "replace")
+    if mode == "append":
+        return global_emails | fe_emails
+    return fe_emails  # replace
+
+
+def is_email_authorized(email: str, frontend_id: str | None = None) -> bool:
+    """Check if an email is authorised. Resolves per-frontend override if frontend_id given."""
+    return email.lower().strip() in _resolve_authorized_emails(frontend_id)
+
+
+# --- Backward-compat wrappers (to be removed once all callers pass frontend_id) ---
 
 def load_authorized_emails() -> list[str]:
-    if _AUTHORIZED_EMAILS_PATH.exists():
-        try:
-            data = json.loads(_AUTHORIZED_EMAILS_PATH.read_text())
-            return [e.lower().strip() for e in data.get("emails", [])]
-        except Exception:
-            pass
-    return []
+    """Legacy: return global email list only."""
+    return sorted(c["email"] for c in load_authorized_contacts().get("global", []))
 
 
 def save_authorized_emails(emails: list[str]):
-    clean = sorted(set(e.lower().strip() for e in emails if e.strip()))
-    _AUTHORIZED_EMAILS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _AUTHORIZED_EMAILS_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"emails": clean}, indent=2))
-    tmp.rename(_AUTHORIZED_EMAILS_PATH)
-    logger.info(f"Authorized emails updated: {len(clean)} entries")
-
-
-def is_email_authorized(email: str) -> bool:
-    return email.lower().strip() in load_authorized_emails()
+    """Legacy: replace the global list, preserving existing extended fields where email still present."""
+    store = load_authorized_contacts()
+    existing_by_email = {c["email"]: c for c in store.get("global", [])}
+    new_global: list[dict[str, str]] = []
+    for e in emails:
+        if not isinstance(e, str):
+            continue
+        norm = e.lower().strip()
+        if not norm:
+            continue
+        new_global.append(existing_by_email.get(norm) or _empty_contact(norm))
+    store["global"] = new_global
+    save_authorized_contacts(store)
 
 
 # --- Email Sending ---

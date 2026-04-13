@@ -2,6 +2,19 @@
 
 ## v2.0 — Clean Rewrite
 
+### Sprint 18 — Authorized contacts directory: extended fields + Excel import/export + per-frontend override (2026-04-13)
+
+- **New data model** (`smtp_service.py`): legacy `authorized_emails.json` (flat list) replaced by `authorized_contacts.json` with structure `{global: Contact[], per_frontend: {fid: {mode: "replace"|"append", contacts: Contact[]}}}`. Each `Contact` has 7 fields: `email` (primary key, normalised lowercase/trim), `first_name`, `last_name`, `organization`, `country`, `sector`, `registered_by`.
+- **Automatic migration**: on first read, if `authorized_emails.json` exists and `authorized_contacts.json` does not, `_migrate_authorized_emails_if_needed()` converts every email to an empty Contact (extra fields blank) and renames the legacy file to `authorized_emails.json.bak`. Idempotent.
+- **Per-frontend override resolution**: new `is_email_authorized(email, frontend_id=None)` resolves the effective set — no fid or unknown fid → global; `mode="replace"` → only per-frontend; `mode="append"` → union. Legacy `is_email_authorized(email)` wrapper still resolves to global.
+- **Callers updated**: `polling._finalize_session` and `_handle_auth_request` now thread `frontend_id` through.
+- **New admin endpoints** (`api/v1/admin/contacts.py`): `GET /admin/contacts`, `PUT /admin/contacts/global`, `PUT /admin/contacts/frontend/{fid}`, `DELETE /admin/contacts/frontend/{fid}`, `POST /admin/contacts/frontend/{fid}/copy-from/{src_fid}?mode=...`, `GET /admin/contacts/export?scope=...` (streams `.xlsx`), `POST /admin/contacts/import?scope=...` (accepts `.xlsx` or `.csv`, **additive merge only** — existing emails get field updates, new emails added, emails in backend but not in file preserved). Import returns `{added, updated, ignored_malformed}`.
+- **Dependency**: `openpyxl>=3.1` added to `requirements.txt` (~5 MB).
+- **Tests** (`src/backend/tests/test_authorized_contacts.py`): unittest suite (stdlib only, no pytest). Covers empty store, global-only, mode=replace, mode=append, invalid email rejection, legacy migration, backward-compat wrappers, save roundtrip normalisation. Run: `python -m unittest src.tests.test_authorized_contacts -v`.
+- **Admin UI** — new top-level tab **Registered Users** (`Dashboard.tsx`, `RegisteredUsersTab.tsx`): scope selector (Global / per frontend, with `◆ custom` marker); editable table with all 7 fields, inline editing; **sortable** — every column header clicks to toggle asc/desc, preference persisted in localStorage per scope; text filter across all fields; Add/Delete rows; Save (only when dirty); Export `.xlsx` via authenticated fetch + blob download; Import `.xlsx`/`.csv` with post-import summary. Per-frontend scope: mode toggle (replace/append), "Copy from" dropdown listing frontends with overrides, "Remove override" button.
+- **SMTP tab cleanup**: old "Authorized Emails" section replaced by a pointer to the new tab. Legacy API preserved for backward compatibility.
+- Merges backlog ideas #6 (extended-fields directory + Excel I/O) and #11 (per-frontend lists with replace/append + copy-from) into a single sprint to avoid migrating the JSON twice.
+
 ### Sprint 17 — LLM resilience: fallback cascade, Ollama warmup, email alerts, health badges (2026-04-12)
 
 - **Fallback cascade** (`llm_provider.py`): new `stream_chat_with_fallback()` and `chat_with_fallback()` try slots in order (summariser → reporter → inference). Deduplicates slots that resolve to the same provider:model. All call sites updated: `evidence_processor.summarise_document`, `polling._generate_document`, `polling._finalize_session`, `context_compressor._compress_messages`. Chat inference intentionally has no fallback.

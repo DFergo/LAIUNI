@@ -16,6 +16,7 @@ from src.api.v1.admin.prompts import router as prompts_router
 from src.api.v1.admin.sessions import router as sessions_router
 from src.api.v1.admin.rag import router as rag_router
 from src.api.v1.admin.smtp import router as smtp_router
+from src.api.v1.admin.contacts import router as contacts_router
 from src.api.v1.admin.knowledge import router as knowledge_router
 from src.api.v1.admin.knowledge import ensure_defaults as ensure_knowledge_defaults
 from src.core.config import config
@@ -63,6 +64,7 @@ app.include_router(prompts_router)
 app.include_router(sessions_router)
 app.include_router(rag_router)
 app.include_router(smtp_router)
+app.include_router(contacts_router)
 app.include_router(knowledge_router)
 
 # Admin SPA static files
