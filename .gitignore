@@ -7,6 +7,7 @@ venv/
 
 # Build output
 src/frontend/dist/
+src/admin/dist/
 *.egg-info/
 
 # IDE
