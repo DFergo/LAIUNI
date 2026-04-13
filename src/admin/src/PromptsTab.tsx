@@ -1,0 +1,278 @@
+import { useState, useEffect } from 'react'
+import {
+  listPrompts, readPrompt, savePrompt,
+  getPromptMode, setPromptMode,
+  copyPromptsToFrontend, deleteFrontendPrompts,
+  listFrontends,
+  type PromptFile, type Frontend
+} from './api'
+
+export default function PromptsTab() {
+  const [categories, setCategories] = useState<Record<string, PromptFile[]>>({})
+  const [selected, setSelected] = useState<string | null>(null)
+  const [content, setContent] = useState('')
+  const [originalContent, setOriginalContent] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  // Sprint 8h: prompt mode + frontend selector
+  const [mode, setMode] = useState<'global' | 'per_frontend'>('global')
+  const [frontends, setFrontends] = useState<Frontend[]>([])
+  const [selectedFrontend, setSelectedFrontend] = useState<string>('')
+
+  useEffect(() => {
+    loadInitial()
+  }, [])
+
+  const loadInitial = async () => {
+    try {
+      const [modeData, feData] = await Promise.all([
+        getPromptMode(),
+        listFrontends(),
+      ])
+      setMode(modeData.mode as 'global' | 'per_frontend')
+      setFrontends(feData.frontends)
+      if (modeData.mode === 'per_frontend' && feData.frontends.length > 0) {
+        setSelectedFrontend(feData.frontends[0].id)
+        await loadPrompts(feData.frontends[0].id)
+      } else {
+        await loadPrompts()
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadPrompts = async (frontendId?: string) => {
+    try {
+      const fid = mode === 'per_frontend' ? (frontendId || selectedFrontend) : undefined
+      const data = await listPrompts(fid)
+      setCategories(data.categories)
+      setSelected(null)
+      setContent('')
+      setOriginalContent('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load prompts')
+    }
+  }
+
+  const selectPrompt = async (name: string) => {
+    setError('')
+    setSuccess('')
+    try {
+      const fid = mode === 'per_frontend' ? selectedFrontend : undefined
+      const data = await readPrompt(name, fid)
+      setSelected(name)
+      setContent(data.content)
+      setOriginalContent(data.content)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load prompt')
+    }
+  }
+
+  const handleSave = async () => {
+    if (!selected) return
+    setSaving(true)
+    setError('')
+    setSuccess('')
+    try {
+      const fid = mode === 'per_frontend' ? selectedFrontend : undefined
+      await savePrompt(selected, content, fid)
+      setOriginalContent(content)
+      setSuccess('Saved')
+      setTimeout(() => setSuccess(''), 3000)
+      loadPrompts(fid)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleModeToggle = async () => {
+    const newMode = mode === 'global' ? 'per_frontend' : 'global'
+    setError('')
+    setSuccess('')
+    try {
+      await setPromptMode(newMode)
+      setMode(newMode)
+      if (newMode === 'per_frontend' && frontends.length > 0) {
+        setSelectedFrontend(frontends[0].id)
+        await loadPrompts(frontends[0].id)
+        setSuccess('Switched to Per Frontend. Global prompts copied to frontends without custom sets.')
+      } else {
+        setSelectedFrontend('')
+        await loadPrompts()
+        setSuccess('Switched to Global. All frontends now use the same prompts.')
+      }
+      setTimeout(() => setSuccess(''), 5000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to change mode')
+    }
+  }
+
+  const handleFrontendChange = async (fid: string) => {
+    setSelectedFrontend(fid)
+    setError('')
+    setSuccess('')
+    await loadPrompts(fid)
+  }
+
+  const handleCopyFromGlobal = async () => {
+    if (!selectedFrontend) return
+    setError('')
+    try {
+      const result = await copyPromptsToFrontend(selectedFrontend)
+      setSuccess(`Copied ${result.copied} prompts from global`)
+      setTimeout(() => setSuccess(''), 3000)
+      await loadPrompts(selectedFrontend)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Copy failed')
+    }
+  }
+
+  const handleDeleteCustom = async () => {
+    if (!selectedFrontend) return
+    if (!confirm('Delete all custom prompts for this frontend? It will revert to global prompts.')) return
+    setError('')
+    try {
+      const result = await deleteFrontendPrompts(selectedFrontend)
+      setSuccess(`Deleted ${result.deleted} custom prompts`)
+      setTimeout(() => setSuccess(''), 3000)
+      await loadPrompts(selectedFrontend)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    }
+  }
+
+  const formatDate = (ts: number | null) => {
+    if (!ts) return '—'
+    return new Date(ts * 1000).toLocaleString()
+  }
+
+  const dirty = content !== originalContent
+
+  if (loading) return <p className="text-gray-400 text-sm">Loading...</p>
+
+  return (
+    <div className="space-y-4">
+      {/* Mode toggle + frontend selector */}
+      <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-medium text-gray-700">Prompt Mode:</span>
+            <div className="flex items-center gap-2">
+              <span className={`text-sm ${mode === 'global' ? 'font-semibold text-uni-blue' : 'text-gray-400'}`}>Global</span>
+              <div
+                className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${mode === 'per_frontend' ? 'bg-uni-blue' : 'bg-gray-300'}`}
+                onClick={handleModeToggle}
+              >
+                <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${mode === 'per_frontend' ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </div>
+              <span className={`text-sm ${mode === 'per_frontend' ? 'font-semibold text-uni-blue' : 'text-gray-400'}`}>Per Frontend</span>
+            </div>
+          </div>
+
+          {mode === 'per_frontend' && frontends.length > 0 && (
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedFrontend}
+                onChange={e => handleFrontendChange(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+              >
+                {frontends.map(fe => (
+                  <option key={fe.id} value={fe.id}>{fe.name || fe.id}</option>
+                ))}
+              </select>
+              <button
+                onClick={handleCopyFromGlobal}
+                className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-gray-50"
+              >
+                Copy from Global
+              </button>
+              <button
+                onClick={handleDeleteCustom}
+                className="text-xs text-uni-red hover:underline px-2 py-1.5"
+              >
+                Delete Custom Set
+              </button>
+            </div>
+          )}
+        </div>
+        <p className="text-xs text-gray-400 mt-2">
+          {mode === 'global'
+            ? 'All frontends use the same set of prompts.'
+            : 'Each frontend has its own set of prompts. Select a frontend to edit its prompts.'}
+        </p>
+      </div>
+
+      {error && <p className="text-sm text-uni-red">{error}</p>}
+      {success && <p className="text-sm text-green-600">{success}</p>}
+
+      {/* Prompt editor */}
+      <div className="flex gap-6 h-[calc(100vh-280px)]">
+        {/* Left: file list */}
+        <div className="w-72 flex-shrink-0 overflow-y-auto">
+          {Object.entries(categories).map(([category, files]) => (
+            <div key={category} className="mb-4">
+              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-2">
+                {category}
+              </h4>
+              {files.map(file => (
+                <button
+                  key={file.name}
+                  onClick={() => selectPrompt(file.name)}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                    selected === file.name
+                      ? 'bg-uni-blue text-white'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <div className="font-medium">{file.name}</div>
+                  <div className={`text-xs ${selected === file.name ? 'text-white/70' : 'text-gray-400'}`}>
+                    {formatDate(file.modified)}
+                  </div>
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        {/* Right: editor */}
+        <div className="flex-1 flex flex-col">
+          {selected ? (
+            <>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold text-gray-800">{selected}</h3>
+                <div className="flex items-center gap-3">
+                  {dirty && <span className="text-xs text-gray-400">Unsaved changes</span>}
+                  <button
+                    onClick={handleSave}
+                    disabled={saving || !dirty}
+                    className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50"
+                  >
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </div>
+              <textarea
+                value={content}
+                onChange={e => setContent(e.target.value)}
+                className="flex-1 border border-gray-300 rounded-lg p-4 font-mono text-sm resize-none focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                spellCheck={false}
+              />
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-gray-400 text-sm">Select a prompt file to edit</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,14 @@
+services:
+  hrdd-frontend-organizer:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "8090:80"
+    volumes:
+      - hrdd-fo-data:/app/data
+    environment:
+      - DEPLOYMENT_JSON_PATH=/app/config/deployment_frontend_organizer.json
+
+volumes:
+  hrdd-fo-data:

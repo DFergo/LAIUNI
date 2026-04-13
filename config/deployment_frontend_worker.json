@@ -1,0 +1,12 @@
+{
+  "role": "frontend",
+  "frontend_type": "worker",
+  "session_resume_window_hours": 48,
+  "auth_required": false,
+  "disclaimer_enabled": true,
+  "data_protection_email": "dataprotection@uniglobalunion.org",
+  "output_worker_summary": true,
+  "output_full_report": false,
+  "speech_to_text_enabled": false,
+  "captcha_enabled": false
+}
