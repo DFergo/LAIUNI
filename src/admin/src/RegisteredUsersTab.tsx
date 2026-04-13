@@ -10,7 +10,6 @@ import {
   listFrontends,
   type Contact,
   type ContactsStore,
-  type FrontendContactsOverride,
   type Frontend,
 } from './api'
 
