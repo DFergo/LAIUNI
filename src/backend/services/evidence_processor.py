@@ -245,6 +245,33 @@ def get_session_rag_chunks(token: str, query: str, top_k: int = 3) -> list[str]:
         return []
 
 
+def get_chunks_for_files(token: str, filenames: list[str]) -> list[str]:
+    """Return every indexed chunk whose source file is in `filenames`.
+
+    Used when the user attaches files with their chat turn — bypasses
+    semantic retrieval so the LLM always sees the fresh attachment's
+    content regardless of how vague the accompanying text is.
+    """
+    if not filenames:
+        return []
+    wanted = set(filenames)
+    with _session_indices_lock:
+        index = _session_indices.get(token)
+    if index is None:
+        return []
+    out: list[str] = []
+    try:
+        for node in index.docstore.docs.values():
+            fname = node.metadata.get("filename")
+            if fname and fname in wanted:
+                text = node.get_content() if hasattr(node, "get_content") else getattr(node, "text", "")
+                if text and text.strip():
+                    out.append(text)
+    except Exception as e:
+        logger.warning(f"Failed to enumerate session chunks for {token}: {e}")
+    return out
+
+
 def load_evidence_context(token: str) -> list[dict[str, str]]:
     """Load evidence summaries from disk (for context injection)."""
     path = _evidence_context_path(token)

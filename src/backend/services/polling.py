@@ -27,7 +27,7 @@ from src.services.frontend_registry import registry
 from src.services.llm_provider import llm
 from src.services.prompt_assembler import assemble_system_prompt
 from src.services.rag_service import get_relevant_chunks
-from src.services.evidence_processor import get_session_rag_chunks, load_evidence_context, process_upload
+from src.services.evidence_processor import get_chunks_for_files, get_session_rag_chunks, load_evidence_context, process_upload
 from src.services.session_store import store as history
 from src.services.context_compressor import get_session_summary, load_session_summary
 from src.services.context_compressor import compress_if_needed, estimate_messages_tokens
@@ -219,10 +219,17 @@ async def _safe_process(msg: dict[str, Any]):
     attachments = msg.get("attachments") or []
     if attachments:
         logger.info(f"[{session_token}] User turn ships with attachments: {attachments}")
-        # File-only send: if the textarea was empty, use the attached filenames
-        # as the user message content so history has a readable pivot point.
         if not content.strip():
+            # File-only send: use the attached filenames as the user message
+            # content so history has a readable pivot point.
             content = f"[Attached: {', '.join(attachments)}]"
+        else:
+            # Text + attachments: prepend a signal so the LLM knows these
+            # specific files are the focus of THIS turn — not just older
+            # uploads still sitting in the evidence context. Fixes the
+            # "what do you think?" + attached PDF case where the LLM
+            # answered the vague text and ignored the fresh file.
+            content = f"[The user attached this turn: {', '.join(attachments)}]\n\n{content}"
 
     client = httpx.AsyncClient(timeout=30.0)
     try:
@@ -306,6 +313,16 @@ async def _safe_process(msg: dict[str, Any]):
         rag_chunks = get_relevant_chunks(content, frontend_id=frontend_id)
         # Also query session-specific evidence RAG
         session_rag_chunks = get_session_rag_chunks(session_token, content)
+        # Force-include every chunk from files attached THIS turn so the LLM
+        # can't miss them when semantic retrieval on a vague message fails.
+        # Dedup against the semantic pass — same string means same chunk.
+        if attachments:
+            forced = get_chunks_for_files(session_token, attachments)
+            existing = set(session_rag_chunks)
+            for c in forced:
+                if c not in existing:
+                    session_rag_chunks.append(c)
+                    existing.add(c)
         all_chunks = rag_chunks + session_rag_chunks
 
         if all_chunks:
