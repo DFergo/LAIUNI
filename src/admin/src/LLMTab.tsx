@@ -575,7 +575,7 @@ export default function LLMTab() {
                 <div>
                   <span className="text-sm font-medium text-gray-700">Inject glossary (filtered to the target language)</span>
                   <p className="text-xs text-gray-400">
-                    When on, canonical term translations from the Knowledge glossary are added to the prompt for each language. Off by default (the glossary is not yet complete).
+                    When on, canonical term translations from the Knowledge glossary are added to the prompt for each language, so domain terms use the union's preferred wording.
                   </p>
                 </div>
               </label>
