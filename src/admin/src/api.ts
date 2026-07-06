@@ -69,6 +69,37 @@ export async function updateFrontend(id: string, data: { enabled?: boolean; name
   });
 }
 
+// --- Per-frontend config (Sprint 22) ---
+
+export interface FrontendConfig {
+  configured: boolean
+  profiles: string[]
+  auth: Record<string, boolean>
+  languages: string[]
+  modes: Record<string, string[]>
+  display_names: { profiles: Record<string, string>; modes: Record<string, string> }
+  disclaimer_enabled: boolean
+  data_protection_email: string
+  session_resume_window_hours: number
+  auth_required?: boolean
+}
+
+export async function getFrontendConfig(id: string): Promise<{ frontend_id: string; config: FrontendConfig }> {
+  return request(`/admin/frontends/${id}/config`);
+}
+
+export async function updateFrontendConfig(id: string, config: FrontendConfig): Promise<{ frontend_id: string; config: FrontendConfig }> {
+  return request(`/admin/frontends/${id}/config`, { method: 'PUT', body: JSON.stringify(config) });
+}
+
+export async function listDeletedFrontends(): Promise<{ frontends: Frontend[] }> {
+  return request('/admin/frontends/deleted');
+}
+
+export async function restoreFrontend(id: string): Promise<{ frontend: Frontend }> {
+  return request(`/admin/frontends/${id}/restore`, { method: 'POST' });
+}
+
 export async function removeFrontend(id: string): Promise<void> {
   return request(`/admin/frontends/${id}`, { method: 'DELETE' });
 }

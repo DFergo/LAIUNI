@@ -94,14 +94,25 @@ async def update_frontend_config(frontend_id: str, config: dict, _: dict = Depen
 
 
 async def _push_config_to_sidecar(frontend_id: str):
-    """Push the per-frontend config to the sidecar (mirror of branding push)."""
+    """Push the per-frontend config to the sidecar (mirror of branding push).
+
+    Resolves the effective data_protection_email (Sprint 22): if the frontend
+    leaves it blank, fall back to the SMTP `from_address`.
+    """
     from src.services.frontend_registry import load_config
     fe = registry.get(frontend_id)
     if not fe or not fe.get("enabled"):
         return
+    config = load_config(frontend_id)
+    if not config.get("data_protection_email"):
+        try:
+            from src.services.smtp_service import _load_config as _load_smtp
+            config = {**config, "data_protection_email": _load_smtp().get("from_address", "")}
+        except Exception:
+            pass
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.post(f"{fe['url']}/internal/frontend-config", json=load_config(frontend_id))
+            await client.post(f"{fe['url']}/internal/frontend-config", json=config)
             logger.info(f"Config pushed to {fe['url']}")
     except Exception as e:
         logger.warning(f"Failed to push config to {fe['url']}: {e}")

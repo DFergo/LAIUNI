@@ -49,6 +49,8 @@ def _config_from_type(frontend_type: str) -> dict[str, Any]:
         cfg["profiles"] = ["worker", "representative"]
         cfg["auth_required"] = False
         cfg["session_resume_window_hours"] = 48
+    # Sprint 22: seed per-profile auth from the frontend-level flag
+    cfg["auth"] = {p: cfg["auth_required"] for p in cfg["profiles"]}
     return cfg
 
 

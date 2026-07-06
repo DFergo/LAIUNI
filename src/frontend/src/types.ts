@@ -16,7 +16,13 @@ export interface DeploymentConfig {
   role: string
   configured: boolean
   profiles: Role[]
+  auth?: Partial<Record<Role, boolean>>
   languages?: LangCode[]
+  modes?: Partial<Record<Role, ConsultationMode[]>>
+  display_names?: {
+    profiles?: Partial<Record<Role, string>>
+    modes?: Partial<Record<ConsultationMode, string>>
+  }
   session_resume_window_hours: number
   disclaimer_enabled: boolean
   auth_required: boolean

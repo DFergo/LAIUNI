@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { t } from '../i18n'
-import type { LangCode, Role, ConsultationMode, SurveyData } from '../types'
+import type { LangCode, Role, ConsultationMode, SurveyData, DeploymentConfig } from '../types'
 
 interface Props {
   lang: LangCode
+  config: DeploymentConfig
   role: Role
   onSubmit: (data: SurveyData) => void
   onBack: () => void
@@ -17,11 +18,14 @@ const MODES_BY_ROLE: Record<Role, ConsultationMode[]> = {
   officer: ['documentation', 'interview', 'advisory', 'submit', 'training'],
 }
 
-export default function SurveyPage({ lang, role, onSubmit, onBack }: Props) {
-  const availableModes = MODES_BY_ROLE[role]
-  const showMode = availableModes.length > 0
+export default function SurveyPage({ lang, config, role, onSubmit, onBack }: Props) {
+  // Active modes: the configured subset for this profile, else the full wired set.
+  const configuredModes = config.modes?.[role]
+  const availableModes = (configuredModes && configuredModes.length > 0) ? configuredModes : MODES_BY_ROLE[role]
+  // Hide the selector when a single mode is active (REFACTOR §0.2)
+  const showMode = availableModes.length > 1
 
-  const [mode, setMode] = useState<ConsultationMode>(showMode ? availableModes[0] : 'documentation')
+  const [mode, setMode] = useState<ConsultationMode>(availableModes[0] ?? 'documentation')
   const [name, setName] = useState('')
   const [position, setPosition] = useState('')
   const [union, setUnion] = useState('')
@@ -44,7 +48,7 @@ export default function SurveyPage({ lang, role, onSubmit, onBack }: Props) {
     const data: SurveyData = {
       role,
       description,
-      type: showMode ? mode : 'documentation',
+      type: mode,
       ...(name && { name }),
       ...(position && { position }),
       ...(union && { union }),
@@ -77,7 +81,7 @@ export default function SurveyPage({ lang, role, onSubmit, onBack }: Props) {
                         : 'border-gray-300 text-gray-700 hover:border-uni-blue hover:bg-blue-50'
                     }`}
                   >
-                    {t(`mode_${m}` as Parameters<typeof t>[0], lang)}
+                    {config.display_names?.modes?.[m] || t(`mode_${m}` as Parameters<typeof t>[0], lang)}
                   </button>
                 ))}
               </div>

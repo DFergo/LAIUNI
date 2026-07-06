@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, retranslateBranding, type Frontend, type BrandingConfig } from './api'
+import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, retranslateBranding, listDeletedFrontends, restoreFrontend, type Frontend, type BrandingConfig } from './api'
+import FrontendConfigPanel from './FrontendConfigPanel'
 
 export default function FrontendsTab() {
   const [frontends, setFrontends] = useState<Frontend[]>([])
@@ -8,13 +9,24 @@ export default function FrontendsTab() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  const [deleted, setDeleted] = useState<Frontend[]>([])
+
   const refresh = async () => {
     try {
       const { frontends: list } = await listFrontends()
       setFrontends(list)
+      try {
+        const { frontends: del } = await listDeletedFrontends()
+        setDeleted(del)
+      } catch { /* ignore */ }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
     }
+  }
+
+  const handleRestore = async (fid: string) => {
+    await restoreFrontend(fid)
+    await refresh()
   }
 
   useEffect(() => {
@@ -58,6 +70,7 @@ export default function FrontendsTab() {
   const [brandingSaving, setBrandingSaving] = useState(false)
   const [brandingSuccess, setBrandingSuccess] = useState('')
   const [translationStatus, setTranslationStatus] = useState<{ status: string; progress: number; total: number } | null>(null)
+  const [configOpen, setConfigOpen] = useState<string | null>(null)
 
   const startEdit = (f: Frontend) => {
     setEditingId(f.id)
@@ -211,6 +224,12 @@ export default function FrontendsTab() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
+                      onClick={() => setConfigOpen(configOpen === f.id ? null : f.id)}
+                      className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium transition-colors"
+                    >
+                      {configOpen === f.id ? 'Close Config' : 'Configure'}
+                    </button>
+                    <button
                       onClick={() => toggleBranding(f.id)}
                       className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium transition-colors"
                     >
@@ -234,6 +253,9 @@ export default function FrontendsTab() {
                     </button>
                   </div>
                 </div>
+
+                {/* Per-frontend config panel */}
+                {configOpen === f.id && <FrontendConfigPanel frontendId={f.id} />}
 
                 {/* Branding editor */}
                 {brandingOpen === f.id && branding && (
@@ -325,6 +347,30 @@ export default function FrontendsTab() {
           </div>
         )}
       </div>
+
+      {/* Recently deleted (soft-delete, recoverable) */}
+      {deleted.length > 0 && (
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-1">Recently Deleted</h3>
+          <p className="text-xs text-gray-400 mb-4">Soft-deleted frontends are archived and can be restored.</p>
+          <div className="space-y-2">
+            {deleted.map(f => (
+              <div key={f.id} className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-2">
+                <div>
+                  <span className="text-sm font-medium text-gray-700">{f.name}</span>
+                  <span className="text-xs text-gray-400 ml-2">{f.url}</span>
+                </div>
+                <button
+                  onClick={() => handleRestore(f.id)}
+                  className="text-xs px-3 py-1 rounded-lg border border-uni-blue text-uni-blue hover:bg-blue-50 font-medium transition-colors"
+                >
+                  Restore
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

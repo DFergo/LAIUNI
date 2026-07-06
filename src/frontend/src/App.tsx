@@ -82,7 +82,7 @@ function App() {
     session: () => navigateTo(config?.disclaimer_enabled === false ? 'language' : 'disclaimer'),
     role_select: () => navigateTo('session'),
     auth: () => navigateTo('role_select'),
-    instructions: () => navigateTo(config?.auth_required ? 'auth' : 'role_select'),
+    instructions: () => navigateTo(selectedRole && config?.auth?.[selectedRole] ? 'auth' : 'role_select'),
     survey: () => navigateTo('instructions'),
   }
 
@@ -172,10 +172,10 @@ function App() {
     return 'Recovery timed out. Please try again.'
   }
 
-  // role_select → auth (if required) → instructions
+  // role_select → auth (if this profile requires it) → instructions
   const handleRoleSelect = (role: Role) => {
     setSelectedRole(role)
-    if (config?.auth_required) {
+    if (config?.auth?.[role]) {
       navigateTo('auth')
     } else {
       navigateTo('instructions')
@@ -235,13 +235,13 @@ function App() {
             </div>
           </div>
         )}
-        {phase === 'language' && <LanguageSelector onSelect={handleLanguage} branding={mergedBranding} />}
+        {phase === 'language' && <LanguageSelector onSelect={handleLanguage} branding={mergedBranding} languages={config?.languages} />}
         {phase === 'disclaimer' && <DisclaimerPage lang={lang} onAccept={handleDisclaimer} onBack={goBackFrom.disclaimer!} branding={mergedBranding} dataProtectionEmail={config?.data_protection_email} />}
         {phase === 'session' && <SessionPage lang={lang} onNewSession={handleNewSession} onRecover={handleRecover} onBack={goBackFrom.session!} />}
         {phase === 'role_select' && config && <RoleSelectPage lang={lang} config={config} onSelect={handleRoleSelect} onBack={goBackFrom.role_select!} />}
         {phase === 'auth' && <AuthPage lang={lang} onVerified={handleAuth} onBack={goBackFrom.auth!} />}
         {phase === 'instructions' && selectedRole && <InstructionsPage lang={lang} role={selectedRole} onContinue={handleInstructions} onBack={goBackFrom.instructions!} branding={mergedBranding} />}
-        {phase === 'survey' && selectedRole && <SurveyPage lang={lang} role={selectedRole} onSubmit={handleSurvey} onBack={goBackFrom.survey!} />}
+        {phase === 'survey' && config && selectedRole && <SurveyPage lang={lang} config={config} role={selectedRole} onSubmit={handleSurvey} onBack={goBackFrom.survey!} />}
         {phase === 'chat' && survey && (
           <ChatShell
             lang={lang}

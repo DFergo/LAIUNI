@@ -35,7 +35,7 @@ export default function RoleSelectPage({ lang, config, onSelect, onBack }: Props
               className="flex flex-col items-start p-5 rounded-xl border-2 border-gray-200 hover:border-uni-blue hover:bg-blue-50 transition-all text-left group"
             >
               <span className="text-lg font-semibold text-gray-800 group-hover:text-uni-blue">
-                {t(key as Parameters<typeof t>[0], lang)}
+                {config.display_names?.profiles?.[role] || t(key as Parameters<typeof t>[0], lang)}
               </span>
               <span className="text-sm text-gray-500 mt-1">
                 {t(`${key}_desc` as Parameters<typeof t>[0], lang)}
