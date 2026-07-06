@@ -321,6 +321,7 @@ def slot_settings(settings: dict[str, Any], slot: str) -> dict[str, Any]:
 _FALLBACK_CHAINS: dict[str, list[str]] = {
     "summariser": ["summariser", "reporter", "inference"],
     "reporter": ["reporter", "inference"],
+    "translation": ["translation", "inference"],
     "inference": ["inference"],
 }
 

@@ -44,31 +44,43 @@ def _strip_think_blocks(text: str) -> str:
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 
-async def _translate_text(
-    text: str, target_lang: str, target_name: str, settings: dict[str, Any]
-) -> str:
-    """Translate a single text to target language using LLM.
+def _glossary_block(terms: list[dict[str, Any]], target_lang: str) -> str:
+    """Build a target-language-filtered glossary block for the prompt.
 
-    Sprint 19 bridge: runs on the summariser fallback chain (was provider
-    auto-detect, removed with the connection registry). Sprint 20 replaces
-    this with the dedicated `translation` slot.
+    Only terms that have a translation in ``target_lang`` are included.
+    Returns '' if none apply.
+    """
+    lines: list[str] = []
+    for t in terms:
+        tr = (t.get("translations") or {}).get(target_lang)
+        if tr:
+            term = t.get("term", "")
+            definition = t.get("definition", "")
+            lines.append(f"- {term} → {tr}" + (f" ({definition})" if definition else ""))
+    if not lines:
+        return ""
+    return (
+        "\n\n## Glossary (use these canonical translations for domain terms when they appear)\n"
+        + "\n".join(lines)
+    )
+
+
+async def _translate_text(
+    text: str, target_name: str, settings: dict[str, Any], system_prompt: str
+) -> str:
+    """Translate a single text to the target language using the translation slot.
+
+    Sprint 20: runs on the dedicated `translation` fallback chain (→ inference)
+    with the editable, domain-aware prompt (plus an optional glossary block).
     """
     from src.services.llm_provider import build_fallback_chain
 
     messages = [
-        {
-            "role": "system",
-            "content": "You are a professional translator. Translate the given text accurately. "
-                       "Preserve all formatting, line breaks, and meaning. "
-                       "Return ONLY the translation, no commentary or explanations.",
-        },
-        {
-            "role": "user",
-            "content": f"Translate the following text to {target_name} ({target_lang}):\n\n{text}",
-        },
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Target language: {target_name}.\n\nTranslate the following text into {target_name}:\n\n{text}"},
     ]
     try:
-        chain = build_fallback_chain(settings, "summariser")
+        chain = build_fallback_chain(settings, "translation")
         result = await llm.chat_with_fallback(messages, chain)
         return _strip_think_blocks(result)
     except Exception as e:
@@ -76,12 +88,17 @@ async def _translate_text(
         return ""
 
 
-async def translate_branding(frontend_id: str, branding: dict[str, str]):
+async def translate_branding(frontend_id: str, branding: dict[str, str], force: bool = False):
     """Translate branding texts to all supported languages. Saves to disk.
+
+    Fill-missing (Sprint 20): existing non-empty translations are kept; only
+    missing fields are (re)translated. ``force=True`` regenerates everything
+    from the current English source. `en` is always the verbatim source.
 
     Args:
         frontend_id: The frontend to translate for
         branding: Dict with disclaimer_text and instructions_text (source language)
+        force: Re-translate all languages even if a translation already exists
     """
     disclaimer = branding.get("disclaimer_text", "")
     instructions = branding.get("instructions_text", "")
@@ -89,32 +106,40 @@ async def translate_branding(frontend_id: str, branding: dict[str, str]):
     if not disclaimer and not instructions:
         return
 
-    # Sprint 19: resolve the (per-frontend) LLM settings so translation runs on
-    # the summariser slot's connection.
-    from src.api.v1.admin.llm import get_llm_settings
+    from src.api.v1.admin.llm import get_llm_settings, load_translation_prompt
     settings = get_llm_settings(frontend_id)
+    base_prompt = load_translation_prompt()
+
+    glossary_terms: list[dict[str, Any]] = []
+    if settings.get("translation_glossary_enabled"):
+        try:
+            from src.api.v1.admin.knowledge import load_glossary
+            glossary_terms = load_glossary().get("terms", [])
+        except Exception as e:
+            logger.warning(f"Glossary load failed, translating without it: {e}")
+
+    # Start from existing translations so we can fill only what's missing
+    existing = load_translations(frontend_id) or {}
+    translations: dict[str, dict[str, str]] = {code: dict(existing.get(code, {})) for code, _ in LANGUAGES}
 
     total = len(LANGUAGES)
     _translation_status[frontend_id] = {"status": "translating", "progress": 0, "total": total}
 
-    translations: dict[str, dict[str, str]] = {}
-
     for i, (code, name) in enumerate(LANGUAGES):
-        entry: dict[str, str] = {}
+        entry = translations.setdefault(code, {})
+        system_prompt = base_prompt + (_glossary_block(glossary_terms, code) if glossary_terms else "")
 
         if disclaimer:
-            # Detect source language: if the source text matches this language, skip translation
             if code == "en":
-                # Assume source is likely English; save as-is
                 entry["disclaimer_text"] = disclaimer
-            else:
-                entry["disclaimer_text"] = await _translate_text(disclaimer, code, name, settings)
+            elif force or not entry.get("disclaimer_text"):
+                entry["disclaimer_text"] = await _translate_text(disclaimer, name, settings, system_prompt)
 
         if instructions:
             if code == "en":
                 entry["instructions_text"] = instructions
-            else:
-                entry["instructions_text"] = await _translate_text(instructions, code, name, settings)
+            elif force or not entry.get("instructions_text"):
+                entry["instructions_text"] = await _translate_text(instructions, name, settings, system_prompt)
 
         translations[code] = entry
         _translation_status[frontend_id] = {"status": "translating", "progress": i + 1, "total": total}

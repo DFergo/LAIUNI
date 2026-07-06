@@ -177,3 +177,30 @@ async def get_branding_translation_status(frontend_id: str, _: dict = Depends(re
     """Get the current translation status for a frontend's branding."""
     from src.services.branding_translator import get_translation_status
     return get_translation_status(frontend_id)
+
+
+@router.post("/{frontend_id}/branding/retranslate")
+async def retranslate_branding(frontend_id: str, _: dict = Depends(require_admin)):
+    """Force a full re-translation from the current English source (overwrites all).
+
+    The normal branding save fills only missing languages; this button is the
+    escape hatch for "I changed the English text, regenerate everything".
+    """
+    from src.services.branding_translator import translate_branding
+
+    path = _branding_path(frontend_id)
+    if not path.exists():
+        return {"translation_status": "idle"}
+    data = json.loads(path.read_text())
+    if not (data.get("disclaimer_text") or data.get("instructions_text")):
+        return {"translation_status": "idle"}
+
+    async def _safe_translate():
+        try:
+            await translate_branding(frontend_id, data, force=True)
+            await _push_branding_to_sidecar(frontend_id)
+        except Exception as e:
+            logger.error(f"Force re-translation failed for {frontend_id}: {e}")
+
+    asyncio.create_task(_safe_translate())
+    return {"translation_status": "translating"}

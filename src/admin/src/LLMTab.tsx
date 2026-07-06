@@ -3,10 +3,11 @@ import {
   getLLMHealth, getLLMSettings, updateLLMSettings, resetLLMSettings,
   listFrontends, getFrontendLLMSettings, updateFrontendLLMSettings, deleteFrontendLLMSettings,
   listConnections, addConnection, updateConnection, deleteConnection, getConnectionModels,
+  getTranslationPrompt, updateTranslationPrompt,
   type LLMHealth, type LLMSettings, type LLMConnection, type ConnectionType, type Frontend,
 } from './api'
 
-type SlotKey = 'inference' | 'reporter' | 'summariser'
+type SlotKey = 'inference' | 'reporter' | 'summariser' | 'translation'
 
 const CONNECTION_TYPES: { value: ConnectionType; label: string }[] = [
   { value: 'openai', label: 'OpenAI-compatible' },
@@ -335,6 +336,11 @@ export default function LLMTab() {
   const [success, setSuccess] = useState('')
   const dirty = useRef(false)
 
+  // Translation prompt (Sprint 20; editable, disk source-of-truth)
+  const [translatePrompt, setTranslatePrompt] = useState('')
+  const [translatePromptSaved, setTranslatePromptSaved] = useState('')
+  const [translatePromptMsg, setTranslatePromptMsg] = useState('')
+
   const refreshHealth = async () => {
     try { setHealth(await getLLMHealth()) }
     catch (err) { setError(err instanceof Error ? err.message : 'Failed to load health') }
@@ -346,10 +352,21 @@ export default function LLMTab() {
 
   const loadAll = async () => {
     try {
-      const [h, s, c] = await Promise.all([getLLMHealth(), getLLMSettings(), listConnections()])
+      const [h, s, c, tp] = await Promise.all([getLLMHealth(), getLLMSettings(), listConnections(), getTranslationPrompt()])
       setHealth(h); setSettings(s); setSavedSettings(s); setConnections(c.connections)
+      setTranslatePrompt(tp.prompt); setTranslatePromptSaved(tp.prompt)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
+    }
+  }
+
+  const handleSaveTranslatePrompt = async () => {
+    try {
+      const { prompt } = await updateTranslationPrompt(translatePrompt)
+      setTranslatePromptSaved(prompt)
+      setTranslatePromptMsg('Prompt saved'); setTimeout(() => setTranslatePromptMsg(''), 3000)
+    } catch (err) {
+      setTranslatePromptMsg(err instanceof Error ? err.message : 'Save failed')
     }
   }
 
@@ -542,6 +559,53 @@ export default function LLMTab() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Translation (Sprint 20) */}
+          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-800 mb-1">Translation{slotBadge('translation')}</h3>
+            <p className="text-xs text-gray-400 mb-4">
+              Translates per-frontend <span className="font-medium">disclaimer</span> and <span className="font-medium">instructions</span> into the app languages. Edit the English source in the Frontends tab; this slot generates the translations.
+            </p>
+            <SlotConfig slot="translation" connections={connections} health={health} settings={settings} onSet={setField} />
+
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <label className="flex items-start gap-3 cursor-pointer">
+                {toggle(settings.translation_glossary_enabled, () => setField('translation_glossary_enabled', !settings.translation_glossary_enabled))}
+                <div>
+                  <span className="text-sm font-medium text-gray-700">Inject glossary (filtered to the target language)</span>
+                  <p className="text-xs text-gray-400">
+                    When on, canonical term translations from the Knowledge glossary are added to the prompt for each language. Off by default (the glossary is not yet complete).
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Translation prompt</label>
+              <p className="text-xs text-gray-400 mb-2">
+                Guides the model's tone and terminology. Source of truth is on disk (<code>/app/data/prompts/translate.md</code>); editable here or directly on the server.
+              </p>
+              <textarea
+                value={translatePrompt}
+                onChange={e => setTranslatePrompt(e.target.value)}
+                rows={12}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+              />
+              <div className="flex items-center gap-3 mt-2">
+                <button
+                  onClick={handleSaveTranslatePrompt}
+                  disabled={translatePrompt === translatePromptSaved}
+                  className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                >
+                  Save Prompt
+                </button>
+                {translatePrompt !== translatePromptSaved && (
+                  <button onClick={() => setTranslatePrompt(translatePromptSaved)} className="text-xs text-gray-400 hover:text-gray-600">Discard</button>
+                )}
+                {translatePromptMsg && <span className="text-xs text-green-600">{translatePromptMsg}</span>}
+              </div>
+            </div>
           </div>
 
           {/* Actions */}

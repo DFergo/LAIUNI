@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, type Frontend, type BrandingConfig } from './api'
+import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, retranslateBranding, type Frontend, type BrandingConfig } from './api'
 
 export default function FrontendsTab() {
   const [frontends, setFrontends] = useState<Frontend[]>([])
@@ -86,6 +86,21 @@ export default function FrontendsTab() {
     }
   }
 
+  const pollTranslation = (fid: string) => {
+    const poll = setInterval(async () => {
+      try {
+        const s = await getBrandingTranslationStatus(fid)
+        setTranslationStatus(s)
+        if (s.status === 'done' || s.status === 'idle') {
+          clearInterval(poll)
+          setTimeout(() => setTranslationStatus(null), 5000)
+        }
+      } catch {
+        clearInterval(poll)
+      }
+    }, 2000)
+  }
+
   const handleBrandingSave = async () => {
     if (!brandingOpen || !branding) return
     setBrandingSaving(true)
@@ -95,26 +110,23 @@ export default function FrontendsTab() {
       setBrandingSuccess('Branding saved and pushed to frontend')
       setTimeout(() => setBrandingSuccess(''), 3000)
 
-      // If translation started, poll progress
-      if (result.translation_status === 'translating') {
-        const fid = brandingOpen
-        const poll = setInterval(async () => {
-          try {
-            const s = await getBrandingTranslationStatus(fid)
-            setTranslationStatus(s)
-            if (s.status === 'done' || s.status === 'idle') {
-              clearInterval(poll)
-              setTimeout(() => setTranslationStatus(null), 5000)
-            }
-          } catch {
-            clearInterval(poll)
-          }
-        }, 2000)
-      }
+      // Fill-missing translation started → poll progress
+      if (result.translation_status === 'translating') pollTranslation(brandingOpen)
     } catch {
       // ignore
     } finally {
       setBrandingSaving(false)
+    }
+  }
+
+  const handleRetranslate = async () => {
+    if (!brandingOpen) return
+    setTranslationStatus(null)
+    try {
+      const result = await retranslateBranding(brandingOpen)
+      if (result.translation_status === 'translating') pollTranslation(brandingOpen)
+    } catch {
+      // ignore
     }
   }
 
@@ -277,6 +289,16 @@ export default function FrontendsTab() {
                       >
                         {brandingSaving ? 'Saving...' : 'Save Branding'}
                       </button>
+                      {(branding.disclaimer_text || branding.instructions_text) && (
+                        <button
+                          onClick={handleRetranslate}
+                          disabled={brandingSaving}
+                          className="border border-gray-300 text-gray-600 rounded-lg px-4 py-1.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+                          title="Regenerate all languages from the current English source (overwrites existing translations)"
+                        >
+                          Re-translate all
+                        </button>
+                      )}
                       {brandingSuccess && <span className="text-xs text-green-600">{brandingSuccess}</span>}
                     </div>
                     {translationStatus && translationStatus.status === 'translating' && (

@@ -26,7 +26,7 @@ router = APIRouter(prefix="/admin/llm", tags=["admin-llm"])
 # LLM settings persist to /app/data/llm_settings.json
 _SETTINGS_PATH = Path("/app/data/llm_settings.json")
 
-_SLOT_PREFIXES = ["inference", "reporter", "summariser"]
+_SLOT_PREFIXES = ["inference", "reporter", "summariser", "translation"]
 
 # Sprint 19 migration: old {slot}_provider strings → seeded connection IDs.
 _PROVIDER_TO_CONNECTION = {"ollama": "ollama-default", "lm_studio": "lmstudio-default"}
@@ -52,6 +52,12 @@ _DEFAULTS: dict[str, Any] = {
     "summariser_temperature": None,
     "summariser_max_tokens": None,
     "summariser_num_ctx": None,
+    "translation_connection": "lmstudio-default",
+    "translation_model": config.lm_studio_model,
+    "translation_temperature": None,
+    "translation_max_tokens": None,
+    "translation_num_ctx": None,
+    "translation_glossary_enabled": False,
     "compression_threshold": 0.75,  # legacy — kept for migration
     "compression_first_threshold": 20000,  # first compression at N tokens
     "compression_step_size": 15000,  # compress again every N tokens after first
@@ -191,6 +197,12 @@ class LLMSettingsRequest(BaseModel):
     summariser_temperature: float | None = None
     summariser_max_tokens: int | None = None
     summariser_num_ctx: int | None = None
+    translation_connection: str | None = None
+    translation_model: str | None = None
+    translation_temperature: float | None = None
+    translation_max_tokens: int | None = None
+    translation_num_ctx: int | None = None
+    translation_glossary_enabled: bool | None = None
     compression_threshold: float | None = None  # legacy
     compression_first_threshold: int | None = None
     compression_step_size: int | None = None
@@ -306,6 +318,45 @@ async def reset_settings(_: dict = Depends(require_admin)):
     _save_settings(dict(_DEFAULTS))
     logger.info("LLM settings reset to defaults")
     return dict(_DEFAULTS)
+
+
+# --- Translation prompt (Sprint 20; disk source-of-truth per REFACTOR §0.7) ---
+
+_TRANSLATE_PROMPT_PATH = Path("/app/data/prompts/translate.md")
+_TRANSLATE_PROMPT_BUNDLED = Path(__file__).parent.parent.parent.parent / "prompts" / "translate.md"
+
+
+def load_translation_prompt() -> str:
+    """Effective translation prompt: disk override if present, else bundled default."""
+    if _TRANSLATE_PROMPT_PATH.exists():
+        try:
+            return _TRANSLATE_PROMPT_PATH.read_text()
+        except OSError:
+            pass
+    if _TRANSLATE_PROMPT_BUNDLED.exists():
+        return _TRANSLATE_PROMPT_BUNDLED.read_text()
+    return "You are a professional translator. Translate the text accurately. Return only the translation."
+
+
+class TranslationPromptRequest(BaseModel):
+    prompt: str
+
+
+@router.get("/translation-prompt")
+async def get_translation_prompt(_: dict = Depends(require_admin)):
+    """Get the editable translation prompt (effective text)."""
+    return {"prompt": load_translation_prompt()}
+
+
+@router.put("/translation-prompt")
+async def update_translation_prompt(req: TranslationPromptRequest, _: dict = Depends(require_admin)):
+    """Save the translation prompt to disk (atomic)."""
+    _TRANSLATE_PROMPT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _TRANSLATE_PROMPT_PATH.with_suffix(".md.tmp")
+    tmp.write_text(req.prompt)
+    tmp.rename(_TRANSLATE_PROMPT_PATH)
+    logger.info("Translation prompt updated")
+    return {"prompt": req.prompt}
 
 
 # --- Per-frontend LLM overrides ---

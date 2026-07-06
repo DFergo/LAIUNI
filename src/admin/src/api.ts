@@ -119,6 +119,12 @@ export interface LLMSettings {
   summariser_temperature: number | null
   summariser_max_tokens: number | null
   summariser_num_ctx: number | null
+  translation_connection: string
+  translation_model: string
+  translation_temperature: number | null
+  translation_max_tokens: number | null
+  translation_num_ctx: number | null
+  translation_glossary_enabled: boolean
   compression_threshold: number
   compression_first_threshold: number
   compression_step_size: number
@@ -152,6 +158,16 @@ export async function deleteConnection(id: string): Promise<{ deleted: string }>
 
 export async function getConnectionModels(id: string): Promise<{ connection_id: string } & ConnectionHealth> {
   return request(`/admin/llm/connections/${id}/models`);
+}
+
+// --- Translation prompt (Sprint 20) ---
+
+export async function getTranslationPrompt(): Promise<{ prompt: string }> {
+  return request('/admin/llm/translation-prompt');
+}
+
+export async function updateTranslationPrompt(prompt: string): Promise<{ prompt: string }> {
+  return request('/admin/llm/translation-prompt', { method: 'PUT', body: JSON.stringify({ prompt }) });
 }
 
 export async function getLLMSettings(): Promise<LLMSettings> {
@@ -426,6 +442,10 @@ export async function updateFrontendBranding(frontendId: string, data: BrandingC
 
 export async function getBrandingTranslationStatus(frontendId: string): Promise<{ status: string; progress: number; total: number }> {
   return request(`/admin/frontends/${frontendId}/branding/translation-status`);
+}
+
+export async function retranslateBranding(frontendId: string): Promise<{ translation_status: string }> {
+  return request(`/admin/frontends/${frontendId}/branding/retranslate`, { method: 'POST' });
 }
 
 export async function updateFrontendNotificationEmails(frontendId: string, emails: string[]): Promise<{ emails: string[] }> {
