@@ -9,16 +9,13 @@ interface Props {
 }
 
 export default function RoleSelectPage({ lang, config, onSelect, onBack }: Props) {
-  const roles: { role: Role; key: string }[] =
-    config.frontend_type === 'worker'
-      ? [
-          { role: 'worker', key: 'role_worker' },
-          { role: 'representative', key: 'role_representative' },
-        ]
-      : [
-          { role: 'organizer', key: 'role_organizer' },
-          { role: 'officer', key: 'role_officer' },
-        ]
+  const roleKeys: Record<Role, string> = {
+    worker: 'role_worker',
+    representative: 'role_representative',
+    organizer: 'role_organizer',
+    officer: 'role_officer',
+  }
+  const roles: { role: Role; key: string }[] = (config.profiles || []).map(role => ({ role, key: roleKeys[role] }))
 
   return (
     <div className="max-w-4xl mx-auto mt-8 p-6">

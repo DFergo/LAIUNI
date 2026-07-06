@@ -34,9 +34,9 @@ RUN pip install --no-cache-dir -r /app/sidecar/requirements.txt
 # Copy sidecar code
 COPY src/frontend/sidecar/ /app/sidecar/
 
-# Copy deployment configs (both — compose env var selects which one)
-COPY config/deployment_frontend_worker.json /app/config/deployment_frontend_worker.json
-COPY config/deployment_frontend_organizer.json /app/config/deployment_frontend_organizer.json
+# Copy the generic deployment config (behaviour comes from the backend-pushed
+# per-frontend config, not this file)
+COPY config/deployment_frontend.json /app/config/deployment_frontend.json
 
 # Create data directory for persistent storage
 RUN mkdir -p /app/data

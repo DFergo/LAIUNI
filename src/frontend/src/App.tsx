@@ -64,6 +64,11 @@ function App() {
       if (res.ok) {
         const data: DeploymentConfig = await res.json()
         setConfig(data)
+        // A generic frontend that hasn't been configured from the backend yet
+        if (data.configured === false) {
+          setPhase('unconfigured')
+          return
+        }
       }
     } catch {
       // Config fetch failed — use defaults
@@ -220,13 +225,23 @@ function App() {
             <p className="text-gray-400">Loading...</p>
           </div>
         )}
+        {phase === 'unconfigured' && (
+          <div className="max-w-lg mx-auto mt-20 text-center px-6">
+            <div className="bg-white rounded-xl shadow-md border border-gray-200 p-8">
+              <h2 className="text-xl font-semibold text-gray-800 mb-2">Not configured yet</h2>
+              <p className="text-sm text-gray-500">
+                This frontend has been deployed but is not configured. An administrator needs to register and configure it from the backend before it can be used.
+              </p>
+            </div>
+          </div>
+        )}
         {phase === 'language' && <LanguageSelector onSelect={handleLanguage} branding={mergedBranding} />}
         {phase === 'disclaimer' && <DisclaimerPage lang={lang} onAccept={handleDisclaimer} onBack={goBackFrom.disclaimer!} branding={mergedBranding} dataProtectionEmail={config?.data_protection_email} />}
         {phase === 'session' && <SessionPage lang={lang} onNewSession={handleNewSession} onRecover={handleRecover} onBack={goBackFrom.session!} />}
         {phase === 'role_select' && config && <RoleSelectPage lang={lang} config={config} onSelect={handleRoleSelect} onBack={goBackFrom.role_select!} />}
         {phase === 'auth' && <AuthPage lang={lang} onVerified={handleAuth} onBack={goBackFrom.auth!} />}
         {phase === 'instructions' && selectedRole && <InstructionsPage lang={lang} role={selectedRole} onContinue={handleInstructions} onBack={goBackFrom.instructions!} branding={mergedBranding} />}
-        {phase === 'survey' && config && selectedRole && <SurveyPage lang={lang} config={config} role={selectedRole} onSubmit={handleSurvey} onBack={goBackFrom.survey!} />}
+        {phase === 'survey' && selectedRole && <SurveyPage lang={lang} role={selectedRole} onSubmit={handleSurvey} onBack={goBackFrom.survey!} />}
         {phase === 'chat' && survey && (
           <ChatShell
             lang={lang}

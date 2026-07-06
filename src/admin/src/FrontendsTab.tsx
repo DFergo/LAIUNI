@@ -206,7 +206,7 @@ export default function FrontendsTab() {
                           <button onClick={() => startEdit(f)} className="ml-2 text-xs text-gray-400 hover:text-uni-blue">edit</button>
                         </div>
                       )}
-                      <div className="text-xs text-gray-400">{f.url} — {f.frontend_type}</div>
+                      <div className="text-xs text-gray-400">{f.url}</div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

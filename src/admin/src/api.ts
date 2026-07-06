@@ -44,7 +44,6 @@ export async function verifyToken(): Promise<{ valid: boolean }> {
 export interface Frontend {
   id: string
   url: string
-  frontend_type: string
   name: string
   enabled: boolean
   status: string

@@ -1,4 +1,4 @@
-export type Phase = 'loading' | 'language' | 'disclaimer' | 'session' | 'role_select' | 'auth' | 'instructions' | 'survey' | 'chat'
+export type Phase = 'loading' | 'unconfigured' | 'language' | 'disclaimer' | 'session' | 'role_select' | 'auth' | 'instructions' | 'survey' | 'chat'
 
 export type Role = 'worker' | 'representative' | 'organizer' | 'officer'
 
@@ -14,7 +14,9 @@ export interface BrandingConfig {
 
 export interface DeploymentConfig {
   role: string
-  frontend_type: 'worker' | 'organizer'
+  configured: boolean
+  profiles: Role[]
+  languages?: LangCode[]
   session_resume_window_hours: number
   disclaimer_enabled: boolean
   auth_required: boolean

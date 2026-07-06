@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { t } from '../i18n'
-import type { LangCode, Role, ConsultationMode, SurveyData, DeploymentConfig } from '../types'
+import type { LangCode, Role, ConsultationMode, SurveyData } from '../types'
 
 interface Props {
   lang: LangCode
-  config: DeploymentConfig
   role: Role
   onSubmit: (data: SurveyData) => void
   onBack: () => void
@@ -18,7 +17,7 @@ const MODES_BY_ROLE: Record<Role, ConsultationMode[]> = {
   officer: ['documentation', 'interview', 'advisory', 'submit', 'training'],
 }
 
-export default function SurveyPage({ lang, config, role, onSubmit, onBack }: Props) {
+export default function SurveyPage({ lang, role, onSubmit, onBack }: Props) {
   const availableModes = MODES_BY_ROLE[role]
   const showMode = availableModes.length > 0
 
@@ -31,11 +30,13 @@ export default function SurveyPage({ lang, config, role, onSubmit, onBack }: Pro
   const [countryRegion, setCountryRegion] = useState('')
   const [description, setDescription] = useState('')
 
-  const isOrganizerFrontend = config.frontend_type === 'organizer'
+  // Identity requirement is intrinsic to the profile (REFACTOR §0.3), not the
+  // frontend: organizer/officer require it, worker/representative don't.
+  const isOrganizerRole = role === 'organizer' || role === 'officer'
 
   // Worker/Rep: only company, country, description required. Identity optional.
   // Organizer/Officer: all required, except company optional in advisory/training
-  const identityRequired = isOrganizerFrontend
+  const identityRequired = isOrganizerRole
   const companyRequired = mode !== 'advisory' && mode !== 'training'
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -87,7 +88,7 @@ export default function SurveyPage({ lang, config, role, onSubmit, onBack }: Pro
           )}
 
           {/* Privacy note for worker/rep */}
-          {!isOrganizerFrontend && (
+          {!isOrganizerRole && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-gray-600">
               {t('survey_privacy_note', lang)}
             </div>

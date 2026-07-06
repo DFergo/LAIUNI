@@ -34,20 +34,19 @@ async def list_frontends(_: dict = Depends(require_admin)):
 
 @router.post("")
 async def register_frontend(req: RegisterRequest, _: dict = Depends(require_admin)):
-    """Register a frontend by URL. Auto-discovers type via GET /internal/config."""
+    """Register a frontend by URL. Discovery stays URL-based (verify reachability
+    via GET /internal/config); the frontend starts unconfigured (Sprint 21)."""
     url = req.url.rstrip("/")
 
-    # Discover frontend config
+    # Verify the frontend is reachable (URL-based detection, unchanged)
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(f"{url}/internal/config")
             resp.raise_for_status()
-            config = resp.json()
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Cannot reach frontend at {url}: {str(e)}")
 
-    frontend_type = config.get("frontend_type", "worker")
-    frontend = registry.register(url, frontend_type, req.name)
+    frontend = registry.register(url, req.name)
     registry.set_status(frontend["id"], "online")
 
     # Auto-copy global prompts if in per_frontend mode (Sprint 8h loose end)
@@ -57,6 +56,55 @@ async def register_frontend(req: RegisterRequest, _: dict = Depends(require_admi
             frontend["prompts_copied"] = copied
 
     return {"frontend": frontend}
+
+
+# --- Deleted / restore (Sprint 21 soft-delete) ---
+
+@router.get("/deleted")
+async def list_deleted_frontends(_: dict = Depends(require_admin)):
+    return {"frontends": registry.list_deleted()}
+
+
+@router.post("/{frontend_id}/restore")
+async def restore_frontend(frontend_id: str, _: dict = Depends(require_admin)):
+    frontend = registry.restore(frontend_id)
+    if not frontend:
+        raise HTTPException(status_code=404, detail="Deleted frontend not found")
+    return {"frontend": frontend}
+
+
+# --- Per-frontend config (Sprint 21 schema; panel is Sprint 22) ---
+
+@router.get("/{frontend_id}/config")
+async def get_frontend_config(frontend_id: str, _: dict = Depends(require_admin)):
+    if not registry.get(frontend_id):
+        raise HTTPException(status_code=404, detail="Frontend not found")
+    from src.services.frontend_registry import load_config
+    return {"frontend_id": frontend_id, "config": load_config(frontend_id)}
+
+
+@router.put("/{frontend_id}/config")
+async def update_frontend_config(frontend_id: str, config: dict, _: dict = Depends(require_admin)):
+    if not registry.get(frontend_id):
+        raise HTTPException(status_code=404, detail="Frontend not found")
+    from src.services.frontend_registry import save_config
+    save_config(frontend_id, config)
+    await _push_config_to_sidecar(frontend_id)
+    return {"frontend_id": frontend_id, "config": config}
+
+
+async def _push_config_to_sidecar(frontend_id: str):
+    """Push the per-frontend config to the sidecar (mirror of branding push)."""
+    from src.services.frontend_registry import load_config
+    fe = registry.get(frontend_id)
+    if not fe or not fe.get("enabled"):
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(f"{fe['url']}/internal/frontend-config", json=load_config(frontend_id))
+            logger.info(f"Config pushed to {fe['url']}")
+    except Exception as e:
+        logger.warning(f"Failed to push config to {fe['url']}: {e}")
 
 
 @router.put("/{frontend_id}")

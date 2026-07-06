@@ -365,7 +365,6 @@ export default function RAGTab() {
                     <div className="flex items-center gap-3">
                       <span className="text-sm text-gray-500">{campaign.expanded ? '▼' : '▶'}</span>
                       <span className="font-medium text-gray-800">{fe.name || fe.id}</span>
-                      <span className="text-xs text-gray-400">{fe.frontend_type}</span>
                       {docCount > 0 && (
                         <span className="bg-uni-blue text-white text-xs px-2 py-0.5 rounded-full">{docCount}</span>
                       )}

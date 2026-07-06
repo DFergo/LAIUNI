@@ -19,8 +19,9 @@ logger = logging.getLogger("sidecar")
 
 app = FastAPI(title="HRDD Frontend Sidecar", version="2.0.0")
 
-# Load deployment config
-_config_path = os.environ.get("DEPLOYMENT_JSON_PATH", "/app/config/deployment_frontend_worker.json")
+# Load deployment config (generic — behaviour now comes from the pushed
+# frontend config, not this file; kept only for the `role` marker).
+_config_path = os.environ.get("DEPLOYMENT_JSON_PATH", "/app/config/deployment_frontend.json")
 _config: dict[str, Any] = {}
 if os.path.exists(_config_path):
     with open(_config_path) as f:
@@ -93,6 +94,32 @@ if (_BRANDING_DIR / "config.json").exists():
         pass
 
 
+# --- Frontend config (pushed by backend, persisted to disk) — Sprint 21 ---
+# A generic frontend starts unconfigured; the backend pushes its config
+# (profiles, auth, languages, ...) the same way it pushes branding.
+_frontend_config: dict[str, Any] = {}
+_FRONTEND_CONFIG_FILE = Path("/app/data/frontend_config.json")
+if _FRONTEND_CONFIG_FILE.exists():
+    try:
+        _frontend_config = json.loads(_FRONTEND_CONFIG_FILE.read_text())
+        logger.info("Loaded frontend config from disk")
+    except (json.JSONDecodeError, OSError):
+        pass
+
+
+@app.post("/internal/frontend-config")
+async def update_frontend_config(data: dict[str, Any]):
+    """Backend pushes this frontend's config object."""
+    global _frontend_config
+    _frontend_config = data
+    _FRONTEND_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _FRONTEND_CONFIG_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    tmp.rename(_FRONTEND_CONFIG_FILE)
+    logger.info(f"Frontend config updated: configured={data.get('configured')}")
+    return {"status": "ok"}
+
+
 @app.post("/internal/branding")
 async def update_branding(data: dict[str, Any]):
     """Backend pushes branding config + translations for this frontend."""
@@ -145,21 +172,25 @@ async def get_branding_translation(lang_code: str):
 
 @app.get("/internal/config")
 async def get_config():
-    cfg = {
-        "role": "frontend",
-        "frontend_type": _config.get("frontend_type", "worker"),
-        "session_resume_window_hours": _config.get("session_resume_window_hours", 48),
-        "disclaimer_enabled": _config.get("disclaimer_enabled", True),
-        "auth_required": _config.get("auth_required", False),
-        "data_protection_email": _config.get("data_protection_email", ""),
-    }
+    if _frontend_config.get("configured"):
+        cfg = {
+            "role": "frontend",
+            "configured": True,
+            "profiles": _frontend_config.get("profiles", []),
+            "auth_required": _frontend_config.get("auth_required", False),
+            "languages": _frontend_config.get("languages", []),
+            "session_resume_window_hours": _frontend_config.get("session_resume_window_hours", 48),
+            "disclaimer_enabled": _frontend_config.get("disclaimer_enabled", True),
+            "data_protection_email": _frontend_config.get("data_protection_email", ""),
+        }
+    else:
+        cfg = {"role": "frontend", "configured": False}
     if _branding:
-        branding_info = {
+        cfg["branding"] = {
             "app_title": _branding.get("app_title", ""),
             "logo_url": _branding.get("logo_url", ""),
             "custom": _branding.get("custom", False),
         }
-        cfg["branding"] = branding_info
     return cfg
 
 

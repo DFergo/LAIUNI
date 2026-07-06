@@ -355,7 +355,7 @@ export default function SMTPTab() {
             {frontends.map(fe => (
               <div key={fe.id} className="border border-gray-200 rounded-lg p-4">
                 <h4 className="text-sm font-medium text-gray-700 mb-2">
-                  {fe.name || fe.url} <span className="text-xs text-gray-400 font-normal">({fe.frontend_type})</span>
+                  {fe.name || fe.url}
                 </h4>
                 <div className="flex gap-2 mb-2">
                   <input

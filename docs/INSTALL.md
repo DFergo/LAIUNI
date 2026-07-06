@@ -45,22 +45,11 @@ Key settings:
 
 ### 2.2 Frontend Configuration
 
-Worker: `config/deployment_frontend_worker.json`
-Organizer: `config/deployment_frontend_organizer.json`
+The frontend is **generic**: a single image (`docker-compose.frontend.yml`) deployed once per campaign. It has no deploy-time type — a freshly deployed frontend starts **unconfigured** and shows a "Not configured yet" screen until an admin registers and configures it from the backend. Its config (profiles, auth, languages, …) is pushed from the backend and served via `/internal/config`.
 
-```json
-{
-  "role": "frontend",
-  "frontend_type": "worker",
-  "session_resume_window_hours": 48,
-  "disclaimer_enabled": true,
-  "auth_required": false
-}
-```
+The only deploy-time input is the **host port**, set with the required `FRONTEND_PORT` environment variable (the deploy fails clearly if it is unset). Each instance gets its own port and its own named volume.
 
-- `frontend_type`: `worker` or `organizer`
-- `auth_required`: `true` for organizer (email verification), `false` for worker
-- `session_resume_window_hours`: How long a session token remains valid
+`config/deployment_frontend.json` is a minimal generic marker (`{"role": "frontend"}`); behaviour comes from the backend-pushed config, not this file.
 
 ---
 
@@ -77,19 +66,19 @@ docker compose -f docker-compose.backend.yml up -d
 
 The backend starts on port **8000**. Open `http://localhost:8000` to access the admin panel.
 
-**Frontend Worker (port 8091):**
+**Frontend (one instance per campaign — set `FRONTEND_PORT`):**
 
 ```bash
-docker compose -f docker-compose.frontworker.yml build --no-cache
-docker compose -f docker-compose.frontworker.yml up -d
+FRONTEND_PORT=8091 docker compose -f docker-compose.frontend.yml -p hrdd-frontend-a up -d --build
 ```
 
-**Frontend Organizer (port 8090):**
+Deploy additional frontends by repeating with a different port, project name (`-p`) and (implicitly) its own volume:
 
 ```bash
-docker compose -f docker-compose.frontorganizer.yml build --no-cache
-docker compose -f docker-compose.frontorganizer.yml up -d
+FRONTEND_PORT=8090 docker compose -f docker-compose.frontend.yml -p hrdd-frontend-b up -d --build
 ```
+
+If `FRONTEND_PORT` is not set, the deploy fails with a clear error.
 
 ### 3.2 Portainer (Recommended)
 
@@ -102,8 +91,10 @@ Portainer gives you a web UI to manage, rebuild, and monitor stacks.
 | Stack name | Repository URL | Branch | Compose path |
 |---|---|---|---|
 | `hrdd-backend` | `https://github.com/DFergo/LAIUNI` | `main` | `docker-compose.backend.yml` |
-| `hrdd-frontworker` | `https://github.com/DFergo/LAIUNI` | `main` | `docker-compose.frontworker.yml` |
-| `hrdd-frontorganizer` | `https://github.com/DFergo/LAIUNI` | `main` | `docker-compose.frontorganizer.yml` |
+| `hrdd-frontend-a` | `https://github.com/DFergo/LAIUNI` | `main` | `docker-compose.frontend.yml` |
+| `hrdd-frontend-b` (optional) | `https://github.com/DFergo/LAIUNI` | `main` | `docker-compose.frontend.yml` |
+
+For each frontend stack, add an **environment variable** `FRONTEND_PORT` (e.g. `8091`, `8090`) — one unique port per frontend. The deploy fails clearly if it is missing. Deploy one frontend stack per campaign.
 
 4. Click **Deploy the stack**
 
@@ -123,11 +114,11 @@ To update after code changes: **Pull and Redeploy** from the stack page in Porta
 
 1. In the admin panel, go to **Frontends** tab
 2. Click **Add Frontend**
-3. Enter the frontend URL:
-   - Same machine: `http://<HOST_IP>:8091` (worker) or `http://<HOST_IP>:8090` (organizer)
-   - Different machine: `http://<FRONTEND_IP>:8091`
+3. Enter the frontend URL (the `FRONTEND_PORT` you assigned):
+   - Same machine: `http://<HOST_IP>:<FRONTEND_PORT>`
+   - Different machine: `http://<FRONTEND_IP>:<FRONTEND_PORT>`
    - **Important:** Use the host machine's IP, not `localhost` or Docker internal addresses
-4. The backend will auto-discover the frontend type and name
+4. The backend registers the frontend by URL; give it a name. It starts **unconfigured** (its per-frontend configuration is set from the backend — see the Frontends config panel).
 5. Make sure the frontend is **Enabled** (toggle on)
 
 ### 4.3 LLM Provider
@@ -142,7 +133,7 @@ When you save settings with Ollama models, the backend automatically sends a war
 
 ### 4.4 Test the Flow
 
-1. Open the worker frontend (`http://<HOST_IP>:8091`)
+1. Open a configured frontend (`http://<HOST_IP>:<FRONTEND_PORT>`)
 2. Select a language
 3. Accept the disclaimer
 4. Start a new session (note the token)
@@ -295,7 +286,7 @@ For production, the backend and frontend(s) typically run on separate machines.
 | Machine | Role | Ports |
 |---------|------|-------|
 | Backend machine | Backend + Ollama/LM Studio | 8000, 11434 (Ollama), 1234 (LM Studio) |
-| Frontend machine | Worker + Organizer | 8091, 8090 |
+| Frontend machine | Generic frontend(s), one per campaign | `FRONTEND_PORT` per instance (e.g. 8091, 8090) |
 
 ### Network Requirements
 
@@ -453,8 +444,8 @@ Then visit the backend URL to create a new admin account.
 ```bash
 # Stop containers (preserves data)
 docker compose -f docker-compose.backend.yml down
-docker compose -f docker-compose.frontworker.yml down
-docker compose -f docker-compose.frontorganizer.yml down
+docker compose -f docker-compose.frontend.yml -p hrdd-frontend-a down
+docker compose -f docker-compose.frontend.yml -p hrdd-frontend-b down
 
 # Remove data volumes (DESTRUCTIVE — deletes all data)
 docker volume rm <volume-name>
