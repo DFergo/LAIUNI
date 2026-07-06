@@ -1,4 +1,9 @@
-"""Admin LLM endpoints — health, models, config."""
+"""Admin LLM endpoints — connections, health, models, slot config.
+
+Sprint 19: slots reference a (connection, model) pair from the connection
+registry instead of a raw provider string. Parameters are optional overrides
+(sent only when set). Existing settings migrate on load.
+"""
 
 import asyncio
 import json
@@ -6,11 +11,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.api.v1.admin.auth import require_admin
 from src.core.config import config
+from src.services.connection_registry import connections
 from src.services.llm_provider import llm
 
 logger = logging.getLogger("backend.admin.llm")
@@ -20,42 +26,63 @@ router = APIRouter(prefix="/admin/llm", tags=["admin-llm"])
 # LLM settings persist to /app/data/llm_settings.json
 _SETTINGS_PATH = Path("/app/data/llm_settings.json")
 
+_SLOT_PREFIXES = ["inference", "reporter", "summariser"]
 
-_DEFAULTS = {
-    "inference_provider": "lm_studio",
+# Sprint 19 migration: old {slot}_provider strings → seeded connection IDs.
+_PROVIDER_TO_CONNECTION = {"ollama": "ollama-default", "lm_studio": "lmstudio-default"}
+
+
+# Params default to None → provider default applies (Sprint 19, Block D).
+_DEFAULTS: dict[str, Any] = {
+    "inference_connection": "lmstudio-default",
     "inference_model": config.lm_studio_model,
-    "inference_temperature": 0.7,
-    "inference_max_tokens": 2048,
-    "inference_num_ctx": 32768,
-    "reporter_provider": "lm_studio",
+    "inference_temperature": None,
+    "inference_max_tokens": None,
+    "inference_num_ctx": None,
+    "reporter_connection": "lmstudio-default",
     "reporter_model": config.lm_studio_model,
-    "reporter_temperature": 0.3,
-    "reporter_max_tokens": 4096,
-    "reporter_num_ctx": 32768,
+    "reporter_temperature": None,
+    "reporter_max_tokens": None,
+    "reporter_num_ctx": None,
     "use_reporter_for_user_summary": False,
     "multimodal_enabled": False,
     "summariser_enabled": False,
-    "summariser_provider": "ollama",
+    "summariser_connection": "ollama-default",
     "summariser_model": config.ollama_summariser_model,
-    "summariser_temperature": 0.3,
-    "summariser_max_tokens": 1024,
-    "summariser_num_ctx": config.ollama_num_ctx,
+    "summariser_temperature": None,
+    "summariser_max_tokens": None,
+    "summariser_num_ctx": None,
     "compression_threshold": 0.75,  # legacy — kept for migration
     "compression_first_threshold": 20000,  # first compression at N tokens
     "compression_step_size": 15000,  # compress again every N tokens after first
 }
 
 
+def _migrate_provider_keys(data: dict[str, Any]) -> dict[str, Any]:
+    """Migrate legacy `{slot}_provider` strings to `{slot}_connection` IDs.
+
+    Idempotent: only migrates when a provider key exists and its connection
+    counterpart does not. Preserves existing model/param values (so a migrated
+    production keeps its num_ctx etc.).
+    """
+    # Even-older flat format (single temperature/max_tokens/num_ctx)
+    if "temperature" in data and "inference_temperature" not in data:
+        data["inference_temperature"] = data.pop("temperature", None)
+        data["inference_max_tokens"] = data.pop("max_tokens", None)
+        data["summariser_num_ctx"] = data.pop("num_ctx", None)
+    for slot in _SLOT_PREFIXES:
+        prov_key = f"{slot}_provider"
+        conn_key = f"{slot}_connection"
+        if prov_key in data:
+            prov = data.pop(prov_key)
+            data.setdefault(conn_key, _PROVIDER_TO_CONNECTION.get(prov, "lmstudio-default"))
+    return data
+
+
 def _load_settings() -> dict[str, Any]:
     if _SETTINGS_PATH.exists():
         data = json.loads(_SETTINGS_PATH.read_text())
-        # Migrate old flat format to per-slot format
-        if "temperature" in data and "inference_temperature" not in data:
-            data["inference_temperature"] = data.pop("temperature", 0.7)
-            data["inference_max_tokens"] = data.pop("max_tokens", 2048)
-            data["summariser_temperature"] = 0.3
-            data["summariser_max_tokens"] = 1024
-            data["summariser_num_ctx"] = data.pop("num_ctx", config.ollama_num_ctx)
+        data = _migrate_provider_keys(data)
         # Ensure all keys exist (new fields added over time)
         for key, val in _DEFAULTS.items():
             data.setdefault(key, val)
@@ -78,7 +105,7 @@ def get_llm_settings(frontend_id: str = "") -> dict[str, Any]:
     if not fe_path.exists():
         return global_settings
     try:
-        override = json.loads(fe_path.read_text())
+        override = _migrate_provider_keys(json.loads(fe_path.read_text()))
         # Merge: override only non-null fields on top of global
         merged = dict(global_settings)
         for key, val in override.items():
@@ -95,7 +122,7 @@ def get_frontend_llm_override(frontend_id: str) -> dict[str, Any]:
     fe_path = Path(f"/app/data/campaigns/{frontend_id}/llm_settings.json")
     if fe_path.exists():
         try:
-            return json.loads(fe_path.read_text())
+            return _migrate_provider_keys(json.loads(fe_path.read_text()))
         except Exception:
             pass
     return {}
@@ -118,46 +145,40 @@ def delete_frontend_llm_override(frontend_id: str):
         fe_path.unlink()
 
 
-_SLOT_PREFIXES = ["inference", "reporter", "summariser"]
-
-
 async def _warmup_ollama_slots(settings: dict[str, Any]):
-    """Pre-load Ollama models into VRAM by sending a minimal completion request.
+    """Pre-load Ollama models into VRAM for slots whose connection is ollama-type.
 
-    Sprint 17: runs as a background task after config save. Only fires for
-    slots whose provider is 'ollama'. Silently logs on failure.
+    Sprint 19: warmup fires per (connection, model), gated on the connection's
+    type. Runs as a background task after config save. Silently logs failures.
     """
-    import httpx
-
     for slot in _SLOT_PREFIXES:
-        provider = settings.get(f"{slot}_provider", "")
+        conn_id = settings.get(f"{slot}_connection", "")
         model = settings.get(f"{slot}_model", "")
-        if provider != "ollama" or not model:
+        conn = connections.get(conn_id)
+        if not conn or conn.get("type") != "ollama" or not model:
             continue
-
-        endpoint = f"{config.ollama_endpoint}/v1/chat/completions"
-        body = {
-            "model": model,
-            "messages": [{"role": "user", "content": "hi"}],
-            "max_tokens": 1,
-            "stream": False,
-        }
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(endpoint, json=body)
-                resp.raise_for_status()
-            logger.info(f"Ollama warmup OK: {slot} → {model}")
+            await llm.warmup(conn_id, model)
+            logger.info(f"Ollama warmup OK: {slot} → {conn_id}/{model}")
         except Exception as e:
-            logger.warning(f"Ollama warmup failed for {slot} ({model}): {e}")
+            logger.warning(f"Ollama warmup failed for {slot} ({conn_id}/{model}): {e}")
+
+
+def _has_ollama_slot(settings: dict[str, Any]) -> bool:
+    for slot in _SLOT_PREFIXES:
+        conn = connections.get(settings.get(f"{slot}_connection", ""))
+        if conn and conn.get("type") == "ollama":
+            return True
+    return False
 
 
 class LLMSettingsRequest(BaseModel):
-    inference_provider: str | None = None
+    inference_connection: str | None = None
     inference_model: str | None = None
     inference_temperature: float | None = None
     inference_max_tokens: int | None = None
     inference_num_ctx: int | None = None
-    reporter_provider: str | None = None
+    reporter_connection: str | None = None
     reporter_model: str | None = None
     reporter_temperature: float | None = None
     reporter_max_tokens: int | None = None
@@ -165,7 +186,7 @@ class LLMSettingsRequest(BaseModel):
     use_reporter_for_user_summary: bool | None = None
     multimodal_enabled: bool | None = None
     summariser_enabled: bool | None = None
-    summariser_provider: str | None = None
+    summariser_connection: str | None = None
     summariser_model: str | None = None
     summariser_temperature: float | None = None
     summariser_max_tokens: int | None = None
@@ -175,28 +196,83 @@ class LLMSettingsRequest(BaseModel):
     compression_step_size: int | None = None
 
 
+class ConnectionRequest(BaseModel):
+    id: str | None = None
+    type: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    prefix_id: str | None = None
+    model_ids: list[str] | None = None
+    enable: bool | None = None
+
+
+# --- Connections registry ---
+
+
+@router.get("/connections")
+async def list_connections(_: dict = Depends(require_admin)):
+    """List all provider connections."""
+    return {"connections": connections.all()}
+
+
+@router.post("/connections")
+async def add_connection(req: ConnectionRequest, _: dict = Depends(require_admin)):
+    """Add a provider connection."""
+    try:
+        return connections.add(req.model_dump(exclude_none=True))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/connections/{connection_id}")
+async def update_connection(connection_id: str, req: ConnectionRequest, _: dict = Depends(require_admin)):
+    """Update a provider connection."""
+    try:
+        return connections.update(connection_id, req.model_dump(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/connections/{connection_id}")
+async def remove_connection(connection_id: str, _: dict = Depends(require_admin)):
+    """Delete a provider connection."""
+    connections.delete(connection_id)
+    return {"deleted": connection_id}
+
+
+@router.get("/connections/{connection_id}/models")
+async def connection_models(connection_id: str, _: dict = Depends(require_admin)):
+    """Fetch a connection's models (async, short timeout). Never blocks the UI.
+
+    Model discovery is decoupled from usability: if this fails the admin can
+    still type a model ID manually.
+    """
+    conn = connections.get(connection_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail=f"Connection not found: {connection_id}")
+    result = await llm.check_connection(conn)
+    return {"connection_id": connection_id, **result}
+
+
+# --- Health / models ---
+
+
 @router.get("/health")
 async def llm_health(_: dict = Depends(require_admin)):
-    """Check LLM provider health status + per-slot circuit breaker state."""
-    health = await llm.check_health()
-    health["slot_health"] = llm.get_slot_health()
-    return health
+    """Health of all enabled connections + per-slot circuit breaker state."""
+    return {
+        "connections": await llm.check_health(),
+        "slot_health": llm.get_slot_health(),
+    }
 
 
 @router.get("/models")
 async def llm_models(_: dict = Depends(require_admin)):
-    """Get available models from both providers."""
-    health = await llm.check_health()
-    return {
-        "lm_studio": {
-            "status": health["lm_studio"]["status"],
-            "models": health["lm_studio"].get("models", []),
-        },
-        "ollama": {
-            "status": health["ollama"]["status"],
-            "models": health["ollama"].get("models", []),
-        },
-    }
+    """Get available models per enabled connection."""
+    return {"connections": await llm.check_health()}
+
+
+# --- Settings ---
 
 
 @router.get("/settings")
@@ -207,18 +283,18 @@ async def get_settings(_: dict = Depends(require_admin)):
 
 @router.put("/settings")
 async def update_settings(req: LLMSettingsRequest, _: dict = Depends(require_admin)):
-    """Update LLM settings."""
+    """Update LLM settings.
+
+    Uses ``exclude_unset`` so an explicitly-sent ``null`` clears a parameter
+    override (blank → provider default), while omitted fields are untouched.
+    """
     current = _load_settings()
-    updates = req.model_dump(exclude_none=True)
+    updates = req.model_dump(exclude_unset=True)
     current.update(updates)
     _save_settings(current)
     logger.info(f"LLM settings updated: {list(updates.keys())}")
 
-    # Sprint 17: pre-load Ollama models into VRAM (background, non-blocking)
-    has_ollama = any(
-        current.get(f"{s}_provider") == "ollama" for s in _SLOT_PREFIXES
-    )
-    if has_ollama:
+    if _has_ollama_slot(current):
         asyncio.create_task(_warmup_ollama_slots(current))
 
     return current
@@ -245,18 +321,14 @@ async def get_fe_llm_settings(frontend_id: str, _: dict = Depends(require_admin)
 
 @fe_router.put("/{frontend_id}/llm-settings")
 async def update_fe_llm_settings(frontend_id: str, req: LLMSettingsRequest, _: dict = Depends(require_admin)):
-    """Update per-frontend LLM override. Only non-null fields are stored."""
-    override = req.model_dump(exclude_none=True)
+    """Update per-frontend LLM override. Only set fields are stored."""
+    override = req.model_dump(exclude_unset=True)
     if override:
         save_frontend_llm_override(frontend_id, override)
         logger.info(f"Per-frontend LLM override saved for {frontend_id}: {list(override.keys())}")
 
-        # Sprint 17: warmup Ollama models from the merged settings
         merged = get_llm_settings(frontend_id)
-        has_ollama = any(
-            merged.get(f"{s}_provider") == "ollama" for s in _SLOT_PREFIXES
-        )
-        if has_ollama:
+        if _has_ollama_slot(merged):
             asyncio.create_task(_warmup_ollama_slots(merged))
 
     return {"frontend_id": frontend_id, "override": override}

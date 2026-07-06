@@ -350,11 +350,11 @@ async def _safe_process(msg: dict[str, Any]):
         try:
             async for token in llm.stream_chat(
                 messages=llm_messages,
-                provider=settings.get("inference_provider"),
+                connection_id=settings.get("inference_connection"),
                 model=settings.get("inference_model"),
-                temperature=settings.get("inference_temperature", 0.7),
-                max_tokens=settings.get("inference_max_tokens", 2048),
-                num_ctx=settings.get("inference_num_ctx") if settings.get("inference_provider") == "ollama" else None,
+                temperature=settings.get("inference_temperature"),
+                max_tokens=settings.get("inference_max_tokens"),
+                num_ctx=settings.get("inference_num_ctx"),
             ):
                 raw_response += token
 
@@ -469,7 +469,7 @@ async def _finalize_session(
         settings = get_llm_settings(frontend_id)
         summary_slot = "reporter" if settings.get("use_reporter_for_user_summary") else "inference"
         slot_cfg = _slot_settings(settings, summary_slot)
-        logger.info(f"[{session_token}] Finalize summary via slot={summary_slot} ({slot_cfg['provider']}/{slot_cfg['model']})")
+        logger.info(f"[{session_token}] Finalize summary via slot={summary_slot} ({slot_cfg['connection_id']}/{slot_cfg['model']})")
         raw_response = ""
         visible_response = ""
         in_think = False
@@ -698,7 +698,7 @@ async def _generate_document(
     # Sprint 17: fallback cascade for document generation
     from src.services.llm_provider import build_fallback_chain
     chain = build_fallback_chain(settings, slot)
-    logger.info(f"[{session_token}] Generating {prompt_file} via slot={slot} ({slot_cfg['provider']}/{slot_cfg['model']}), chain={[c['_slot_name'] for c in chain]}")
+    logger.info(f"[{session_token}] Generating {prompt_file} via slot={slot} ({slot_cfg['connection_id']}/{slot_cfg['model']}), chain={[c['_slot_name'] for c in chain]}")
     raw_response = ""
     in_think = False
 

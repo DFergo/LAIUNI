@@ -44,8 +44,17 @@ def _strip_think_blocks(text: str) -> str:
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 
-async def _translate_text(text: str, target_lang: str, target_name: str) -> str:
-    """Translate a single text to target language using LLM."""
+async def _translate_text(
+    text: str, target_lang: str, target_name: str, settings: dict[str, Any]
+) -> str:
+    """Translate a single text to target language using LLM.
+
+    Sprint 19 bridge: runs on the summariser fallback chain (was provider
+    auto-detect, removed with the connection registry). Sprint 20 replaces
+    this with the dedicated `translation` slot.
+    """
+    from src.services.llm_provider import build_fallback_chain
+
     messages = [
         {
             "role": "system",
@@ -59,7 +68,8 @@ async def _translate_text(text: str, target_lang: str, target_name: str) -> str:
         },
     ]
     try:
-        result = await llm.chat(messages, temperature=0.3, max_tokens=2048)
+        chain = build_fallback_chain(settings, "summariser")
+        result = await llm.chat_with_fallback(messages, chain)
         return _strip_think_blocks(result)
     except Exception as e:
         logger.warning(f"Translation to {target_name} failed: {e}")
@@ -79,6 +89,11 @@ async def translate_branding(frontend_id: str, branding: dict[str, str]):
     if not disclaimer and not instructions:
         return
 
+    # Sprint 19: resolve the (per-frontend) LLM settings so translation runs on
+    # the summariser slot's connection.
+    from src.api.v1.admin.llm import get_llm_settings
+    settings = get_llm_settings(frontend_id)
+
     total = len(LANGUAGES)
     _translation_status[frontend_id] = {"status": "translating", "progress": 0, "total": total}
 
@@ -93,13 +108,13 @@ async def translate_branding(frontend_id: str, branding: dict[str, str]):
                 # Assume source is likely English; save as-is
                 entry["disclaimer_text"] = disclaimer
             else:
-                entry["disclaimer_text"] = await _translate_text(disclaimer, code, name)
+                entry["disclaimer_text"] = await _translate_text(disclaimer, code, name, settings)
 
         if instructions:
             if code == "en":
                 entry["instructions_text"] = instructions
             else:
-                entry["instructions_text"] = await _translate_text(instructions, code, name)
+                entry["instructions_text"] = await _translate_text(instructions, code, name, settings)
 
         translations[code] = entry
         _translation_status[frontend_id] = {"status": "translating", "progress": i + 1, "total": total}

@@ -1,21 +1,295 @@
-"""LLM provider abstraction — LM Studio + Ollama via OpenAI-compatible API.
+"""LLM provider abstraction — connection registry + protocol adapters (Sprint 19).
 
-Sprint 17: fallback cascade + circuit breaker. If a slot fails (0 tokens,
-HTTP error, timeout), the system automatically tries the next slot in the
-chain (summariser → reporter → inference). A per-slot circuit breaker
-avoids wasting latency on a slot that has failed repeatedly.
+A connection registry (connection_registry.py) replaces the hardcoded
+Ollama/LM Studio wiring. Three protocol adapters sit behind a common
+interface:
+
+  - ``openai``    OpenAI-compatible chat completions + /models (LM Studio,
+                  OpenAI, OpenRouter, vLLM, LiteLLM, …). Bearer auth.
+  - ``anthropic`` native Messages API (/v1/messages SSE) + /v1/models. System
+                  message hoisted to a top-level param; ``max_tokens`` is
+                  required by the API so a blank value is force-filled to 4096.
+  - ``ollama``    native /api/chat (newline-delimited JSON) + /api/tags, with
+                  ``num_ctx`` via options and warmup.
+
+Slots reference a (connection, model) pair instead of a raw provider string.
+Parameters (temperature/max_tokens/num_ctx) are optional overrides: sent only
+when set; blank → the provider/model default applies.
+
+Sprint 17 behaviors preserved: fallback cascade + per-slot circuit breaker,
+now keyed by ``connection_id:model``.
 """
 
 import asyncio
+import base64
+import json
 import logging
+import re
 import time
 from typing import Any, AsyncIterator
 
 import httpx
 
-from src.core.config import config
+from src.services.connection_registry import connections
 
 logger = logging.getLogger("backend.llm")
+
+# Anthropic requires max_tokens; used when a slot leaves it blank.
+_ANTHROPIC_DEFAULT_MAX_TOKENS = 4096
+_ANTHROPIC_VERSION = "2023-06-01"
+
+# ---------------------------------------------------------------------------
+# Message normalisation (shared by adapters)
+# ---------------------------------------------------------------------------
+
+
+def _split_multimodal(content: Any) -> tuple[str, list[dict[str, str]]]:
+    """Split OpenAI-style content into (text, images).
+
+    ``content`` is either a plain string or a list of parts
+    ``{"type": "text"|"image_url", ...}``. Returns the concatenated text and a
+    list of ``{"media_type", "data"}`` for any base64 data-URL images. Used by
+    the ollama/anthropic adapters, which do not accept the OpenAI image_url
+    shape natively.
+    """
+    if isinstance(content, str):
+        return content, []
+    text_parts: list[str] = []
+    images: list[dict[str, str]] = []
+    for part in content or []:
+        if part.get("type") == "text":
+            text_parts.append(part.get("text", ""))
+        elif part.get("type") == "image_url":
+            url = part.get("image_url", {}).get("url", "")
+            m = re.match(r"data:(?P<mt>[^;]+);base64,(?P<data>.+)", url, re.DOTALL)
+            if m:
+                images.append({"media_type": m.group("mt"), "data": m.group("data")})
+    return "\n".join(text_parts), images
+
+
+# ---------------------------------------------------------------------------
+# Protocol adapters
+# ---------------------------------------------------------------------------
+
+
+class OpenAIAdapter:
+    """OpenAI-compatible chat completions. base_url already includes /v1."""
+
+    def _headers(self, conn: dict[str, Any]) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if conn.get("api_key"):
+            headers["Authorization"] = f"Bearer {conn['api_key']}"
+        return headers
+
+    async def list_models(self, conn: dict[str, Any]) -> list[str]:
+        url = f"{conn['base_url'].rstrip('/')}/models"
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url, headers=self._headers(conn))
+            resp.raise_for_status()
+            data = resp.json()
+            return [m["id"] for m in data.get("data", [])]
+
+    async def stream(
+        self, conn, model, messages, temperature, max_tokens, num_ctx
+    ) -> AsyncIterator[str]:
+        body: dict[str, Any] = {"model": model, "messages": messages, "stream": True}
+        if temperature is not None:
+            body["temperature"] = temperature
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
+        url = f"{conn['base_url'].rstrip('/')}/chat/completions"
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+            async with client.stream("POST", url, json=body, headers=self._headers(conn)) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    payload = line[6:]
+                    if payload.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(payload)
+                        token = chunk.get("choices", [{}])[0].get("delta", {}).get("content")
+                        if token:
+                            yield token
+                    except (ValueError, KeyError, IndexError):
+                        continue
+
+    async def warmup(self, conn, model):
+        return  # no-op — only ollama benefits from warmup
+
+
+class AnthropicAdapter:
+    """Native Anthropic Messages API."""
+
+    def _headers(self, conn: dict[str, Any]) -> dict[str, str]:
+        return {
+            "Content-Type": "application/json",
+            "x-api-key": conn.get("api_key", ""),
+            "anthropic-version": _ANTHROPIC_VERSION,
+        }
+
+    async def list_models(self, conn: dict[str, Any]) -> list[str]:
+        url = f"{conn['base_url'].rstrip('/')}/v1/models"
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url, headers=self._headers(conn))
+            resp.raise_for_status()
+            data = resp.json()
+            return [m["id"] for m in data.get("data", [])]
+
+    def _convert_messages(self, messages) -> tuple[str, list[dict[str, Any]]]:
+        """Hoist system messages to a top-level string; convert the rest to
+        Anthropic content blocks."""
+        system_parts: list[str] = []
+        converted: list[dict[str, Any]] = []
+        for msg in messages:
+            if msg["role"] == "system":
+                text, _ = _split_multimodal(msg["content"])
+                system_parts.append(text)
+                continue
+            text, images = _split_multimodal(msg["content"])
+            blocks: list[dict[str, Any]] = []
+            if text:
+                blocks.append({"type": "text", "text": text})
+            for img in images:
+                blocks.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": img["media_type"],
+                        "data": img["data"],
+                    },
+                })
+            converted.append({"role": msg["role"], "content": blocks or text})
+        return "\n\n".join(p for p in system_parts if p), converted
+
+    async def stream(
+        self, conn, model, messages, temperature, max_tokens, num_ctx
+    ) -> AsyncIterator[str]:
+        system, msgs = self._convert_messages(messages)
+        body: dict[str, Any] = {
+            "model": model,
+            "messages": msgs,
+            "stream": True,
+            # max_tokens is required by the API — force-fill when blank (decision 3)
+            "max_tokens": max_tokens if max_tokens is not None else _ANTHROPIC_DEFAULT_MAX_TOKENS,
+        }
+        if system:
+            body["system"] = system
+        if temperature is not None:
+            body["temperature"] = temperature
+        url = f"{conn['base_url'].rstrip('/')}/v1/messages"
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+            async with client.stream("POST", url, json=body, headers=self._headers(conn)) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    try:
+                        event = json.loads(line[6:])
+                    except ValueError:
+                        continue
+                    if event.get("type") == "content_block_delta":
+                        delta = event.get("delta", {})
+                        if delta.get("type") == "text_delta" and delta.get("text"):
+                            yield delta["text"]
+                    elif event.get("type") == "message_stop":
+                        break
+
+    async def warmup(self, conn, model):
+        return
+
+
+class OllamaAdapter:
+    """Native Ollama API (/api/chat, /api/tags). num_ctx via options."""
+
+    def _headers(self, conn: dict[str, Any]) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if conn.get("api_key"):
+            headers["Authorization"] = f"Bearer {conn['api_key']}"
+        return headers
+
+    async def list_models(self, conn: dict[str, Any]) -> list[str]:
+        url = f"{conn['base_url'].rstrip('/')}/api/tags"
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url, headers=self._headers(conn))
+            resp.raise_for_status()
+            data = resp.json()
+            return [m["name"] for m in data.get("models", [])]
+
+    def _convert_messages(self, messages) -> list[dict[str, Any]]:
+        """Convert OpenAI-style messages to Ollama native (images as a base64
+        list on the message)."""
+        out: list[dict[str, Any]] = []
+        for msg in messages:
+            text, images = _split_multimodal(msg["content"])
+            entry: dict[str, Any] = {"role": msg["role"], "content": text}
+            if images:
+                entry["images"] = [img["data"] for img in images]
+            out.append(entry)
+        return out
+
+    async def stream(
+        self, conn, model, messages, temperature, max_tokens, num_ctx
+    ) -> AsyncIterator[str]:
+        options: dict[str, Any] = {}
+        if num_ctx is not None:
+            options["num_ctx"] = num_ctx
+        if temperature is not None:
+            options["temperature"] = temperature
+        if max_tokens is not None:
+            options["num_predict"] = max_tokens
+        body: dict[str, Any] = {
+            "model": model,
+            "messages": self._convert_messages(messages),
+            "stream": True,
+        }
+        if options:
+            body["options"] = options
+        url = f"{conn['base_url'].rstrip('/')}/api/chat"
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+            async with client.stream("POST", url, json=body, headers=self._headers(conn)) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                    except ValueError:
+                        continue
+                    token = chunk.get("message", {}).get("content")
+                    if token:
+                        yield token
+                    if chunk.get("done"):
+                        break
+
+    async def warmup(self, conn, model):
+        """Pre-load an Ollama model into VRAM with a minimal request."""
+        url = f"{conn['base_url'].rstrip('/')}/api/chat"
+        body = {
+            "model": model,
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": False,
+            "options": {"num_predict": 1},
+        }
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(url, json=body, headers=self._headers(conn))
+            resp.raise_for_status()
+
+
+_ADAPTERS: dict[str, Any] = {
+    "openai": OpenAIAdapter(),
+    "anthropic": AnthropicAdapter(),
+    "ollama": OllamaAdapter(),
+}
+
+
+def _adapter_for(conn: dict[str, Any]):
+    adapter = _ADAPTERS.get(conn.get("type", ""))
+    if adapter is None:
+        raise ValueError(f"Unknown connection type: {conn.get('type')}")
+    return adapter
+
 
 # ---------------------------------------------------------------------------
 # Slot resolution helpers (used by polling, evidence_processor, compressor)
@@ -23,27 +297,22 @@ logger = logging.getLogger("backend.llm")
 
 
 def slot_settings(settings: dict[str, Any], slot: str) -> dict[str, Any]:
-    """Resolve LLM settings for a given slot, with fallback to inference.
+    """Resolve LLM settings for a given slot.
 
-    Returns {provider, model, temperature, max_tokens, num_ctx, _slot_name}.
+    Connection + model fall back to the inference slot (so an unconfigured
+    slot reuses inference). Parameters do NOT fall back: a blank param stays
+    ``None`` and is omitted from the request (provider default applies).
+
+    Returns {connection_id, model, temperature, max_tokens, num_ctx, _slot_name}.
     """
-    provider = settings.get(f"{slot}_provider") or settings.get("inference_provider")
+    connection_id = settings.get(f"{slot}_connection") or settings.get("inference_connection")
     model = settings.get(f"{slot}_model") or settings.get("inference_model")
-    temperature = settings.get(f"{slot}_temperature")
-    if temperature is None:
-        temperature = settings.get("inference_temperature", 0.7)
-    max_tokens = settings.get(f"{slot}_max_tokens")
-    if max_tokens is None:
-        max_tokens = settings.get("inference_max_tokens", 2048)
-    num_ctx = settings.get(f"{slot}_num_ctx")
-    if num_ctx is None:
-        num_ctx = settings.get("inference_num_ctx")
     return {
-        "provider": provider,
+        "connection_id": connection_id,
         "model": model,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "num_ctx": num_ctx if provider == "ollama" else None,
+        "temperature": settings.get(f"{slot}_temperature"),
+        "max_tokens": settings.get(f"{slot}_max_tokens"),
+        "num_ctx": settings.get(f"{slot}_num_ctx"),
         "_slot_name": slot,
     }
 
@@ -59,15 +328,14 @@ _FALLBACK_CHAINS: dict[str, list[str]] = {
 def build_fallback_chain(settings: dict[str, Any], primary_slot: str) -> list[dict[str, Any]]:
     """Build a list of slot configs to try in order (primary → fallbacks).
 
-    Deduplicates slots that resolve to the same provider:model (e.g. if
-    reporter and inference point to the same model, only try once).
+    Deduplicates slots that resolve to the same connection:model.
     """
     slot_names = _FALLBACK_CHAINS.get(primary_slot, [primary_slot])
     configs: list[dict[str, Any]] = []
     seen: set[str] = set()
     for name in slot_names:
         cfg = slot_settings(settings, name)
-        key = f"{cfg['provider']}:{cfg['model']}"
+        key = f"{cfg['connection_id']}:{cfg['model']}"
         if key in seen:
             continue
         seen.add(key)
@@ -76,7 +344,7 @@ def build_fallback_chain(settings: dict[str, Any], primary_slot: str) -> list[di
 
 
 class LLMProvider:
-    """Unified interface for LM Studio and Ollama inference."""
+    """Unified interface over the connection adapters."""
 
     # Circuit breaker constants
     _CB_THRESHOLD = 3       # failures before marking slot as down
@@ -84,19 +352,17 @@ class LLMProvider:
     _CB_COOLDOWN = 300.0    # seconds — how long a down slot stays down
 
     def __init__(self):
-        self._active_provider: str | None = None
         self._slot_failures: dict[str, list[float]] = {}
         # Track which fallback was last used, for email notifications
         self.last_fallback_event: dict[str, Any] | None = None
 
-    # --- Circuit breaker ---
+    # --- Circuit breaker (keyed by connection:model) ---
 
-    def _slot_key(self, provider: str, model: str) -> str:
-        return f"{provider}:{model}"
+    def _slot_key(self, connection_id: str, model: str) -> str:
+        return f"{connection_id}:{model}"
 
-    def is_slot_down(self, provider: str, model: str) -> bool:
-        """Check if a slot is tripped by the circuit breaker."""
-        key = self._slot_key(provider, model)
+    def is_slot_down(self, connection_id: str, model: str) -> bool:
+        key = self._slot_key(connection_id, model)
         failures = self._slot_failures.get(key, [])
         now = time.time()
         recent = [t for t in failures if now - t < self._CB_WINDOW]
@@ -104,20 +370,19 @@ class LLMProvider:
         if len(recent) >= self._CB_THRESHOLD:
             if now - recent[-1] < self._CB_COOLDOWN:
                 return True
-            # Cooldown expired — give it another chance
             self._slot_failures[key] = []
         return False
 
-    def _mark_failure(self, provider: str, model: str):
-        key = self._slot_key(provider, model)
+    def _mark_failure(self, connection_id: str, model: str):
+        key = self._slot_key(connection_id, model)
         self._slot_failures.setdefault(key, []).append(time.time())
 
-    def _mark_success(self, provider: str, model: str):
-        key = self._slot_key(provider, model)
+    def _mark_success(self, connection_id: str, model: str):
+        key = self._slot_key(connection_id, model)
         self._slot_failures.pop(key, None)
 
     def get_slot_health(self) -> dict[str, str]:
-        """Return per-slot health: {\"provider:model\": \"online\"|\"down\"}."""
+        """Return per-slot health: {"connection:model": "down"|"degraded"}."""
         result: dict[str, str] = {}
         now = time.time()
         for key, failures in list(self._slot_failures.items()):
@@ -126,152 +391,98 @@ class LLMProvider:
                 result[key] = "down"
             elif recent:
                 result[key] = "degraded"
-            # no entry → online (caller infers online for missing keys)
         return result
 
     # --- Health Checks (lesson #3: always try-except) ---
 
-    async def check_lm_studio(self) -> dict[str, Any]:
+    async def check_connection(self, conn: dict[str, Any]) -> dict[str, Any]:
+        """Probe one connection's model list. Never raises."""
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{config.lm_studio_endpoint}/models")
-                resp.raise_for_status()
-                data = resp.json()
-                models = [m["id"] for m in data.get("data", [])]
-                return {"status": "online", "models": models}
-        except Exception as e:
-            return {"status": "offline", "error": str(e), "models": []}
-
-    async def check_ollama(self) -> dict[str, Any]:
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{config.ollama_endpoint}/api/tags")
-                resp.raise_for_status()
-                data = resp.json()
-                models = [m["name"] for m in data.get("models", [])]
-                return {"status": "online", "models": models}
+            models = await _adapter_for(conn).list_models(conn)
+            return {"status": "online", "models": models}
         except Exception as e:
             return {"status": "offline", "error": str(e), "models": []}
 
     async def check_health(self) -> dict[str, Any]:
-        """Check both providers and return combined status."""
-        lm = await self.check_lm_studio()
-        ol = await self.check_ollama()
-        return {"lm_studio": lm, "ollama": ol}
+        """Probe all enabled connections in parallel. Returns {conn_id: {...}}."""
+        enabled = connections.enabled()
+        results = await asyncio.gather(
+            *(self.check_connection(c) for c in enabled), return_exceptions=True
+        )
+        health: dict[str, Any] = {}
+        for conn, res in zip(enabled, results):
+            if isinstance(res, Exception):
+                health[conn["id"]] = {"status": "offline", "error": str(res), "models": []}
+            else:
+                health[conn["id"]] = res
+        return health
 
     # --- Inference ---
 
     async def stream_chat(
         self,
         messages: list[dict[str, Any]],
-        provider: str | None = None,
+        connection_id: str | None = None,
         model: str | None = None,
-        temperature: float = 0.7,
-        max_tokens: int = 2048,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         num_ctx: int | None = None,
     ) -> AsyncIterator[str]:
-        """Stream chat completion tokens. Tries LM Studio first, then Ollama.
+        """Stream chat completion tokens from a specific (connection, model).
 
-        Yields individual tokens as strings.
-
-        `messages` follows the OpenAI chat format. `content` may be either a plain
-        string OR a list of content parts for multimodal input, e.g.:
-            [{"type": "text", "text": "..."},
-             {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}]
-        Both LM Studio and Ollama accept this via /v1/chat/completions when the
-        underlying model is vision-capable.
+        Resolves the connection record from the registry and delegates to its
+        protocol adapter. Parameters are optional — omitted when ``None``.
         """
-        # Determine provider and model
-        if provider == "ollama":
-            endpoint = f"{config.ollama_endpoint}/v1"
-            model = model or config.ollama_summariser_model
-        elif provider == "lm_studio":
-            endpoint = config.lm_studio_endpoint
-            model = model or config.lm_studio_model
-        else:
-            # Auto-detect: try LM Studio first
-            lm_health = await self.check_lm_studio()
-            if lm_health["status"] == "online":
-                endpoint = config.lm_studio_endpoint
-                model = model or config.lm_studio_model
-                provider = "lm_studio"
-            else:
-                ol_health = await self.check_ollama()
-                if ol_health["status"] == "online":
-                    endpoint = f"{config.ollama_endpoint}/v1"
-                    model = model or config.ollama_summariser_model
-                    provider = "ollama"
-                else:
-                    raise ConnectionError("No LLM provider available")
+        conn = connections.get(connection_id) if connection_id else None
+        if conn is None:
+            raise ConnectionError(f"No such connection: {connection_id}")
+        if not conn.get("enable", True):
+            raise ConnectionError(f"Connection disabled: {connection_id}")
+        model = model or ""
+        if not model:
+            raise ValueError(f"No model set for connection {connection_id}")
 
-        self._active_provider = provider
-        logger.info(f"Using {provider} with model {model}")
-
-        # Build request body — OpenAI-compatible for both providers
-        body: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": True,
-        }
-
-        # Ollama supports num_ctx via options
-        if provider == "ollama" and num_ctx:
-            body["options"] = {"num_ctx": num_ctx}
+        logger.info(f"Using connection {connection_id} ({conn['type']}) model {model}")
 
         tokens_yielded = 0
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-            async with client.stream(
-                "POST",
-                f"{endpoint}/chat/completions",
-                json=body,
-                headers={"Content-Type": "application/json"},
-            ) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    payload = line[6:]
-                    if payload.strip() == "[DONE]":
-                        break
-                    try:
-                        import json
-                        chunk = json.loads(payload)
-                        delta = chunk.get("choices", [{}])[0].get("delta", {})
-                        token = delta.get("content")
-                        if token:
-                            tokens_yielded += 1
-                            yield token
-                    except (ValueError, KeyError, IndexError):
-                        continue
-        # Sprint 16 hotfix: if the stream completed cleanly with zero tokens,
-        # the model was probably evicted from LM Studio or crashed silently.
-        # Surface this in the logs so we can diagnose it without digging.
+        async for token in _adapter_for(conn).stream(
+            conn, model, messages, temperature, max_tokens, num_ctx
+        ):
+            tokens_yielded += 1
+            yield token
+
         if tokens_yielded == 0:
             logger.warning(
-                f"stream_chat produced ZERO tokens — model={model} provider={provider}. "
+                f"stream_chat produced ZERO tokens — connection={connection_id} model={model}. "
                 f"Likely model eviction, context overflow, or empty <think> block."
             )
 
     async def chat(
         self,
         messages: list[dict[str, Any]],
-        provider: str | None = None,
+        connection_id: str | None = None,
         model: str | None = None,
-        temperature: float = 0.7,
-        max_tokens: int = 2048,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        num_ctx: int | None = None,
     ) -> str:
         """Non-streaming chat completion. Returns full response."""
         full_response = ""
         async for token in self.stream_chat(
-            messages, provider=provider, model=model,
-            temperature=temperature, max_tokens=max_tokens,
+            messages, connection_id=connection_id, model=model,
+            temperature=temperature, max_tokens=max_tokens, num_ctx=num_ctx,
         ):
             full_response += token
         return full_response
 
-    # --- Fallback cascade (Sprint 17) ---
+    async def warmup(self, connection_id: str, model: str):
+        """Warm up a model on its connection (ollama only does real work)."""
+        conn = connections.get(connection_id)
+        if conn is None or not model:
+            return
+        await _adapter_for(conn).warmup(conn, model)
+
+    # --- Fallback cascade (Sprint 17, re-keyed to connection:model) ---
 
     async def stream_chat_with_fallback(
         self,
@@ -280,80 +491,70 @@ class LLMProvider:
     ) -> AsyncIterator[str]:
         """Stream tokens, trying each slot config in order until one succeeds.
 
-        Yields tokens from the first slot that produces a non-empty response.
-        If a slot yields 0 tokens or raises, it is marked as failed in the
-        circuit breaker and the next slot in the chain is tried. If all slots
-        fail, the last exception is re-raised.
-
         ``slot_configs`` is a list of dicts with keys:
-            provider, model, temperature, max_tokens, num_ctx, _slot_name
+            connection_id, model, temperature, max_tokens, num_ctx, _slot_name
         Typically built via ``build_fallback_chain(settings, primary_slot)``.
         """
         last_error: Exception | None = None
 
         for i, cfg in enumerate(slot_configs):
-            provider = cfg.get("provider", "")
+            connection_id = cfg.get("connection_id", "")
             model = cfg.get("model", "")
             slot_name = cfg.get("_slot_name", f"slot-{i}")
 
-            if self.is_slot_down(provider, model):
-                logger.info(f"Skipping {slot_name} ({provider}/{model}) — circuit breaker open")
+            if self.is_slot_down(connection_id, model):
+                logger.info(f"Skipping {slot_name} ({connection_id}/{model}) — circuit breaker open")
                 continue
 
             try:
                 tokens_yielded = 0
                 async for token in self.stream_chat(
                     messages=messages,
-                    provider=provider,
+                    connection_id=connection_id,
                     model=model,
-                    temperature=cfg.get("temperature", 0.7),
-                    max_tokens=cfg.get("max_tokens", 2048),
+                    temperature=cfg.get("temperature"),
+                    max_tokens=cfg.get("max_tokens"),
                     num_ctx=cfg.get("num_ctx"),
                 ):
                     tokens_yielded += 1
                     yield token
 
                 if tokens_yielded == 0:
-                    raise RuntimeError(f"Zero tokens from {provider}/{model}")
+                    raise RuntimeError(f"Zero tokens from {connection_id}/{model}")
 
-                # Success
-                self._mark_success(provider, model)
+                self._mark_success(connection_id, model)
                 if i > 0:
-                    failed_p = slot_configs[0].get("provider", "")
+                    failed_c = slot_configs[0].get("connection_id", "")
                     failed_m = slot_configs[0].get("model", "")
-                    logger.warning(
-                        f"{slot_name} served by fallback #{i}: {provider}/{model}"
-                    )
+                    logger.warning(f"{slot_name} served by fallback #{i}: {connection_id}/{model}")
                     self.last_fallback_event = {
                         "slot": slot_name,
-                        "failed_provider": failed_p,
+                        "failed_connection": failed_c,
                         "failed_model": failed_m,
-                        "fallback_provider": provider,
+                        "fallback_connection": connection_id,
                         "fallback_model": model,
                         "timestamp": time.time(),
                     }
-                    # Sprint 17: notify admin that slot degraded
                     asyncio.create_task(self._notify_slot_event(
-                        slot_name, failed_p, failed_m,
+                        slot_name, failed_c, failed_m,
                         str(last_error or "unknown"),
-                        fallback_provider=provider,
+                        fallback_provider=connection_id,
                         fallback_model=model,
                     ))
                 return
 
             except Exception as e:
-                self._mark_failure(provider, model)
+                self._mark_failure(connection_id, model)
                 last_error = e
                 if i < len(slot_configs) - 1:
                     next_cfg = slot_configs[i + 1]
                     logger.warning(
-                        f"{slot_name} ({provider}/{model}) failed: {e}. "
+                        f"{slot_name} ({connection_id}/{model}) failed: {e}. "
                         f"Falling back to {next_cfg.get('_slot_name', next_cfg.get('model'))}"
                     )
                 else:
                     logger.error(
-                        f"{slot_name} ({provider}/{model}) failed: {e}. "
-                        f"No more fallbacks."
+                        f"{slot_name} ({connection_id}/{model}) failed: {e}. No more fallbacks."
                     )
 
         # All slots failed — notify admin (offline, no fallback)
@@ -361,7 +562,7 @@ class LLMProvider:
             first = slot_configs[0]
             asyncio.create_task(self._notify_slot_event(
                 first.get("_slot_name", "unknown"),
-                first.get("provider", ""),
+                first.get("connection_id", ""),
                 first.get("model", ""),
                 str(last_error or "all slots exhausted"),
             ))

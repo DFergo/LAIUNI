@@ -172,21 +172,15 @@ async def describe_image(
         },
     ]
 
-    provider = settings.get("inference_provider")
-    model = settings.get("inference_model")
-    temperature = float(settings.get("inference_temperature", 0.3))
-    max_tokens = int(settings.get("inference_max_tokens", 1024))
-    num_ctx = settings.get("inference_num_ctx") if provider == "ollama" else None
-
     response = ""
     in_think = False
     async for token in llm.stream_chat(
         messages=messages,
-        provider=provider,
-        model=model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        num_ctx=num_ctx,
+        connection_id=settings.get("inference_connection"),
+        model=settings.get("inference_model"),
+        temperature=settings.get("inference_temperature"),
+        max_tokens=settings.get("inference_max_tokens"),
+        num_ctx=settings.get("inference_num_ctx"),
     ):
         response += token
         if "<think>" in response and not in_think:

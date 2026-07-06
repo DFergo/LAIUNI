@@ -1,30 +1,332 @@
 import { useState, useEffect, useRef } from 'react'
-import { getLLMHealth, getLLMSettings, updateLLMSettings, resetLLMSettings, listFrontends, getFrontendLLMSettings, updateFrontendLLMSettings, deleteFrontendLLMSettings, type LLMHealth, type LLMSettings, type Frontend } from './api'
+import {
+  getLLMHealth, getLLMSettings, updateLLMSettings, resetLLMSettings,
+  listFrontends, getFrontendLLMSettings, updateFrontendLLMSettings, deleteFrontendLLMSettings,
+  listConnections, addConnection, updateConnection, deleteConnection, getConnectionModels,
+  type LLMHealth, type LLMSettings, type LLMConnection, type ConnectionType, type Frontend,
+} from './api'
+
+type SlotKey = 'inference' | 'reporter' | 'summariser'
+
+const CONNECTION_TYPES: { value: ConnectionType; label: string }[] = [
+  { value: 'openai', label: 'OpenAI-compatible' },
+  { value: 'anthropic', label: 'Anthropic (native)' },
+  { value: 'ollama', label: 'Ollama (native)' },
+]
+
+const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none'
+
+// ---------------------------------------------------------------------------
+// Reusable slot editor: connection → model (with manual entry) + optional params
+// ---------------------------------------------------------------------------
+
+function SlotConfig({
+  slot, connections, health, settings, override, onSet,
+}: {
+  slot: SlotKey
+  connections: LLMConnection[]
+  health: LLMHealth | null
+  settings: LLMSettings
+  override?: Partial<LLMSettings>          // present → per-frontend override mode
+  onSet: (key: keyof LLMSettings, val: string | number | null) => void
+}) {
+  const isOverride = override !== undefined
+  const connKey = `${slot}_connection` as keyof LLMSettings
+  const modelKey = `${slot}_model` as keyof LLMSettings
+  const tempKey = `${slot}_temperature` as keyof LLMSettings
+  const maxKey = `${slot}_max_tokens` as keyof LLMSettings
+  const ctxKey = `${slot}_num_ctx` as keyof LLMSettings
+
+  const eff = (key: keyof LLMSettings): unknown =>
+    isOverride ? (override![key] ?? settings[key]) : settings[key]
+  const has = (key: keyof LLMSettings) => isOverride && override![key] != null
+
+  const connId = (eff(connKey) as string) || ''
+  const conn = connections.find(c => c.id === connId)
+  const allow = conn?.model_ids || []
+  const discovered = health?.connections?.[connId]?.models || []
+  const models = allow.length ? allow : discovered
+  const isAnthropic = conn?.type === 'anthropic'
+  const isOllama = conn?.type === 'ollama'
+
+  const resetLink = (key: keyof LLMSettings, globalLabel: string) =>
+    isOverride ? (
+      has(key)
+        ? <button onClick={() => onSet(key, null)} className="ml-2 text-xs text-gray-400 hover:text-uni-red">reset</button>
+        : <span className="ml-2 text-xs text-gray-400">(global: {globalLabel})</span>
+    ) : null
+
+  const numField = (key: keyof LLMSettings, label: string, help: string) => {
+    const raw = isOverride ? override![key] : settings[key]
+    const globalVal = settings[key]
+    return (
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">
+          {label}
+          {resetLink(key, globalVal == null ? 'default' : String(globalVal))}
+        </label>
+        <input
+          type="number"
+          value={raw == null ? '' : (raw as number)}
+          placeholder={isOverride ? String(globalVal ?? 'default') : 'provider default'}
+          onChange={e => onSet(key, e.target.value === '' ? null : Number(e.target.value))}
+          className={inputCls}
+        />
+        <p className="text-xs text-gray-400 mt-1">{help}</p>
+      </div>
+    )
+  }
+
+  const maxTokensHelp = isAnthropic
+    ? 'Anthropic requires a value — leave blank to apply the default (4096).'
+    : 'Leave blank for the provider/model default.'
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Connection{resetLink(connKey, String(settings[connKey]))}
+          </label>
+          <select
+            value={connId}
+            onChange={e => onSet(connKey, e.target.value)}
+            className={inputCls}
+          >
+            {!connections.some(c => c.id === connId) && connId && (
+              <option value={connId}>{connId} (missing)</option>
+            )}
+            {connections.map(c => (
+              <option key={c.id} value={c.id} disabled={!c.enable}>
+                {c.id} ({c.type}){c.enable ? '' : ' — disabled'}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Model{resetLink(modelKey, String(settings[modelKey]))}
+          </label>
+          <input
+            list={`models-${slot}-${isOverride ? 'fe' : 'g'}`}
+            value={(eff(modelKey) as string) || ''}
+            onChange={e => onSet(modelKey, e.target.value)}
+            placeholder="type or pick a model ID"
+            className={inputCls}
+          />
+          <datalist id={`models-${slot}-${isOverride ? 'fe' : 'g'}`}>
+            {models.map(m => <option key={m} value={m} />)}
+          </datalist>
+        </div>
+      </div>
+      <div className={`grid ${isOllama ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
+        {numField(tempKey, 'Temperature', '0 = deterministic, ~0.7 = balanced, >1 = creative.')}
+        {numField(maxKey, 'Max Tokens', maxTokensHelp)}
+        {isOllama && numField(ctxKey, 'Context Window (num_ctx)', 'Ollama only. Blank = model default.')}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Connections management
+// ---------------------------------------------------------------------------
+
+const blankConn: Partial<LLMConnection> = {
+  id: '', type: 'openai', base_url: '', api_key: '', prefix_id: '', model_ids: [], enable: true,
+}
+
+function ConnectionsCard({
+  connections, health, reload, refreshHealth,
+}: {
+  connections: LLMConnection[]
+  health: LLMHealth | null
+  reload: () => Promise<void>
+  refreshHealth: () => Promise<void>
+}) {
+  const [editing, setEditing] = useState<string | null>(null)  // connection id, or '__new__'
+  const [draft, setDraft] = useState<Partial<LLMConnection>>(blankConn)
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const startNew = () => { setEditing('__new__'); setDraft({ ...blankConn }); setErr('') }
+  const startEdit = (c: LLMConnection) => { setEditing(c.id); setDraft({ ...c }); setErr('') }
+  const cancel = () => { setEditing(null); setErr('') }
+
+  const save = async () => {
+    setBusy(true); setErr('')
+    try {
+      if (editing === '__new__') await addConnection(draft)
+      else await updateConnection(editing!, draft)
+      setEditing(null)
+      await reload(); await refreshHealth()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Save failed')
+    } finally { setBusy(false) }
+  }
+
+  const remove = async (id: string) => {
+    if (!confirm(`Delete connection "${id}"? Slots still pointing at it will stop working until reassigned.`)) return
+    await deleteConnection(id)
+    await reload(); await refreshHealth()
+  }
+
+  const dot = (status?: string) => status === 'online' ? 'bg-green-500' : status === 'offline' ? 'bg-red-500' : 'bg-gray-300'
+
+  return (
+    <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-800">Provider Connections</h3>
+          <p className="text-xs text-gray-400">OpenAI-compatible, Anthropic, or Ollama endpoints. Slots below pick a (connection, model) pair.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={refreshHealth} className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 font-medium">Refresh</button>
+          <button onClick={startNew} className="text-xs px-3 py-1 rounded-lg bg-uni-blue text-white font-medium hover:opacity-90">Add connection</button>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {connections.map(c => {
+          const h = health?.connections?.[c.id]
+          return (
+            <div key={c.id} className="border border-gray-200 rounded-lg px-4 py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`w-2.5 h-2.5 rounded-full ${dot(h?.status)}`} />
+                  <div>
+                    <span className="text-sm font-medium text-gray-800">{c.id}</span>
+                    <span className="text-xs text-gray-400 ml-2">{c.type} · {c.base_url}</span>
+                    {!c.enable && <span className="text-xs text-uni-red ml-2">disabled</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400">
+                    {h ? (h.status === 'online' ? `${h.models.length} model(s)` : (h.error ? 'offline' : 'offline')) : ''}
+                  </span>
+                  <button onClick={() => startEdit(c)} className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50">Edit</button>
+                  <button onClick={() => remove(c.id)} className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-400 hover:text-uni-red">Delete</button>
+                </div>
+              </div>
+
+              {editing === c.id && (
+                <ConnForm draft={draft} setDraft={setDraft} onSave={save} onCancel={cancel} busy={busy} err={err} isNew={false}
+                  onRefreshModels={async () => { await getConnectionModels(c.id); await refreshHealth() }} />
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {editing === '__new__' && (
+        <div className="border border-uni-blue/40 rounded-lg px-4 py-3 mt-2">
+          <ConnForm draft={draft} setDraft={setDraft} onSave={save} onCancel={cancel} busy={busy} err={err} isNew />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ConnForm({
+  draft, setDraft, onSave, onCancel, busy, err, isNew, onRefreshModels,
+}: {
+  draft: Partial<LLMConnection>
+  setDraft: (d: Partial<LLMConnection>) => void
+  onSave: () => void
+  onCancel: () => void
+  busy: boolean
+  err: string
+  isNew: boolean
+  onRefreshModels?: () => void
+}) {
+  const set = (k: keyof LLMConnection, v: unknown) => setDraft({ ...draft, [k]: v })
+  return (
+    <div className="mt-3 pt-3 border-t border-gray-200 space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">ID</label>
+          <input value={draft.id || ''} disabled={!isNew}
+            onChange={e => set('id', e.target.value)}
+            placeholder="e.g. openrouter, claude-prod"
+            className={`${inputCls} ${!isNew ? 'bg-gray-50 text-gray-400' : ''}`} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+          <select value={draft.type} onChange={e => set('type', e.target.value)} className={inputCls}>
+            {CONNECTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Base URL</label>
+        <input value={draft.base_url || ''} onChange={e => set('base_url', e.target.value)}
+          placeholder={draft.type === 'anthropic' ? 'https://api.anthropic.com' : draft.type === 'ollama' ? 'http://host.docker.internal:11434' : 'http://host.docker.internal:1234/v1'}
+          className={inputCls} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">API Key</label>
+          <input type="password" value={draft.api_key || ''} onChange={e => set('api_key', e.target.value)}
+            placeholder={draft.type === 'ollama' ? '(usually none)' : 'sk-...'} className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Prefix ID (optional)</label>
+          <input value={draft.prefix_id || ''} onChange={e => set('prefix_id', e.target.value)} className={inputCls} />
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Model allowlist (optional, comma-separated)</label>
+        <input value={(draft.model_ids || []).join(', ')}
+          onChange={e => set('model_ids', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+          placeholder="blank = auto-discover all models" className={inputCls} />
+      </div>
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <div className={`relative w-10 h-5 rounded-full transition-colors ${draft.enable ? 'bg-uni-blue' : 'bg-gray-300'}`}
+            onClick={() => set('enable', !draft.enable)}>
+            <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${draft.enable ? 'translate-x-5' : 'translate-x-0.5'}`} />
+          </div>
+          <span className="text-xs text-gray-600">Enabled</span>
+        </label>
+        <div className="flex-1" />
+        {onRefreshModels && <button onClick={onRefreshModels} className="text-xs text-gray-400 hover:text-uni-blue">Test / fetch models</button>}
+        <button onClick={onSave} disabled={busy} className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50">
+          {busy ? 'Saving...' : 'Save'}
+        </button>
+        <button onClick={onCancel} className="text-xs text-gray-400 hover:text-gray-600 px-2">Cancel</button>
+      </div>
+      {err && <p className="text-xs text-uni-red">{err}</p>}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main tab
+// ---------------------------------------------------------------------------
 
 export default function LLMTab() {
   const [health, setHealth] = useState<LLMHealth | null>(null)
   const [settings, setSettings] = useState<LLMSettings | null>(null)
   const [savedSettings, setSavedSettings] = useState<LLMSettings | null>(null)
+  const [connections, setConnections] = useState<LLMConnection[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const dirty = useRef(false)
 
   const refreshHealth = async () => {
-    try {
-      const h = await getLLMHealth()
-      setHealth(h)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load health')
-    }
+    try { setHealth(await getLLMHealth()) }
+    catch (err) { setError(err instanceof Error ? err.message : 'Failed to load health') }
+  }
+
+  const reloadConnections = async () => {
+    try { setConnections((await listConnections()).connections) } catch { /* ignore */ }
   }
 
   const loadAll = async () => {
     try {
-      const [h, s] = await Promise.all([getLLMHealth(), getLLMSettings()])
-      setHealth(h)
-      setSettings(s)
-      setSavedSettings(s)
+      const [h, s, c] = await Promise.all([getLLMHealth(), getLLMSettings(), listConnections()])
+      setHealth(h); setSettings(s); setSavedSettings(s); setConnections(c.connections)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
     }
@@ -32,59 +334,54 @@ export default function LLMTab() {
 
   useEffect(() => {
     loadAll()
-    // Only refresh health status periodically, not settings (avoids overwriting edits)
     const interval = setInterval(refreshHealth, 15000)
     return () => clearInterval(interval)
   }, [])
 
   const handleSave = async () => {
     if (!settings) return
-    setSaving(true)
-    setError('')
-    setSuccess('')
+    setSaving(true); setError(''); setSuccess('')
     try {
       const updated = await updateLLMSettings(settings)
-      setSettings(updated)
-      setSavedSettings(updated)
-      dirty.current = false
-      setSuccess('Settings saved')
-      setTimeout(() => setSuccess(''), 3000)
+      setSettings(updated); setSavedSettings(updated); dirty.current = false
+      setSuccess('Settings saved'); setTimeout(() => setSuccess(''), 3000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
-    } finally {
-      setSaving(false)
-    }
+    } finally { setSaving(false) }
   }
 
   const handleReset = async () => {
-    setError('')
-    setSuccess('')
+    setError(''); setSuccess('')
     try {
       const defaults = await resetLLMSettings()
-      setSettings(defaults)
-      setSavedSettings(defaults)
-      dirty.current = false
-      setSuccess('Settings reset to defaults')
-      setTimeout(() => setSuccess(''), 3000)
+      setSettings(defaults); setSavedSettings(defaults); dirty.current = false
+      setSuccess('Settings reset to defaults'); setTimeout(() => setSuccess(''), 3000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Reset failed')
     }
   }
 
   const handleDiscard = () => {
-    if (savedSettings) {
-      setSettings({ ...savedSettings })
-      dirty.current = false
-    }
+    if (savedSettings) { setSettings({ ...savedSettings }); dirty.current = false }
   }
 
-  const updateField = <K extends keyof LLMSettings>(key: K, value: LLMSettings[K]) => {
+  const setField = (key: keyof LLMSettings, value: string | number | null | boolean) => {
     if (!settings) return
     dirty.current = true
     setSettings({ ...settings, [key]: value })
   }
 
-  // Per-frontend LLM overrides
+  // Per-slot circuit-breaker badge (keyed connection:model)
+  const slotBadge = (slot: SlotKey) => {
+    if (!health?.slot_health || !settings) return null
+    const key = `${settings[`${slot}_connection`]}:${settings[`${slot}_model`]}`
+    const status = health.slot_health[key]
+    if (status === 'down') return <span className="ml-2 text-xs font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Down</span>
+    if (status === 'degraded') return <span className="ml-2 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">Degraded</span>
+    return null
+  }
+
+  // Per-frontend overrides
   const [frontends, setFrontends] = useState<Frontend[]>([])
   const [feOverrides, setFeOverrides] = useState<Record<string, Partial<LLMSettings>>>({})
   const [feOpen, setFeOpen] = useState<string | null>(null)
@@ -96,30 +393,19 @@ export default function LLMTab() {
   }, [])
 
   const toggleFeOverride = async (fid: string) => {
-    if (feOpen === fid) {
-      setFeOpen(null)
-      return
-    }
+    if (feOpen === fid) { setFeOpen(null); return }
     try {
       const { override } = await getFrontendLLMSettings(fid)
       setFeOverrides(prev => ({ ...prev, [fid]: override }))
       setFeOpen(fid)
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore */ }
   }
 
-  const updateFeField = <K extends keyof LLMSettings>(fid: string, key: K, value: LLMSettings[K]) => {
-    setFeOverrides(prev => ({
-      ...prev,
-      [fid]: { ...prev[fid], [key]: value },
-    }))
-  }
-
-  const clearFeField = (fid: string, key: keyof LLMSettings) => {
+  const setFeField = (fid: string, key: keyof LLMSettings, value: string | number | null) => {
     setFeOverrides(prev => {
       const copy = { ...prev[fid] }
-      delete copy[key]
+      if (value === null) delete copy[key]
+      else (copy as Record<string, unknown>)[key] = value
       return { ...prev, [fid]: copy }
     })
   }
@@ -127,309 +413,67 @@ export default function LLMTab() {
   const handleFeSave = async (fid: string) => {
     setFeSaving(true)
     try {
-      const override = feOverrides[fid] || {}
-      await updateFrontendLLMSettings(fid, override)
-      setFeSuccess('Saved')
-      setTimeout(() => setFeSuccess(''), 3000)
-    } catch {
-      // ignore
-    } finally {
-      setFeSaving(false)
-    }
+      await updateFrontendLLMSettings(fid, feOverrides[fid] || {})
+      setFeSuccess('Saved'); setTimeout(() => setFeSuccess(''), 3000)
+    } catch { /* ignore */ } finally { setFeSaving(false) }
   }
 
   const handleFeReset = async (fid: string) => {
     try {
       await deleteFrontendLLMSettings(fid)
       setFeOverrides(prev => ({ ...prev, [fid]: {} }))
-      setFeSuccess('Reset to global')
-      setTimeout(() => setFeSuccess(''), 3000)
-    } catch {
-      // ignore
-    }
+      setFeSuccess('Reset to global'); setTimeout(() => setFeSuccess(''), 3000)
+    } catch { /* ignore */ }
   }
 
-  const statusDot = (status: string) =>
-    status === 'online' ? 'bg-green-500' : 'bg-red-500'
+  const statusDot = (status: string) => status === 'online' ? 'bg-green-500' : 'bg-red-500'
 
-  // Sprint 17: per-slot health badge from circuit breaker
-  const slotBadge = (slotPrefix: 'inference' | 'reporter' | 'summariser') => {
-    if (!health?.slot_health || !settings) return null
-    const provider = settings[`${slotPrefix}_provider`]
-    const model = settings[`${slotPrefix}_model`]
-    const key = `${provider}:${model}`
-    const status = health.slot_health[key]
-    if (!status) return null // online (no entry = healthy)
-    if (status === 'down') {
-      return <span className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Down</span>
-    }
-    if (status === 'degraded') {
-      return <span className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">Degraded</span>
-    }
-    return null
-  }
-
-  const allModels = (provider: string): string[] => {
-    if (!health) return []
-    if (provider === 'lm_studio') return health.lm_studio.models
-    if (provider === 'ollama') return health.ollama.models
-    return []
-  }
-
-  const hint = (text: string) => (
-    <p className="text-xs text-gray-400 mt-1">{text}</p>
+  const toggle = (on: boolean, onClick: () => void) => (
+    <div className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${on ? 'bg-uni-blue' : 'bg-gray-300'}`} onClick={onClick}>
+      <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
+    </div>
   )
-
-  const modelSelector = (
-    providerKey: 'inference_provider' | 'reporter_provider' | 'summariser_provider',
-    modelKey: 'inference_model' | 'reporter_model' | 'summariser_model',
-  ) => {
-    if (!settings) return null
-    const provider = settings[providerKey]
-    const models = allModels(provider)
-    const currentModel = settings[modelKey]
-
-    // If current model isn't in the provider's list, auto-correct to first available
-    if (models.length > 0 && !models.includes(currentModel)) {
-      // Schedule update for next render to avoid updating during render
-      setTimeout(() => updateField(modelKey, models[0]), 0)
-    }
-
-    return models.length > 0 ? (
-      <select
-        value={models.includes(currentModel) ? currentModel : models[0]}
-        onChange={e => updateField(modelKey, e.target.value)}
-        className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-      >
-        {models.map(m => (
-          <option key={m} value={m}>{m}</option>
-        ))}
-      </select>
-    ) : (
-      <input
-        type="text"
-        value={currentModel}
-        onChange={e => updateField(modelKey, e.target.value)}
-        placeholder="e.g. qwen3-235b-a22b"
-        className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-      />
-    )
-  }
 
   return (
     <div className="space-y-6">
-      {/* Provider Status */}
-      <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-800">LLM Providers</h3>
-          <button
-            onClick={refreshHealth}
-            className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 font-medium transition-colors"
-          >
-            Refresh
-          </button>
-        </div>
-        {health ? (
-          <div className="grid grid-cols-2 gap-4">
-            <div className="border border-gray-200 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <div className={`w-2.5 h-2.5 rounded-full ${statusDot(health.lm_studio.status)}`} />
-                <span className="font-medium text-gray-800">LM Studio</span>
-              </div>
-              <div className="text-xs text-gray-400">
-                {health.lm_studio.status === 'online'
-                  ? `${health.lm_studio.models.length} model(s) loaded`
-                  : health.lm_studio.error || 'Offline'}
-              </div>
-            </div>
-            <div className="border border-gray-200 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <div className={`w-2.5 h-2.5 rounded-full ${statusDot(health.ollama.status)}`} />
-                <span className="font-medium text-gray-800">Ollama</span>
-              </div>
-              <div className="text-xs text-gray-400">
-                {health.ollama.status === 'online'
-                  ? `${health.ollama.models.length} model(s) available`
-                  : health.ollama.error || 'Offline'}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <p className="text-gray-400 text-sm">Loading...</p>
-        )}
-      </div>
+      <ConnectionsCard connections={connections} health={health} reload={reloadConnections} refreshHealth={refreshHealth} />
 
       {settings && (
         <>
-          {/* Inference Panel */}
+          {/* Inference */}
           <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-800 mb-1">Inference{slotBadge('inference')}</h3>
-            <p className="text-xs text-gray-400 mb-4">Main LLM that responds to users in chat conversations</p>
-
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Provider</label>
-                <select
-                  value={settings.inference_provider}
-                  onChange={e => updateField('inference_provider', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                >
-                  <option value="lm_studio">LM Studio</option>
-                  <option value="ollama">Ollama</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Model</label>
-                {modelSelector('inference_provider', 'inference_model')}
-                {settings.multimodal_enabled && hint('Image analysis is ON below — make sure this model supports vision (e.g. Gemma 3/4, Qwen2.5-VL, llava).')}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Temperature ({settings.inference_temperature})
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="2"
-                  step="0.1"
-                  value={settings.inference_temperature}
-                  onChange={e => updateField('inference_temperature', parseFloat(e.target.value))}
-                  className="w-full"
-                />
-                {hint('0 = deterministic, 0.5-0.7 = balanced, >1 = creative. Recommended: 0.7')}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Max Tokens</label>
-                <input
-                  type="number"
-                  value={settings.inference_max_tokens}
-                  onChange={e => updateField('inference_max_tokens', parseInt(e.target.value) || 2048)}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                />
-                {hint('Max response length. 1 page ≈ 400 tokens. 2048 ≈ 5 pages.')}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Context Window</label>
-                <input
-                  type="number"
-                  value={settings.inference_num_ctx}
-                  onChange={e => updateField('inference_num_ctx', parseInt(e.target.value) || 32768)}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                />
-                {hint(settings.inference_provider === 'ollama'
-                  ? 'Overrides Ollama default. Verify your model supports this context length.'
-                  : 'Set this to match the context length configured in LM Studio for the loaded model.'
-                )}
-              </div>
-            </div>
-
+            <p className="text-xs text-gray-400 mb-4">Main LLM that responds to users in chat conversations.</p>
+            <SlotConfig slot="inference" connections={connections} health={health} settings={settings} onSet={setField} />
             <div className="border-t border-gray-200 pt-4 mt-4">
               <label className="flex items-start gap-3 cursor-pointer">
-                <div
-                  className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 mt-0.5 ${settings.multimodal_enabled ? 'bg-uni-blue' : 'bg-gray-300'}`}
-                  onClick={() => updateField('multimodal_enabled', !settings.multimodal_enabled)}
-                >
-                  <div
-                    className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${settings.multimodal_enabled ? 'translate-x-5' : 'translate-x-0.5'}`}
-                  />
-                </div>
+                {toggle(settings.multimodal_enabled, () => setField('multimodal_enabled', !settings.multimodal_enabled))}
                 <div>
                   <span className="text-sm font-medium text-gray-700">Analyse uploaded images with the inference model</span>
                   <p className="text-xs text-gray-400">
-                    Only enable this if the selected inference model supports vision (e.g. Gemma 3/4, Qwen2.5-VL, llava).
-                    When on, every uploaded JPG/PNG is described by the inference model at upload time and the description is added to the case evidence.
-                    When off (default), images are stored without analysis. Image uploads are slower than text uploads.
+                    Only enable if the selected inference model supports vision (e.g. Gemma 3/4, Qwen2.5-VL, llava).
+                    When on, every uploaded JPG/PNG is described by the inference model at upload time and added to the case evidence.
+                    When off (default), images are stored without analysis.
                   </p>
                 </div>
               </label>
             </div>
           </div>
 
-          {/* Reporter Panel */}
+          {/* Reporter */}
           <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-800 mb-1">Reporter{slotBadge('reporter')}</h3>
             <p className="text-xs text-gray-400 mb-4">
-              Dedicated LLM for generating structured internal documents (case file + UNI summary).
-              Use a model specialised for long, factual, well-structured output (e.g. Qwen), while inference keeps a conversational model (e.g. Gemma).
+              Dedicated LLM for structured internal documents (case file + UNI summary). Use a model specialised for long, factual output.
             </p>
-
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Provider</label>
-                <select
-                  value={settings.reporter_provider}
-                  onChange={e => updateField('reporter_provider', e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                >
-                  <option value="lm_studio">LM Studio</option>
-                  <option value="ollama">Ollama</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Model</label>
-                {modelSelector('reporter_provider', 'reporter_model')}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Temperature ({settings.reporter_temperature})
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="2"
-                  step="0.1"
-                  value={settings.reporter_temperature}
-                  onChange={e => updateField('reporter_temperature', parseFloat(e.target.value))}
-                  className="w-full"
-                />
-                {hint('Lower = more factual, better for structured reports. Recommended: 0.2-0.4')}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Max Tokens</label>
-                <input
-                  type="number"
-                  value={settings.reporter_max_tokens}
-                  onChange={e => updateField('reporter_max_tokens', parseInt(e.target.value) || 4096)}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                />
-                {hint('Reports can be long. Recommended: 4096+')}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Context Window</label>
-                <input
-                  type="number"
-                  value={settings.reporter_num_ctx}
-                  onChange={e => updateField('reporter_num_ctx', parseInt(e.target.value) || 32768)}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                />
-                {hint(settings.reporter_provider === 'ollama'
-                  ? 'Overrides Ollama default. Verify your model supports this context length.'
-                  : 'Set this to match the context length configured in LM Studio for the loaded model.'
-                )}
-              </div>
-            </div>
-
-            <div className="border-t border-gray-200 pt-4">
+            <SlotConfig slot="reporter" connections={connections} health={health} settings={settings} onSet={setField} />
+            <div className="border-t border-gray-200 pt-4 mt-4">
               <label className="flex items-center gap-3 cursor-pointer">
-                <div
-                  className={`relative w-10 h-5 rounded-full transition-colors ${settings.use_reporter_for_user_summary ? 'bg-uni-blue' : 'bg-gray-300'}`}
-                  onClick={() => updateField('use_reporter_for_user_summary', !settings.use_reporter_for_user_summary)}
-                >
-                  <div
-                    className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${settings.use_reporter_for_user_summary ? 'translate-x-5' : 'translate-x-0.5'}`}
-                  />
-                </div>
+                {toggle(settings.use_reporter_for_user_summary, () => setField('use_reporter_for_user_summary', !settings.use_reporter_for_user_summary))}
                 <div>
                   <span className="text-sm font-medium text-gray-700">Use reporter for user-facing summary</span>
                   <p className="text-xs text-gray-400">
-                    When off (default), the user sees a summary generated by the inference model — faster and more conversational.
-                    When on, the reporter model writes the user summary too — more structured but slower.
+                    When off (default), the user summary is generated by the inference model — faster and more conversational.
                     Internal documents always use the reporter model regardless of this toggle.
                   </p>
                 </div>
@@ -437,146 +481,68 @@ export default function LLMTab() {
             </div>
           </div>
 
-          {/* Context Compression Panel */}
+          {/* Context Compression (summariser) */}
           <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
             <div className="flex items-center justify-between mb-1">
               <h3 className="text-lg font-semibold text-gray-800">Context Compression{slotBadge('summariser')}</h3>
               <label className="flex items-center gap-2 cursor-pointer">
-                <span className="text-xs text-gray-500">
-                  {settings.summariser_enabled ? 'Enabled' : 'Disabled'}
-                </span>
-                <div
-                  className={`relative w-10 h-5 rounded-full transition-colors ${settings.summariser_enabled ? 'bg-uni-blue' : 'bg-gray-300'}`}
-                  onClick={() => updateField('summariser_enabled', !settings.summariser_enabled)}
-                >
-                  <div
-                    className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${settings.summariser_enabled ? 'translate-x-5' : 'translate-x-0.5'}`}
-                  />
-                </div>
+                <span className="text-xs text-gray-500">{settings.summariser_enabled ? 'Enabled' : 'Disabled'}</span>
+                {toggle(settings.summariser_enabled, () => setField('summariser_enabled', !settings.summariser_enabled))}
               </label>
             </div>
             <p className="text-xs text-gray-400 mb-4">
-              Incrementally compresses conversation history to prevent context overflow in the inference model.
-              Uses a separate, smaller LLM to summarize older messages while preserving all names, dates, and case facts.
+              Incrementally compresses conversation history to prevent context overflow. Uses a separate, smaller LLM to summarise older messages.
               {!settings.summariser_enabled && ' When disabled, long conversations may be truncated by the inference model.'}
             </p>
-
             {settings.summariser_enabled && (
-              <>
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Provider</label>
-                    <select
-                      value={settings.summariser_provider}
-                      onChange={e => updateField('summariser_provider', e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                    >
-                      <option value="lm_studio">LM Studio</option>
-                      <option value="ollama">Ollama</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Model</label>
-                    {modelSelector('summariser_provider', 'summariser_model')}
-                    {hint('Recommended: qwen2.5:3b, phi-3.5-mini, gemma3:4b — small and fast.')}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-4 mb-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Temperature ({settings.summariser_temperature})
-                    </label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.1"
-                      value={settings.summariser_temperature}
-                      onChange={e => updateField('summariser_temperature', parseFloat(e.target.value))}
-                      className="w-full"
-                    />
-                    {hint('Lower = more factual. Recommended: 0.2-0.3')}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Context Window</label>
-                    <input
-                      type="number"
-                      value={settings.summariser_num_ctx}
-                      onChange={e => updateField('summariser_num_ctx', parseInt(e.target.value) || 8192)}
-                      className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                    />
-                    {hint(settings.summariser_provider === 'ollama'
-                      ? 'Overrides Ollama default. Verify your model supports this context length.'
-                      : 'Set this to match the context length configured in LM Studio for the compression model.'
-                    )}
-                  </div>
+              <div className="space-y-4">
+                <SlotConfig slot="summariser" connections={connections} health={health} settings={settings} onSet={setField} />
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       First Compression ({(settings.compression_first_threshold ?? 20000).toLocaleString()} tokens)
                     </label>
-                    <input
-                      type="range"
-                      min="10000"
-                      max="50000"
-                      step="5000"
+                    <input type="range" min="10000" max="50000" step="5000"
                       value={settings.compression_first_threshold ?? 20000}
-                      onChange={e => updateField('compression_first_threshold', parseInt(e.target.value))}
-                      className="w-full"
-                    />
-                    {hint('First compression triggers when context reaches this token count.')}
+                      onChange={e => setField('compression_first_threshold', parseInt(e.target.value))}
+                      className="w-full" />
+                    <p className="text-xs text-gray-400 mt-1">First compression triggers when context reaches this token count.</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Compression Step ({(settings.compression_step_size ?? 15000).toLocaleString()} tokens)
                     </label>
-                    <input
-                      type="range"
-                      min="10000"
-                      max="50000"
-                      step="5000"
+                    <input type="range" min="10000" max="50000" step="5000"
                       value={settings.compression_step_size ?? 15000}
-                      onChange={e => updateField('compression_step_size', parseInt(e.target.value))}
-                      className="w-full"
-                    />
-                    {hint(`After first compression, compress again every ${((settings.compression_step_size ?? 15000) / 1000).toFixed(0)}k tokens. Next compressions at: ${[1,2,3].map(i => ((settings.compression_first_threshold ?? 20000) + i * (settings.compression_step_size ?? 15000)) / 1000).map(v => v + 'k').join(', ')}...`)}
+                      onChange={e => setField('compression_step_size', parseInt(e.target.value))}
+                      className="w-full" />
+                    <p className="text-xs text-gray-400 mt-1">After the first, compress again every {((settings.compression_step_size ?? 15000) / 1000).toFixed(0)}k tokens.</p>
                   </div>
                 </div>
-              </>
+              </div>
             )}
           </div>
 
           {/* Actions */}
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="bg-uni-blue text-white rounded-lg px-5 py-2 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50"
-            >
+            <button onClick={handleSave} disabled={saving}
+              className="bg-uni-blue text-white rounded-lg px-5 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50">
               {saving ? 'Saving...' : 'Save Settings'}
             </button>
-            <button
-              onClick={handleDiscard}
-              className="border border-gray-300 text-gray-600 rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-gray-50"
-            >
+            <button onClick={handleDiscard} className="border border-gray-300 text-gray-600 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">
               Discard Changes
             </button>
-            <button
-              onClick={handleReset}
-              className="text-xs text-gray-400 hover:text-uni-red transition-colors px-2 py-2"
-            >
-              Reset to Defaults
-            </button>
+            <button onClick={handleReset} className="text-xs text-gray-400 hover:text-uni-red px-2 py-2">Reset to Defaults</button>
             {success && <span className="text-sm text-green-600">{success}</span>}
             {error && <span className="text-sm text-uni-red">{error}</span>}
           </div>
 
-          {/* Per-Frontend LLM Overrides */}
+          {/* Per-Frontend LLM overrides */}
           {frontends.length > 0 && (
             <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
               <h3 className="text-lg font-semibold text-gray-800 mb-1">Per-Frontend LLM</h3>
               <p className="text-xs text-gray-400 mb-4">
-                Override inference and/or reporter slots for specific frontends. Frontends without overrides use the global settings above.
+                Override slots for specific frontends. Frontends without overrides use the global settings above.
               </p>
               <div className="space-y-3">
                 {frontends.map(f => {
@@ -593,16 +559,11 @@ export default function LLMTab() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          {feOpen !== f.id && hasOverride && (
-                            <span className="text-xs text-uni-blue font-medium">Custom LLM</span>
-                          )}
-                          {feOpen !== f.id && !hasOverride && (
-                            <span className="text-xs text-gray-400">Using global</span>
-                          )}
-                          <button
-                            onClick={() => toggleFeOverride(f.id)}
-                            className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium transition-colors"
-                          >
+                          {feOpen !== f.id && (hasOverride
+                            ? <span className="text-xs text-uni-blue font-medium">Custom LLM</span>
+                            : <span className="text-xs text-gray-400">Using global</span>)}
+                          <button onClick={() => toggleFeOverride(f.id)}
+                            className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium">
                             {feOpen === f.id ? 'Close' : 'Configure'}
                           </button>
                         </div>
@@ -612,222 +573,20 @@ export default function LLMTab() {
                         <div className="mt-4 pt-4 border-t border-gray-200 space-y-4">
                           <div>
                             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Inference</div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">
-                                Provider
-                                {override.inference_provider
-                                  ? <button onClick={() => clearFeField(f.id, 'inference_provider')} className="ml-2 text-xs text-gray-400 hover:text-uni-red">reset</button>
-                                  : <span className="ml-2 text-xs text-gray-400">(global: {settings.inference_provider})</span>
-                                }
-                              </label>
-                              <select
-                                value={override.inference_provider ?? settings.inference_provider}
-                                onChange={e => updateFeField(f.id, 'inference_provider', e.target.value)}
-                                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                              >
-                                <option value="lm_studio">LM Studio</option>
-                                <option value="ollama">Ollama</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">
-                                Model
-                                {override.inference_model
-                                  ? <button onClick={() => clearFeField(f.id, 'inference_model')} className="ml-2 text-xs text-gray-400 hover:text-uni-red">reset</button>
-                                  : <span className="ml-2 text-xs text-gray-400">(global: {settings.inference_model})</span>
-                                }
-                              </label>
-                              {(() => {
-                                const provider = override.inference_provider ?? settings.inference_provider
-                                const models = allModels(provider)
-                                const current = override.inference_model ?? settings.inference_model
-                                return models.length > 0 ? (
-                                  <select
-                                    value={models.includes(current) ? current : models[0]}
-                                    onChange={e => updateFeField(f.id, 'inference_model', e.target.value)}
-                                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                                  >
-                                    {models.map(m => (
-                                      <option key={m} value={m}>{m}</option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <input
-                                    type="text"
-                                    value={current}
-                                    onChange={e => updateFeField(f.id, 'inference_model', e.target.value)}
-                                    placeholder="e.g. qwen3-235b-a22b"
-                                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                                  />
-                                )
-                              })()}
-                            </div>
+                            <SlotConfig slot="inference" connections={connections} health={health} settings={settings}
+                              override={override} onSet={(k, v) => setFeField(f.id, k, v as string | number | null)} />
                           </div>
-                          <div className="grid grid-cols-3 gap-3">
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">
-                                Temperature ({(override.inference_temperature ?? settings.inference_temperature)})
-                                {override.inference_temperature != null
-                                  ? <button onClick={() => clearFeField(f.id, 'inference_temperature')} className="ml-1 text-xs text-gray-400 hover:text-uni-red">reset</button>
-                                  : null
-                                }
-                              </label>
-                              <input
-                                type="range" min="0" max="2" step="0.1"
-                                value={override.inference_temperature ?? settings.inference_temperature}
-                                onChange={e => updateFeField(f.id, 'inference_temperature', parseFloat(e.target.value))}
-                                className="w-full"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">
-                                Max Tokens
-                                {override.inference_max_tokens != null
-                                  ? <button onClick={() => clearFeField(f.id, 'inference_max_tokens')} className="ml-1 text-xs text-gray-400 hover:text-uni-red">reset</button>
-                                  : null
-                                }
-                              </label>
-                              <input
-                                type="number"
-                                value={override.inference_max_tokens ?? settings.inference_max_tokens}
-                                onChange={e => updateFeField(f.id, 'inference_max_tokens', parseInt(e.target.value) || 2048)}
-                                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">
-                                Context Window
-                                {override.inference_num_ctx != null
-                                  ? <button onClick={() => clearFeField(f.id, 'inference_num_ctx')} className="ml-1 text-xs text-gray-400 hover:text-uni-red">reset</button>
-                                  : null
-                                }
-                              </label>
-                              <input
-                                type="number"
-                                value={override.inference_num_ctx ?? settings.inference_num_ctx}
-                                onChange={e => updateFeField(f.id, 'inference_num_ctx', parseInt(e.target.value) || 32768)}
-                                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                              />
-                            </div>
-                          </div>
-                          </div>
-
                           <div className="pt-3 border-t border-gray-100">
                             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Reporter</div>
-                            <div className="grid grid-cols-2 gap-3">
-                              <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">
-                                  Provider
-                                  {override.reporter_provider
-                                    ? <button onClick={() => clearFeField(f.id, 'reporter_provider')} className="ml-2 text-xs text-gray-400 hover:text-uni-red">reset</button>
-                                    : <span className="ml-2 text-xs text-gray-400">(global: {settings.reporter_provider})</span>
-                                  }
-                                </label>
-                                <select
-                                  value={override.reporter_provider ?? settings.reporter_provider}
-                                  onChange={e => updateFeField(f.id, 'reporter_provider', e.target.value)}
-                                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                                >
-                                  <option value="lm_studio">LM Studio</option>
-                                  <option value="ollama">Ollama</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">
-                                  Model
-                                  {override.reporter_model
-                                    ? <button onClick={() => clearFeField(f.id, 'reporter_model')} className="ml-2 text-xs text-gray-400 hover:text-uni-red">reset</button>
-                                    : <span className="ml-2 text-xs text-gray-400">(global: {settings.reporter_model})</span>
-                                  }
-                                </label>
-                                {(() => {
-                                  const provider = override.reporter_provider ?? settings.reporter_provider
-                                  const models = allModels(provider)
-                                  const current = override.reporter_model ?? settings.reporter_model
-                                  return models.length > 0 ? (
-                                    <select
-                                      value={models.includes(current) ? current : models[0]}
-                                      onChange={e => updateFeField(f.id, 'reporter_model', e.target.value)}
-                                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                                    >
-                                      {models.map(m => (
-                                        <option key={m} value={m}>{m}</option>
-                                      ))}
-                                    </select>
-                                  ) : (
-                                    <input
-                                      type="text"
-                                      value={current}
-                                      onChange={e => updateFeField(f.id, 'reporter_model', e.target.value)}
-                                      placeholder="e.g. qwen3-235b-a22b"
-                                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                                    />
-                                  )
-                                })()}
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-3 gap-3 mt-3">
-                              <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">
-                                  Temperature ({(override.reporter_temperature ?? settings.reporter_temperature)})
-                                  {override.reporter_temperature != null
-                                    ? <button onClick={() => clearFeField(f.id, 'reporter_temperature')} className="ml-1 text-xs text-gray-400 hover:text-uni-red">reset</button>
-                                    : null
-                                  }
-                                </label>
-                                <input
-                                  type="range" min="0" max="2" step="0.1"
-                                  value={override.reporter_temperature ?? settings.reporter_temperature}
-                                  onChange={e => updateFeField(f.id, 'reporter_temperature', parseFloat(e.target.value))}
-                                  className="w-full"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">
-                                  Max Tokens
-                                  {override.reporter_max_tokens != null
-                                    ? <button onClick={() => clearFeField(f.id, 'reporter_max_tokens')} className="ml-1 text-xs text-gray-400 hover:text-uni-red">reset</button>
-                                    : null
-                                  }
-                                </label>
-                                <input
-                                  type="number"
-                                  value={override.reporter_max_tokens ?? settings.reporter_max_tokens}
-                                  onChange={e => updateFeField(f.id, 'reporter_max_tokens', parseInt(e.target.value) || 4096)}
-                                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">
-                                  Context Window
-                                  {override.reporter_num_ctx != null
-                                    ? <button onClick={() => clearFeField(f.id, 'reporter_num_ctx')} className="ml-1 text-xs text-gray-400 hover:text-uni-red">reset</button>
-                                    : null
-                                  }
-                                </label>
-                                <input
-                                  type="number"
-                                  value={override.reporter_num_ctx ?? settings.reporter_num_ctx}
-                                  onChange={e => updateFeField(f.id, 'reporter_num_ctx', parseInt(e.target.value) || 32768)}
-                                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                                />
-                              </div>
-                            </div>
+                            <SlotConfig slot="reporter" connections={connections} health={health} settings={settings}
+                              override={override} onSet={(k, v) => setFeField(f.id, k, v as string | number | null)} />
                           </div>
-
                           <div className="flex items-center gap-3">
-                            <button
-                              onClick={() => handleFeSave(f.id)}
-                              disabled={feSaving}
-                              className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
-                            >
+                            <button onClick={() => handleFeSave(f.id)} disabled={feSaving}
+                              className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50">
                               {feSaving ? 'Saving...' : 'Save Override'}
                             </button>
-                            <button
-                              onClick={() => handleFeReset(f.id)}
-                              className="text-xs text-gray-400 hover:text-uni-red transition-colors px-2"
-                            >
+                            <button onClick={() => handleFeReset(f.id)} className="text-xs text-gray-400 hover:text-uni-red px-2">
                               Remove Override (use global)
                             </button>
                             {feSuccess && feOpen === f.id && <span className="text-xs text-green-600">{feSuccess}</span>}

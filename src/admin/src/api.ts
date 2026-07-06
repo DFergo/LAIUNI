@@ -76,31 +76,49 @@ export async function removeFrontend(id: string): Promise<void> {
 
 // --- LLM API ---
 
+export type ConnectionType = 'openai' | 'anthropic' | 'ollama'
+
+export interface LLMConnection {
+  id: string
+  type: ConnectionType
+  base_url: string
+  api_key: string
+  prefix_id: string
+  model_ids: string[]
+  enable: boolean
+}
+
+export interface ConnectionHealth {
+  status: string
+  models: string[]
+  error?: string
+}
+
 export interface LLMHealth {
-  lm_studio: { status: string; models: string[]; error?: string }
-  ollama: { status: string; models: string[]; error?: string }
+  connections: Record<string, ConnectionHealth>
   slot_health?: Record<string, string>
 }
 
+// Parameters are optional overrides — null/absent means "provider default".
 export interface LLMSettings {
-  inference_provider: string
+  inference_connection: string
   inference_model: string
-  inference_temperature: number
-  inference_max_tokens: number
-  inference_num_ctx: number
-  reporter_provider: string
+  inference_temperature: number | null
+  inference_max_tokens: number | null
+  inference_num_ctx: number | null
+  reporter_connection: string
   reporter_model: string
-  reporter_temperature: number
-  reporter_max_tokens: number
-  reporter_num_ctx: number
+  reporter_temperature: number | null
+  reporter_max_tokens: number | null
+  reporter_num_ctx: number | null
   use_reporter_for_user_summary: boolean
   multimodal_enabled: boolean
   summariser_enabled: boolean
-  summariser_provider: string
+  summariser_connection: string
   summariser_model: string
-  summariser_temperature: number
-  summariser_max_tokens: number
-  summariser_num_ctx: number
+  summariser_temperature: number | null
+  summariser_max_tokens: number | null
+  summariser_num_ctx: number | null
   compression_threshold: number
   compression_first_threshold: number
   compression_step_size: number
@@ -112,6 +130,28 @@ export async function getLLMHealth(): Promise<LLMHealth> {
 
 export async function getLLMModels(): Promise<LLMHealth> {
   return request('/admin/llm/models');
+}
+
+// --- Provider connections ---
+
+export async function listConnections(): Promise<{ connections: LLMConnection[] }> {
+  return request('/admin/llm/connections');
+}
+
+export async function addConnection(data: Partial<LLMConnection>): Promise<LLMConnection> {
+  return request('/admin/llm/connections', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function updateConnection(id: string, data: Partial<LLMConnection>): Promise<LLMConnection> {
+  return request(`/admin/llm/connections/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export async function deleteConnection(id: string): Promise<{ deleted: string }> {
+  return request(`/admin/llm/connections/${id}`, { method: 'DELETE' });
+}
+
+export async function getConnectionModels(id: string): Promise<{ connection_id: string } & ConnectionHealth> {
+  return request(`/admin/llm/connections/${id}/models`);
 }
 
 export async function getLLMSettings(): Promise<LLMSettings> {
