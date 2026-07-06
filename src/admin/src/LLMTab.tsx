@@ -31,6 +31,7 @@ function SlotConfig({
   onSet: (key: keyof LLMSettings, val: string | number | null) => void
 }) {
   const isOverride = override !== undefined
+  const [manualModel, setManualModel] = useState(false)  // user forced manual model entry
   const connKey = `${slot}_connection` as keyof LLMSettings
   const modelKey = `${slot}_model` as keyof LLMSettings
   const tempKey = `${slot}_temperature` as keyof LLMSettings
@@ -46,6 +47,11 @@ function SlotConfig({
   const allow = conn?.model_ids || []
   const discovered = health?.connections?.[connId]?.models || []
   const models = allow.length ? allow : discovered
+  const currentModel = (eff(modelKey) as string) || ''
+  const modelInList = models.includes(currentModel)
+  // Manual text entry: forced by the user, or unavoidable (no models discovered,
+  // or the current value isn't in the discovered list).
+  const useManual = models.length === 0 || manualModel || (currentModel !== '' && !modelInList)
   const isAnthropic = conn?.type === 'anthropic'
   const isOllama = conn?.type === 'ollama'
 
@@ -107,16 +113,31 @@ function SlotConfig({
           <label className="block text-xs font-medium text-gray-600 mb-1">
             Model{resetLink(modelKey, String(settings[modelKey]))}
           </label>
-          <input
-            list={`models-${slot}-${isOverride ? 'fe' : 'g'}`}
-            value={(eff(modelKey) as string) || ''}
-            onChange={e => onSet(modelKey, e.target.value)}
-            placeholder="type or pick a model ID"
-            className={inputCls}
-          />
-          <datalist id={`models-${slot}-${isOverride ? 'fe' : 'g'}`}>
-            {models.map(m => <option key={m} value={m} />)}
-          </datalist>
+          {models.length > 0 && (
+            <select
+              value={modelInList && !useManual ? currentModel : '__manual__'}
+              onChange={e => {
+                if (e.target.value === '__manual__') setManualModel(true)
+                else { setManualModel(false); onSet(modelKey, e.target.value) }
+              }}
+              className={inputCls}
+            >
+              {models.map(m => <option key={m} value={m}>{m}</option>)}
+              <option value="__manual__">✏️ Enter manually…</option>
+            </select>
+          )}
+          {useManual && (
+            <input
+              type="text"
+              value={currentModel}
+              onChange={e => onSet(modelKey, e.target.value)}
+              placeholder="model ID"
+              className={`${inputCls} ${models.length > 0 ? 'mt-2' : ''}`}
+            />
+          )}
+          {models.length === 0 && (
+            <p className="text-xs text-gray-400 mt-1">No models discovered — enter the ID manually.</p>
+          )}
         </div>
       </div>
       <div className={`grid ${isOllama ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
