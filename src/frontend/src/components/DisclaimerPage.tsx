@@ -1,3 +1,5 @@
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { t } from '../i18n'
 import type { LangCode, BrandingConfig } from '../types'
 
@@ -10,9 +12,10 @@ interface Props {
 }
 
 export default function DisclaimerPage({ lang, onAccept, onBack, branding, dataProtectionEmail }: Props) {
-  // Replace [DATA_PROTECTION_EMAIL] placeholder in legal text
-  const legalBody = (branding?.disclaimer_text || t('disclaimer_legal_body', lang))
-    .replace('[DATA_PROTECTION_EMAIL]', dataProtectionEmail || 'dataprotection@uniglobalunion.org')
+  const email = dataProtectionEmail || 'dataprotection@uniglobalunion.org'
+  // Custom disclaimer text is the WHOLE page (headings + body), authored in
+  // Markdown; when set it replaces the default sections entirely.
+  const custom = (branding?.disclaimer_text || '').replace('[DATA_PROTECTION_EMAIL]', email)
 
   return (
     <div className="max-w-4xl mx-auto mt-8 p-6">
@@ -21,23 +24,31 @@ export default function DisclaimerPage({ lang, onAccept, onBack, branding, dataP
           <img src={branding?.logo_url || '/uni-logo.png'} alt="UNI Global Union" className="h-[7.5rem]" />
         </div>
 
-        {/* Section 1: What Is This Tool? */}
-        <h2 className="text-xl font-semibold text-gray-800 mb-3">{t('disclaimer_what_heading', lang)}</h2>
-        <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-line mb-6">
-          {t('disclaimer_what_body', lang)}
-        </div>
+        {custom ? (
+          <div className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-p:text-gray-600 prose-li:text-gray-600 prose-strong:text-gray-800 mb-6">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{custom}</ReactMarkdown>
+          </div>
+        ) : (
+          <>
+            {/* Section 1: What Is This Tool? */}
+            <h2 className="text-xl font-semibold text-gray-800 mb-3">{t('disclaimer_what_heading', lang)}</h2>
+            <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-line mb-6">
+              {t('disclaimer_what_body', lang)}
+            </div>
 
-        {/* Section 2: How Your Data Is Handled */}
-        <h2 className="text-xl font-semibold text-gray-800 mb-3">{t('disclaimer_data_heading', lang)}</h2>
-        <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-line mb-6">
-          {t('disclaimer_data_body', lang)}
-        </div>
+            {/* Section 2: How Your Data Is Handled */}
+            <h2 className="text-xl font-semibold text-gray-800 mb-3">{t('disclaimer_data_heading', lang)}</h2>
+            <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-line mb-6">
+              {t('disclaimer_data_body', lang)}
+            </div>
 
-        {/* Section 3: Disclaimer (legal) */}
-        <h2 className="text-xl font-semibold text-gray-800 mb-3">{t('disclaimer_legal_heading', lang)}</h2>
-        <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-line mb-6">
-          {legalBody}
-        </div>
+            {/* Section 3: Disclaimer (legal) */}
+            <h2 className="text-xl font-semibold text-gray-800 mb-3">{t('disclaimer_legal_heading', lang)}</h2>
+            <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-line mb-6">
+              {t('disclaimer_legal_body', lang).replace('[DATA_PROTECTION_EMAIL]', email)}
+            </div>
+          </>
+        )}
 
         <button
           onClick={onAccept}

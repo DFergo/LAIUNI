@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, retranslateBranding, listDeletedFrontends, restoreFrontend, type Frontend, type BrandingConfig } from './api'
 import FrontendConfigPanel from './FrontendConfigPanel'
+import { DEFAULT_DISCLAIMER_MD, DEFAULT_INSTRUCTIONS_MD } from './brandingDefaults'
 
 export default function FrontendsTab() {
   const [frontends, setFrontends] = useState<Frontend[]>([])
@@ -284,23 +285,31 @@ export default function FrontendsTab() {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Disclaimer text (overrides default)</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-medium text-gray-600">Disclaimer page (Markdown — whole page, headings included)</label>
+                        <button type="button" onClick={() => setBranding({ ...branding, disclaimer_text: DEFAULT_DISCLAIMER_MD })}
+                          className="text-xs text-uni-blue hover:underline">Load default template</button>
+                      </div>
                       <textarea
                         value={branding.disclaimer_text}
                         onChange={e => setBranding({ ...branding, disclaimer_text: e.target.value })}
-                        rows={3}
-                        placeholder="Leave empty for default disclaimer"
-                        className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none resize-none"
+                        rows={10}
+                        placeholder="Leave empty for the default disclaimer page. Use ## for headings. [DATA_PROTECTION_EMAIL] is substituted at render time."
+                        className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Instructions text (overrides default for all roles)</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-medium text-gray-600">Instructions page (Markdown — whole page, overrides default for all roles)</label>
+                        <button type="button" onClick={() => setBranding({ ...branding, instructions_text: DEFAULT_INSTRUCTIONS_MD })}
+                          className="text-xs text-uni-blue hover:underline">Load default template</button>
+                      </div>
                       <textarea
                         value={branding.instructions_text}
                         onChange={e => setBranding({ ...branding, instructions_text: e.target.value })}
-                        rows={3}
-                        placeholder="Leave empty for default instructions"
-                        className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none resize-none"
+                        rows={10}
+                        placeholder="Leave empty for the default instructions page. Use ## for headings."
+                        className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
                       />
                     </div>
                     <div className="flex items-center gap-3">
