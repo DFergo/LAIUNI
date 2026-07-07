@@ -159,7 +159,7 @@ export default function FrontendConfigPanel({ frontendId }: { frontendId: string
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Data protection email</label>
           <input value={config.data_protection_email || ''} onChange={e => set({ data_protection_email: e.target.value })}
-            placeholder="blank = use SMTP sender address" className={inputCls} />
+            placeholder="blank = use the global SMTP data-protection email" className={inputCls} />
         </div>
       </div>
 

@@ -104,10 +104,15 @@ async def _push_config_to_sidecar(frontend_id: str):
     if not fe or not fe.get("enabled"):
         return
     config = load_config(frontend_id)
+    # Effective data-protection email: per-frontend override → SMTP dedicated
+    # field → SMTP sender address. (Multi-sector deploys: a sector may own its
+    # own data-protection contact.)
     if not config.get("data_protection_email"):
         try:
             from src.services.smtp_service import _load_config as _load_smtp
-            config = {**config, "data_protection_email": _load_smtp().get("from_address", "")}
+            smtp = _load_smtp()
+            resolved = smtp.get("data_protection_email") or smtp.get("from_address", "")
+            config = {**config, "data_protection_email": resolved}
         except Exception:
             pass
     try:

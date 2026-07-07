@@ -38,6 +38,7 @@ def _load_config() -> dict[str, Any]:
         "password": "",
         "use_tls": True,
         "from_address": "",
+        "data_protection_email": "",
         "notification_emails": [],
         "notify_on_report": False,
         "send_summary_to_user": False,

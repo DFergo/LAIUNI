@@ -414,6 +414,7 @@ export interface SMTPConfig {
   password: string
   use_tls: boolean
   from_address: string
+  data_protection_email: string
   notification_emails: string[]
   notify_on_report: boolean
   send_summary_to_user: boolean

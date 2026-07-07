@@ -31,7 +31,7 @@ By continuing, you acknowledge that:
 
 - This tool is provided by UNI Global Union for informational and documentation purposes only. It does not constitute legal advice.
 - The AI system may produce inaccurate or incomplete information. UNI Global Union is not liable for errors in AI-generated content.
-- Your data is processed in accordance with the EU General Data Protection Regulation (GDPR). You have the right to access, rectify, or request deletion of your personal data at any time by contacting UNI Global Union at [DATA_PROTECTION_EMAIL].
+- Your data is processed in accordance with the EU General Data Protection Regulation (GDPR).
 - Session data is retained for the period necessary to process your case and is deleted thereafter, unless you request earlier deletion.
 - You may withdraw your consent to data processing at any time. Withdrawal does not affect the lawfulness of processing carried out before withdrawal.`
 

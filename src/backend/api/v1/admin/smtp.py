@@ -26,6 +26,7 @@ _DEFAULTS = {
     "password": "",
     "use_tls": True,
     "from_address": "",
+    "data_protection_email": "",
     "notification_emails": [],
     "notify_on_report": False,
     "send_summary_to_user": False,
@@ -65,6 +66,7 @@ class SMTPConfigRequest(BaseModel):
     password: str | None = None
     use_tls: bool | None = None
     from_address: str | None = None
+    data_protection_email: str | None = None
     notification_emails: list[str] | None = None
     notify_on_report: bool | None = None
     send_summary_to_user: bool | None = None

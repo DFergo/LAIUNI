@@ -45,10 +45,16 @@ export default function DisclaimerPage({ lang, onAccept, onBack, branding, dataP
             {/* Section 3: Disclaimer (legal) */}
             <h2 className="text-xl font-semibold text-gray-800 mb-3">{t('disclaimer_legal_heading', lang)}</h2>
             <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-line mb-6">
-              {t('disclaimer_legal_body', lang).replace('[DATA_PROTECTION_EMAIL]', email)}
+              {t('disclaimer_legal_body', lang)}
             </div>
           </>
         )}
+
+        {/* Fixed data-rights line (i18n, safely translated) — the email is
+            substituted here so it never depends on the editable/LLM-translated text. */}
+        <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-line mb-6">
+          {t('disclaimer_data_rights', lang).replace('[DATA_PROTECTION_EMAIL]', email)}
+        </div>
 
         <button
           onClick={onAccept}
