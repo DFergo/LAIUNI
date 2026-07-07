@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from src.api.v1.admin.auth import require_admin
 from src.core.config import config
+from src.core.paths import LLM_SETTINGS, PROMPTS_DIR, CAMPAIGNS_DIR
 from src.services.connection_registry import connections
 from src.services.llm_provider import llm
 
@@ -23,8 +24,8 @@ logger = logging.getLogger("backend.admin.llm")
 
 router = APIRouter(prefix="/admin/llm", tags=["admin-llm"])
 
-# LLM settings persist to /app/data/llm_settings.json
-_SETTINGS_PATH = Path("/app/data/llm_settings.json")
+# LLM settings persist under DATA_DIR/config/ (Sprint 24 layout)
+_SETTINGS_PATH = LLM_SETTINGS
 
 _SLOT_PREFIXES = ["inference", "reporter", "summariser", "translation"]
 
@@ -87,7 +88,12 @@ def _migrate_provider_keys(data: dict[str, Any]) -> dict[str, Any]:
 
 def _load_settings() -> dict[str, Any]:
     if _SETTINGS_PATH.exists():
-        data = json.loads(_SETTINGS_PATH.read_text())
+        try:
+            data = json.loads(_SETTINGS_PATH.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            # §0.7: reject-with-log, don't crash on a malformed structured file
+            logger.error(f"Malformed llm_settings.json rejected, using defaults: {e}")
+            return dict(_DEFAULTS)
         data = _migrate_provider_keys(data)
         # Ensure all keys exist (new fields added over time)
         for key, val in _DEFAULTS.items():
@@ -107,7 +113,7 @@ def get_llm_settings(frontend_id: str = "") -> dict[str, Any]:
     global_settings = _load_settings()
     if not frontend_id:
         return global_settings
-    fe_path = Path(f"/app/data/campaigns/{frontend_id}/llm_settings.json")
+    fe_path = CAMPAIGNS_DIR / frontend_id / "llm_settings.json"
     if not fe_path.exists():
         return global_settings
     try:
@@ -125,7 +131,7 @@ def get_llm_settings(frontend_id: str = "") -> dict[str, Any]:
 
 def get_frontend_llm_override(frontend_id: str) -> dict[str, Any]:
     """Get raw per-frontend LLM override (only overridden fields)."""
-    fe_path = Path(f"/app/data/campaigns/{frontend_id}/llm_settings.json")
+    fe_path = CAMPAIGNS_DIR / frontend_id / "llm_settings.json"
     if fe_path.exists():
         try:
             return _migrate_provider_keys(json.loads(fe_path.read_text()))
@@ -136,7 +142,7 @@ def get_frontend_llm_override(frontend_id: str) -> dict[str, Any]:
 
 def save_frontend_llm_override(frontend_id: str, override: dict[str, Any]):
     """Save per-frontend LLM override."""
-    campaign_dir = Path(f"/app/data/campaigns/{frontend_id}")
+    campaign_dir = CAMPAIGNS_DIR / frontend_id
     campaign_dir.mkdir(parents=True, exist_ok=True)
     fe_path = campaign_dir / "llm_settings.json"
     tmp = fe_path.with_suffix(".tmp")
@@ -146,7 +152,7 @@ def save_frontend_llm_override(frontend_id: str, override: dict[str, Any]):
 
 def delete_frontend_llm_override(frontend_id: str):
     """Remove per-frontend LLM override (revert to global)."""
-    fe_path = Path(f"/app/data/campaigns/{frontend_id}/llm_settings.json")
+    fe_path = CAMPAIGNS_DIR / frontend_id / "llm_settings.json"
     if fe_path.exists():
         fe_path.unlink()
 
@@ -322,7 +328,7 @@ async def reset_settings(_: dict = Depends(require_admin)):
 
 # --- Translation prompt (Sprint 20; disk source-of-truth per REFACTOR §0.7) ---
 
-_TRANSLATE_PROMPT_PATH = Path("/app/data/prompts/translate.md")
+_TRANSLATE_PROMPT_PATH = PROMPTS_DIR / "translate.md"
 _TRANSLATE_PROMPT_BUNDLED = Path(__file__).parent.parent.parent.parent / "prompts" / "translate.md"
 
 

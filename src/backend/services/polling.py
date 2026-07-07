@@ -23,6 +23,7 @@ from typing import Any
 
 import httpx
 
+from src.core.paths import PROMPTS_DIR
 from src.services.frontend_registry import registry
 from src.services.llm_provider import llm
 from src.services.prompt_assembler import assemble_system_prompt
@@ -438,15 +439,15 @@ async def _finalize_session(
         role = session.get("survey", {}).get("role", "worker") if session else "worker"
         prompt_file = f"session_summary_{role}.md"
 
-        # Try /app/data/prompts first (custom), then built-in defaults
-        summary_prompt_path = f"/app/data/prompts/{prompt_file}"
+        # Try the global prompts dir first (custom), then built-in defaults
+        summary_prompt_path = str(PROMPTS_DIR / prompt_file)
         if not os.path.exists(summary_prompt_path):
             summary_prompt_path = os.path.join(
                 os.path.dirname(os.path.dirname(__file__)), "prompts", prompt_file
             )
         # Fallback to generic if profile-specific doesn't exist
         if not os.path.exists(summary_prompt_path):
-            summary_prompt_path = "/app/data/prompts/session_summary.md"
+            summary_prompt_path = str(PROMPTS_DIR / "session_summary.md")
             if not os.path.exists(summary_prompt_path):
                 summary_prompt_path = os.path.join(
                     os.path.dirname(os.path.dirname(__file__)), "prompts", "session_summary.md"
@@ -642,7 +643,7 @@ async def _generate_document(
     import os
 
     # Load prompt
-    prompt_path = f"/app/data/prompts/{prompt_file}"
+    prompt_path = str(PROMPTS_DIR / prompt_file)
     if not os.path.exists(prompt_path):
         prompt_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "prompts", prompt_file

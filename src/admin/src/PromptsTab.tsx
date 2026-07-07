@@ -360,6 +360,13 @@ export default function PromptsTab() {
                 <div className="flex items-center gap-3">
                   {dirty && <span className="text-xs text-gray-400">Unsaved changes</span>}
                   <button
+                    onClick={() => selected && (!dirty || confirm('Reload from disk and discard unsaved changes?')) && selectPrompt(selected)}
+                    className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50"
+                    title="Re-read this prompt from disk (picks up edits made directly on the server)"
+                  >
+                    Reload from disk
+                  </button>
+                  <button
                     onClick={handleResetPrompt}
                     className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50"
                     title={mode === 'per_frontend' ? 'Reset this prompt to the global version' : 'Reset this prompt to the factory default'}

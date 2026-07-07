@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, retranslateBranding, listDeletedFrontends, restoreFrontend, type Frontend, type BrandingConfig } from './api'
+import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, retranslateBranding, listDeletedFrontends, restoreFrontend, exportGlobalConfig, importGlobalConfig, type Frontend, type BrandingConfig } from './api'
 import FrontendConfigPanel from './FrontendConfigPanel'
 import { DEFAULT_DISCLAIMER_MD, DEFAULT_INSTRUCTIONS_MD } from './brandingDefaults'
 
@@ -28,6 +28,21 @@ export default function FrontendsTab() {
   const handleRestore = async (fid: string) => {
     await restoreFrontend(fid)
     await refresh()
+  }
+
+  const [globalMsg, setGlobalMsg] = useState('')
+  const handleImportGlobal = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!confirm('Import global config? This overwrites prompts, knowledge, connections, SMTP and other global settings. Restart the backend afterwards to reload registry-backed config.')) return
+    setGlobalMsg('Importing…')
+    try {
+      const r = await importGlobalConfig(file)
+      setGlobalMsg(r.note || 'Global config imported')
+    } catch (err) {
+      setGlobalMsg(err instanceof Error ? err.message : 'Import failed')
+    }
   }
 
   useEffect(() => {
@@ -355,6 +370,20 @@ export default function FrontendsTab() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Global config backup (Sprint 24) */}
+      <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-1">Global Config Backup</h3>
+        <p className="text-xs text-gray-400 mb-4">Export or restore the global <code>config/</code> (prompts, knowledge, connections, SMTP, …) as a ZIP. RAG indexes are rebuilt, not shipped.</p>
+        <div className="flex items-center gap-2">
+          <button onClick={() => exportGlobalConfig()} className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-50">Export global config</button>
+          <label className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-50 cursor-pointer">
+            Import global config
+            <input type="file" accept=".zip" className="hidden" onChange={handleImportGlobal} />
+          </label>
+          {globalMsg && <span className="text-xs text-gray-600">{globalMsg}</span>}
+        </div>
       </div>
 
       {/* Recently deleted (soft-delete, recoverable) */}

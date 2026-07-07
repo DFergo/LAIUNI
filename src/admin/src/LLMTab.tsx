@@ -370,6 +370,17 @@ export default function LLMTab() {
     }
   }
 
+  const handleReloadTranslatePrompt = async () => {
+    if (translatePrompt !== translatePromptSaved && !confirm('Reload from disk and discard unsaved changes?')) return
+    try {
+      const { prompt } = await getTranslationPrompt()
+      setTranslatePrompt(prompt); setTranslatePromptSaved(prompt)
+      setTranslatePromptMsg('Reloaded from disk'); setTimeout(() => setTranslatePromptMsg(''), 3000)
+    } catch (err) {
+      setTranslatePromptMsg(err instanceof Error ? err.message : 'Reload failed')
+    }
+  }
+
   useEffect(() => {
     loadAll()
     const interval = setInterval(refreshHealth, 15000)
@@ -600,6 +611,7 @@ export default function LLMTab() {
                 >
                   Save Prompt
                 </button>
+                <button onClick={handleReloadTranslatePrompt} className="text-xs text-gray-500 hover:text-uni-blue" title="Re-read from disk (picks up edits made on the server)">Reload from disk</button>
                 {translatePrompt !== translatePromptSaved && (
                   <button onClick={() => setTranslatePrompt(translatePromptSaved)} className="text-xs text-gray-400 hover:text-gray-600">Discard</button>
                 )}

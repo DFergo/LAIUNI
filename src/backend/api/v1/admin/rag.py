@@ -22,10 +22,11 @@ MAX_FILE_SIZE = config.file_max_size_mb * 1024 * 1024
 
 
 def _docs_dir(frontend_id: str | None = None) -> Path:
+    from src.core.paths import DOCUMENTS_DIR, CAMPAIGNS_DIR
     if frontend_id:
-        path = Path(f"/app/data/campaigns/{frontend_id}/documents")
+        path = CAMPAIGNS_DIR / frontend_id / "documents"
     else:
-        path = Path("/app/data/documents")
+        path = DOCUMENTS_DIR
     path.mkdir(parents=True, exist_ok=True)
     return path
 

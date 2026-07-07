@@ -9,6 +9,11 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
+# Sprint 24: migrate the on-disk layout into config/ BEFORE any registry/service
+# loads its files (the registries read at import time, just below).
+from src.core.paths import migrate_layout
+migrate_layout()
+
 from src.api.v1.admin.auth import router as auth_router
 from src.api.v1.admin.frontends import router as frontends_router
 from src.api.v1.admin.llm import router as llm_router, fe_router as llm_fe_router
@@ -19,6 +24,7 @@ from src.api.v1.admin.smtp import router as smtp_router
 from src.api.v1.admin.contacts import router as contacts_router
 from src.api.v1.admin.knowledge import router as knowledge_router
 from src.api.v1.admin.knowledge import ensure_defaults as ensure_knowledge_defaults
+from src.api.v1.admin.portability import router as portability_router
 from src.core.config import config
 from src.services.polling import polling_loop
 from src.services.session_lifecycle import lifecycle_loop
@@ -66,6 +72,7 @@ app.include_router(rag_router)
 app.include_router(smtp_router)
 app.include_router(contacts_router)
 app.include_router(knowledge_router)
+app.include_router(portability_router)
 
 # Admin SPA static files
 ADMIN_DIST = Path("/app/admin/dist")

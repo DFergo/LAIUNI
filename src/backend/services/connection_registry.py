@@ -22,9 +22,7 @@ from src.core.config import config
 
 logger = logging.getLogger("backend.connections")
 
-DATA_DIR = Path(os.environ.get("HRDD_DATA_DIR", "/app/data"))
-CONFIG_DIR = DATA_DIR / "config"
-CONNECTIONS_FILE = CONFIG_DIR / "connections.json"
+from src.core.paths import CONFIG_DIR, CONNECTIONS as CONNECTIONS_FILE
 
 VALID_TYPES = {"openai", "anthropic", "ollama"}
 

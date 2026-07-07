@@ -17,6 +17,41 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+async function downloadZip(path: string, filename: string): Promise<void> {
+  const token = localStorage.getItem('hrdd_admin_token');
+  const res = await fetch(`${API_BASE}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw new Error(`Export failed (HTTP ${res.status})`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+  a.remove(); URL.revokeObjectURL(url);
+}
+
+async function uploadZip<T>(path: string, file: File): Promise<T> {
+  const token = localStorage.getItem('hrdd_admin_token');
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({ detail: 'Import failed' }));
+    throw new Error(b.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// --- Export / import (Sprint 24) ---
+export const exportFrontend = (fid: string, name: string) => downloadZip(`/admin/export/frontend/${fid}`, `frontend-${name || fid}.zip`);
+export const exportGlobalConfig = () => downloadZip('/admin/export/global', 'global-config.zip');
+export const importFrontend = (fid: string, file: File) => uploadZip<{ imported: boolean }>(`/admin/import/frontend/${fid}`, file);
+export const importFrontendFolder = (fid: string, path: string): Promise<{ imported: boolean }> =>
+  request(`/admin/import/frontend/${fid}/from-folder`, { method: 'POST', body: JSON.stringify({ path }) });
+export const importGlobalConfig = (file: File) => uploadZip<{ imported: boolean; note?: string }>('/admin/import/global', file);
+
 export async function getAdminStatus(): Promise<{ setup_complete: boolean }> {
   return request('/admin/status');
 }

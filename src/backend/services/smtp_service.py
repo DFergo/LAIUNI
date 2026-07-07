@@ -15,9 +15,10 @@ import aiosmtplib
 
 logger = logging.getLogger("backend.smtp")
 
-_SETTINGS_PATH = Path("/app/data/smtp_config.json")
-_AUTHORIZED_EMAILS_PATH = Path("/app/data/authorized_emails.json")  # legacy — migrated on first load
-_AUTHORIZED_CONTACTS_PATH = Path("/app/data/authorized_contacts.json")
+from src.core.paths import SMTP_CONFIG, AUTHORIZED_CONTACTS, CONFIG_DIR, CAMPAIGNS_DIR
+_SETTINGS_PATH = SMTP_CONFIG
+_AUTHORIZED_EMAILS_PATH = CONFIG_DIR / "authorized_emails.json"  # legacy — migrated on first load
+_AUTHORIZED_CONTACTS_PATH = AUTHORIZED_CONTACTS
 
 # Contact schema — keys on every contact record
 _CONTACT_FIELDS = ("email", "first_name", "last_name", "organization", "country", "sector", "registered_by")
@@ -393,7 +394,7 @@ async def send_auth_code(email: str, code: str, language: str = "en") -> bool:
 
 # --- Notification recipients ---
 
-_CAMPAIGNS_DIR = Path("/app/data/campaigns")
+_CAMPAIGNS_DIR = CAMPAIGNS_DIR
 
 def _resolve_notification_recipients(frontend_id: str = "") -> list[str]:
     """Resolve notification recipients: per-frontend list + global fallback."""

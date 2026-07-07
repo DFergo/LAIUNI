@@ -19,7 +19,7 @@ logger = logging.getLogger("backend.admin.knowledge")
 
 router = APIRouter(prefix="/admin/knowledge", tags=["admin-knowledge"])
 
-_KNOWLEDGE_DIR = Path("/app/data/knowledge")
+from src.core.paths import KNOWLEDGE_DIR as _KNOWLEDGE_DIR
 _DEFAULTS_DIR = Path(__file__).parent.parent.parent.parent / "knowledge"
 
 

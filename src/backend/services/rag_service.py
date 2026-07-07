@@ -1,8 +1,8 @@
 """RAG service — document indexing and retrieval via LlamaIndex.
 
-Indexes documents from /app/data/documents/ using sentence-transformers embeddings.
-Persists the vector index to /app/data/rag_index/.
-Sprint 8h: Per-campaign indexes in /app/data/campaigns/{frontend_id}/.
+Indexes documents from DATA_DIR/config/documents/ using sentence-transformers embeddings.
+Persists the vector index to the configured rag_index path.
+Sprint 8h: Per-campaign indexes in DATA_DIR/campaigns/{frontend_id}/.
 Provides get_relevant_chunks(query, top_k, frontend_id) for prompt injection.
 """
 
@@ -12,6 +12,7 @@ import threading
 from pathlib import Path
 
 from src.core.config import config
+from src.core.paths import DOCUMENTS_DIR
 
 logger = logging.getLogger("backend.rag")
 
@@ -27,7 +28,7 @@ _campaign_lock = threading.Lock()
 
 
 def _docs_dir() -> Path:
-    path = Path("/app/data/documents")
+    path = DOCUMENTS_DIR
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -240,6 +241,25 @@ def set_campaign_rag_config(frontend_id: str, include_global_rag: bool) -> dict:
     config_path.write_text(json.dumps(data))
     logger.info(f"Campaign RAG config for {frontend_id}: include_global={include_global_rag}")
     return data
+
+
+def reindex_campaign(frontend_id: str) -> None:
+    """Drop and rebuild a campaign's RAG index (Sprint 24: after ZIP import).
+
+    The index is not shipped in bundles — only the source documents — so it is
+    removed and rebuilt from the imported documents.
+    """
+    import shutil
+    idx = _campaign_index_dir(frontend_id)
+    if idx.exists():
+        shutil.rmtree(idx, ignore_errors=True)
+    with _campaign_lock:
+        _campaign_indexes.pop(frontend_id, None)
+    try:
+        _load_or_build_campaign_index(frontend_id)
+        logger.info(f"Reindexed campaign RAG for {frontend_id}")
+    except Exception as e:
+        logger.warning(f"Campaign reindex for {frontend_id} failed (will lazy-build): {e}")
 
 
 def _load_or_build_campaign_index(frontend_id: str):

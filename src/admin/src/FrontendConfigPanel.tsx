@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getFrontendConfig, updateFrontendConfig, type FrontendConfig } from './api'
+import { getFrontendConfig, updateFrontendConfig, exportFrontend, importFrontend, importFrontendFolder, type FrontendConfig } from './api'
 
 // The four wired profiles and their wired mode sets (display-only names are overridable).
 const PROFILES = ['worker', 'representative', 'organizer', 'officer'] as const
@@ -37,6 +37,26 @@ export default function FrontendConfigPanel({ frontendId }: { frontendId: string
   const [config, setConfig] = useState<FrontendConfig | null>(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+  const [folderPath, setFolderPath] = useState('')
+  const [portMsg, setPortMsg] = useState('')
+
+  const reload = () => getFrontendConfig(frontendId).then(({ config }) => setConfig(config)).catch(() => {})
+
+  const handleImportZip = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setPortMsg('Importing…')
+    try { await importFrontend(frontendId, file); reload(); setPortMsg('Imported (RAG reindexed, config pushed)') }
+    catch (err) { setPortMsg(err instanceof Error ? err.message : 'Import failed') }
+  }
+
+  const handleImportFolder = async () => {
+    if (!folderPath.trim()) return
+    setPortMsg('Importing…')
+    try { await importFrontendFolder(frontendId, folderPath.trim()); reload(); setPortMsg('Imported from folder') }
+    catch (err) { setPortMsg(err instanceof Error ? err.message : 'Import failed') }
+  }
 
   useEffect(() => {
     getFrontendConfig(frontendId).then(({ config }) => setConfig(config)).catch(() => {})
@@ -161,6 +181,25 @@ export default function FrontendConfigPanel({ frontendId }: { frontendId: string
           <input value={config.data_protection_email || ''} onChange={e => set({ data_protection_email: e.target.value })}
             placeholder="blank = use the global SMTP data-protection email" className={inputCls} />
         </div>
+      </div>
+
+      {/* Export / import (Sprint 24) */}
+      <div className="pt-3 border-t border-gray-100">
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Export / Import</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={() => exportFrontend(frontendId, frontendId)}
+            className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-50">Export ZIP</button>
+          <label className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-50 cursor-pointer">
+            Import ZIP
+            <input type="file" accept=".zip" className="hidden" onChange={handleImportZip} />
+          </label>
+          <input value={folderPath} onChange={e => setFolderPath(e.target.value)}
+            placeholder="/path/to/campaign folder (bind-mount)" className={`${inputCls} flex-1 min-w-[12rem]`} />
+          <button onClick={handleImportFolder} disabled={!folderPath.trim()}
+            className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-50 disabled:opacity-50">Import folder</button>
+        </div>
+        <p className="text-xs text-gray-400 mt-1">RAG indexes aren't shipped — they're rebuilt on import. Import overwrites this frontend's config/branding/prompts/RAG source.</p>
+        {portMsg && <p className="text-xs text-gray-600 mt-1">{portMsg}</p>}
       </div>
 
       <div className="flex items-center gap-3">

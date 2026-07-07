@@ -9,10 +9,8 @@ from typing import Any
 
 logger = logging.getLogger("backend.registry")
 
-DATA_DIR = Path(os.environ.get("HRDD_DATA_DIR", "/app/data"))
-REGISTRY_FILE = DATA_DIR / "frontends.json"
-CAMPAIGNS_DIR = DATA_DIR / "campaigns"
-DELETED_DIR = DATA_DIR / "deleted"
+from src.core.paths import DATA_DIR, FRONTENDS, CAMPAIGNS_DIR, DELETED_DIR, CONFIG_DIR
+REGISTRY_FILE = FRONTENDS  # Sprint 24: config/ layout
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +112,7 @@ class FrontendRegistry:
 
     def _save(self):
         """Atomic write: write to temp file, then rename (lesson #5)."""
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         tmp = REGISTRY_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(self._frontends, indent=2))
         tmp.rename(REGISTRY_FILE)

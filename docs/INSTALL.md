@@ -51,6 +51,32 @@ The only deploy-time input is the **host port**, set with the required `FRONTEND
 
 `config/deployment_frontend.json` is a minimal generic marker (`{"role": "frontend"}`); behaviour comes from the backend-pushed config, not this file.
 
+### 2.3 Storage layout & portability
+
+All backend state lives under **`DATA_DIR` (`/app/data`)** with a clean layout:
+
+```
+/app/data/
+├── config/            # global: prompts/, knowledge/, documents/ (RAG source),
+│                      #   llm_settings.json, connections.json, smtp.json,
+│                      #   authorized_contacts.json, prompt_mode.json, frontends.json
+├── sessions/{token}/  # conversation, summary/report, uploads, evidence
+├── campaigns/{fid}/   # everything for one frontend: config, branding, prompts, RAG source
+├── deleted/{fid}/     # soft-deleted, recoverable
+├── .admin_hash        # secret
+└── .jwt_secret        # secret
+```
+
+**Mount choice (no code difference):**
+- **Named volume** (default, VPS/headless): `hrdd-data:/app/data` — as shipped.
+- **Bind mount** (local machine, files editable in Finder): edit `docker-compose.backend.yml` to `- /host/path:/app/data`.
+
+Upgrading from an older layout: on first start the backend **migrates** legacy root files into `config/` automatically (non-destructive, logged).
+
+**Export / import (admin → Frontends tab):**
+- Per frontend: **Export ZIP** / **Import ZIP** (or **Import folder** when bind-mounted) of its `campaigns/{fid}/` — config, branding, translations, prompts, RAG source. RAG indexes are **not** shipped; they are rebuilt on import.
+- **Global Config Backup:** export/import the whole `config/`. After a global import, **restart the backend** so registry-backed config (frontends, connections) reloads.
+
 ---
 
 ## 3. Build and Run

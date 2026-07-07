@@ -10,32 +10,32 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from src.core.config import config
+from src.core.paths import PROMPTS_DIR, PROMPT_MODE, CAMPAIGNS_DIR
 
 logger = logging.getLogger("backend.prompts")
 
 # Default prompts shipped with the app — copied to data dir on first run
 _DEFAULTS_DIR = Path(__file__).parent.parent / "prompts"
 
-# Prompt mode config file
-_PROMPT_MODE_PATH = Path("/app/data/prompt_mode.json")
+# Prompt mode config file (Sprint 24: config/ layout)
+_PROMPT_MODE_PATH = PROMPT_MODE
 
 
 def _prompts_dir(frontend_id: str | None = None) -> Path:
     """Resolve prompts directory based on prompt mode and frontend_id."""
     mode = get_prompt_mode()
     if mode == "per_frontend" and frontend_id:
-        campaign_dir = Path(f"/app/data/campaigns/{frontend_id}/prompts")
+        campaign_dir = CAMPAIGNS_DIR / frontend_id / "prompts"
         if campaign_dir.exists() and any(campaign_dir.glob("*.md")):
             return campaign_dir
         # Fallback to global if frontend has no custom prompts yet
         logger.debug(f"No custom prompts for frontend {frontend_id}, using global")
-    return Path(config.prompts_path)
+    return PROMPTS_DIR
 
 
 def _global_prompts_dir() -> Path:
     """Always return the global prompts directory (for admin, defaults, etc.)."""
-    return Path(config.prompts_path)
+    return PROMPTS_DIR
 
 
 def get_prompt_mode() -> str:
@@ -62,7 +62,7 @@ def set_prompt_mode(mode: str) -> str:
 def copy_global_to_frontend(frontend_id: str) -> int:
     """Copy all global prompts to a frontend's campaign directory. Returns count."""
     global_dir = _global_prompts_dir()
-    campaign_dir = Path(f"/app/data/campaigns/{frontend_id}/prompts")
+    campaign_dir = CAMPAIGNS_DIR / frontend_id / "prompts"
     campaign_dir.mkdir(parents=True, exist_ok=True)
     count = 0
     for src_file in global_dir.glob("*.md"):
@@ -76,7 +76,7 @@ def copy_global_to_frontend(frontend_id: str) -> int:
 
 def delete_frontend_prompts(frontend_id: str) -> int:
     """Delete all custom prompts for a frontend. Returns count deleted."""
-    campaign_dir = Path(f"/app/data/campaigns/{frontend_id}/prompts")
+    campaign_dir = CAMPAIGNS_DIR / frontend_id / "prompts"
     if not campaign_dir.exists():
         return 0
     count = 0
@@ -89,7 +89,7 @@ def delete_frontend_prompts(frontend_id: str) -> int:
 
 def frontend_has_custom_prompts(frontend_id: str) -> bool:
     """Check if a frontend has any custom prompt files."""
-    campaign_dir = Path(f"/app/data/campaigns/{frontend_id}/prompts")
+    campaign_dir = CAMPAIGNS_DIR / frontend_id / "prompts"
     return campaign_dir.exists() and any(campaign_dir.glob("*.md"))
 
 
@@ -103,7 +103,7 @@ def reset_prompt_to_default(name: str, frontend_id: str | None = None) -> str:
         raise ValueError("Invalid prompt name")
     if frontend_id:
         src = _global_prompts_dir() / name
-        dst_dir = Path(f"/app/data/campaigns/{frontend_id}/prompts")
+        dst_dir = CAMPAIGNS_DIR / frontend_id / "prompts"
     else:
         src = _DEFAULTS_DIR / name
         dst_dir = _global_prompts_dir()

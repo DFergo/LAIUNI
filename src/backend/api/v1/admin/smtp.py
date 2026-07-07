@@ -17,7 +17,8 @@ logger = logging.getLogger("backend.admin.smtp")
 
 router = APIRouter(prefix="/admin/smtp", tags=["admin-smtp"])
 
-_SETTINGS_PATH = Path("/app/data/smtp_config.json")
+from src.core.paths import SMTP_CONFIG
+_SETTINGS_PATH = SMTP_CONFIG
 
 _DEFAULTS = {
     "host": "",

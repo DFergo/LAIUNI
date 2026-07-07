@@ -13,6 +13,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from src.core.paths import PROMPTS_DIR
+
 logger = logging.getLogger("backend.evidence")
 
 # Session-specific RAG indices (in-memory, keyed by token)
@@ -84,7 +86,7 @@ async def summarise_document(text: str, filename: str, settings: dict[str, Any])
     """
     from src.services.llm_provider import llm, build_fallback_chain
 
-    prompt_path = Path("/app/data/prompts/evidence_summary.md")
+    prompt_path = PROMPTS_DIR / "evidence_summary.md"
     if not prompt_path.exists():
         prompt_path = Path(__file__).parent.parent / "prompts" / "evidence_summary.md"
 
@@ -147,7 +149,7 @@ async def describe_image(
             f"({MAX_IMAGE_BYTES_FOR_VISION} bytes)"
         )
 
-    prompt_path = Path("/app/data/prompts/image_description.md")
+    prompt_path = PROMPTS_DIR / "image_description.md"
     if not prompt_path.exists():
         prompt_path = Path(__file__).parent.parent / "prompts" / "image_description.md"
     if prompt_path.exists():
