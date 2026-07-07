@@ -2,10 +2,44 @@ import { useState, useEffect } from 'react'
 import {
   listPrompts, readPrompt, savePrompt,
   getPromptMode, setPromptMode,
-  copyPromptsToFrontend, deleteFrontendPrompts,
-  listFrontends,
-  type PromptFile, type Frontend
+  copyPromptsToFrontend, deleteFrontendPrompts, listCustomPromptFrontends,
+  listFrontends, getFrontendConfig,
+  type PromptFile, type Frontend, type FrontendConfig
 } from './api'
+
+// Sprint 23 scoping: map a prompt filename to the profile/mode it belongs to.
+// Role/mode-specific prompts are shown only when active on the frontend; all
+// other (shared) prompts are always shown.
+const MODE_TO_SUFFIX: Record<string, string> = {
+  documentation: 'document', interview: 'interview', advisory: 'advisory', submit: 'submit', training: 'training',
+}
+const WIRED_MODES: Record<string, string[]> = {
+  organizer: ['documentation', 'interview', 'advisory', 'submit'],
+  officer: ['documentation', 'interview', 'advisory', 'submit', 'training'],
+}
+
+function promptVisible(name: string, cfg: FrontendConfig | null): boolean {
+  if (!cfg) return true
+  const profiles = cfg.profiles || []
+  const activeSuffixes = (role: string): string[] => {
+    const m = (cfg.modes?.[role] && cfg.modes[role].length > 0) ? cfg.modes[role] : (WIRED_MODES[role] || [])
+    return m.map(mode => MODE_TO_SUFFIX[mode]).filter(Boolean)
+  }
+  const base = name.replace(/\.md$/, '')
+
+  if (base === 'worker') return profiles.includes('worker')
+  if (base === 'worker_representative') return profiles.includes('representative')
+  for (const role of ['organizer', 'officer']) {
+    if (base.startsWith(role + '_')) {
+      if (!profiles.includes(role)) return false
+      return activeSuffixes(role).includes(base.slice(role.length + 1))
+    }
+  }
+  const ss = base.match(/^session_summary_(worker|representative|organizer|officer)$/)
+  if (ss) return profiles.includes(ss[1])
+
+  return true  // shared prompts (core, context_template, evidence_summary, …)
+}
 
 export default function PromptsTab() {
   const [categories, setCategories] = useState<Record<string, PromptFile[]>>({})
@@ -21,6 +55,11 @@ export default function PromptsTab() {
   const [mode, setMode] = useState<'global' | 'per_frontend'>('global')
   const [frontends, setFrontends] = useState<Frontend[]>([])
   const [selectedFrontend, setSelectedFrontend] = useState<string>('')
+  const [feConfig, setFeConfig] = useState<FrontendConfig | null>(null)  // Sprint 23 scoping
+
+  const loadFeConfig = async (fid: string) => {
+    try { const { config } = await getFrontendConfig(fid); setFeConfig(config) } catch { setFeConfig(null) }
+  }
 
   useEffect(() => {
     loadInitial()
@@ -36,6 +75,7 @@ export default function PromptsTab() {
       setFrontends(feData.frontends)
       if (modeData.mode === 'per_frontend' && feData.frontends.length > 0) {
         setSelectedFrontend(feData.frontends[0].id)
+        await loadFeConfig(feData.frontends[0].id)
         await loadPrompts(feData.frontends[0].id)
       } else {
         await loadPrompts()
@@ -97,15 +137,33 @@ export default function PromptsTab() {
     const newMode = mode === 'global' ? 'per_frontend' : 'global'
     setError('')
     setSuccess('')
+
+    // Sprint 23 guard: switching per_frontend → global stops every frontend
+    // with a custom set from using it. Confirm, naming the affected frontends.
+    if (newMode === 'global') {
+      try {
+        const { frontends: custom } = await listCustomPromptFrontends()
+        if (custom.length > 0) {
+          const names = custom.map(f => f.name).join(', ')
+          if (!confirm(
+            `Switching to Global will make these frontends STOP using their custom prompts and use the shared global set instead: ${names}.\n\n` +
+            `Their custom prompt files are kept on disk but ignored. Continue?`
+          )) return
+        }
+      } catch { /* if the check fails, fall through — the switch itself is non-destructive on disk */ }
+    }
+
     try {
       await setPromptMode(newMode)
       setMode(newMode)
       if (newMode === 'per_frontend' && frontends.length > 0) {
         setSelectedFrontend(frontends[0].id)
+        await loadFeConfig(frontends[0].id)
         await loadPrompts(frontends[0].id)
         setSuccess('Switched to Per Frontend. Global prompts copied to frontends without custom sets.')
       } else {
         setSelectedFrontend('')
+        setFeConfig(null)
         await loadPrompts()
         setSuccess('Switched to Global. All frontends now use the same prompts.')
       }
@@ -119,6 +177,7 @@ export default function PromptsTab() {
     setSelectedFrontend(fid)
     setError('')
     setSuccess('')
+    await loadFeConfig(fid)
     await loadPrompts(fid)
   }
 
@@ -137,7 +196,12 @@ export default function PromptsTab() {
 
   const handleDeleteCustom = async () => {
     if (!selectedFrontend) return
-    if (!confirm('Delete all custom prompts for this frontend? It will revert to global prompts.')) return
+    const feName = frontends.find(f => f.id === selectedFrontend)?.name || selectedFrontend
+    const count = Object.values(categories).reduce((n, files) => n + files.length, 0)
+    if (!confirm(
+      `Delete all ${count} custom prompt(s) for frontend "${feName}"?\n\n` +
+      `This permanently removes its custom set; the frontend reverts to the global prompts. This cannot be undone.`
+    )) return
     setError('')
     try {
       const result = await deleteFrontendPrompts(selectedFrontend)
@@ -155,6 +219,12 @@ export default function PromptsTab() {
   }
 
   const dirty = content !== originalContent
+
+  // Sprint 23: scope the list to the frontend's active profiles/modes (per_frontend
+  // mode with a loaded config); global mode (feConfig null) shows everything.
+  const visibleCategories = Object.entries(categories)
+    .map(([cat, files]) => [cat, files.filter(f => promptVisible(f.name, feConfig))] as [string, PromptFile[]])
+    .filter(([, files]) => files.length > 0)
 
   if (loading) return <p className="text-gray-400 text-sm">Loading...</p>
 
@@ -217,7 +287,7 @@ export default function PromptsTab() {
       <div className="flex gap-6 h-[calc(100vh-280px)]">
         {/* Left: file list */}
         <div className="w-72 flex-shrink-0 overflow-y-auto">
-          {Object.entries(categories).map(([category, files]) => (
+          {visibleCategories.map(([category, files]) => (
             <div key={category} className="mb-4">
               <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-2">
                 {category}

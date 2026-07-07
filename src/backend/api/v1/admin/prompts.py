@@ -97,6 +97,18 @@ async def update_mode(req: PromptModeRequest, _: dict = Depends(require_admin)):
     return {"mode": new_mode}
 
 
+@router.get("/custom-frontends")
+async def list_custom_prompt_frontends(_: dict = Depends(require_admin)):
+    """Frontends that currently have a custom prompt set (Sprint 23 guard)."""
+    from src.services.frontend_registry import registry
+    out = [
+        {"id": fe["id"], "name": fe.get("name", fe["id"])}
+        for fe in registry.list_all()
+        if frontend_has_custom_prompts(fe["id"])
+    ]
+    return {"frontends": out}
+
+
 @router.post("/copy-to-frontend/{frontend_id}")
 async def copy_to_frontend(frontend_id: str, _: dict = Depends(require_admin)):
     """Copy global prompts to a frontend's campaign directory."""

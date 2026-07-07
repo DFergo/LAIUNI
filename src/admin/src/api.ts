@@ -263,6 +263,10 @@ export async function deleteFrontendPrompts(frontendId: string): Promise<{ front
   return request(`/admin/prompts/frontend/${frontendId}`, { method: 'DELETE' });
 }
 
+export async function listCustomPromptFrontends(): Promise<{ frontends: { id: string; name: string }[] }> {
+  return request('/admin/prompts/custom-frontends');
+}
+
 export async function listPrompts(frontendId?: string): Promise<PromptsResponse> {
   const qs = frontendId ? `?frontend_id=${frontendId}` : '';
   return request(`/admin/prompts${qs}`);
