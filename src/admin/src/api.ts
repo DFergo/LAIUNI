@@ -402,6 +402,27 @@ export async function updateLifecycleSettings(frontendId: string, config: Lifecy
   });
 }
 
+// --- Sprint 25: purge + per-profile resume windows ---
+
+export interface ResumeWindows {
+  worker: number
+  representative: number
+  organizer: number
+  officer: number
+}
+
+export async function purgeFrontendSessions(frontendId: string): Promise<{ frontend_id: string; purged: number }> {
+  return request(`/admin/sessions/purge/${frontendId}`, { method: 'POST' });
+}
+
+export async function getResumeWindows(): Promise<ResumeWindows> {
+  return request('/admin/sessions/resume-windows');
+}
+
+export async function updateResumeWindows(windows: ResumeWindows): Promise<ResumeWindows> {
+  return request('/admin/sessions/resume-windows', { method: 'PUT', body: JSON.stringify(windows) });
+}
+
 // --- RAG API ---
 
 export interface RAGDocument {

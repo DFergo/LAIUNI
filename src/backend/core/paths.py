@@ -37,6 +37,7 @@ FRONTENDS = CONFIG_DIR / "frontends.json"
 KNOWLEDGE_DIR = CONFIG_DIR / "knowledge"
 PROMPTS_DIR = CONFIG_DIR / "prompts"
 DOCUMENTS_DIR = CONFIG_DIR / "documents"  # global RAG source docs
+RESUME_WINDOWS = CONFIG_DIR / "resume_windows.json"  # per-profile session resume window
 
 # Secrets + runtime state (root — not admin-editable "navigable config")
 ADMIN_HASH = DATA_DIR / ".admin_hash"

@@ -60,6 +60,37 @@ async def update_lifecycle(frontend_id: str, config: LifecycleConfig, _: dict = 
     return {"frontend_id": frontend_id, "config": settings[frontend_id]}
 
 
+# --- Per-profile resume window (Sprint 25; distinct from auto-close) ---
+
+class ResumeWindows(BaseModel):
+    worker: int = 48
+    representative: int = 48
+    organizer: int = 120
+    officer: int = 120
+
+
+@router.get("/resume-windows")
+async def get_resume_windows(_: dict = Depends(require_admin)):
+    from src.services.session_lifecycle import load_resume_windows
+    return load_resume_windows()
+
+
+@router.put("/resume-windows")
+async def put_resume_windows(windows: ResumeWindows, _: dict = Depends(require_admin)):
+    from src.services.session_lifecycle import save_resume_windows
+    save_resume_windows(windows.model_dump())
+    return windows.model_dump()
+
+
+# --- Purge (Sprint 25): permanently delete a frontend's non-active sessions ---
+
+@router.post("/purge/{frontend_id}")
+async def purge_frontend_sessions(frontend_id: str, _: dict = Depends(require_admin)):
+    """Permanently delete from disk all non-active sessions of a frontend."""
+    count = store.purge_frontend_sessions(frontend_id)
+    return {"frontend_id": frontend_id, "purged": count}
+
+
 @router.get("/{token}")
 async def get_session(token: str, _: dict = Depends(require_admin)):
     """Get session detail with conversation history."""

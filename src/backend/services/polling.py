@@ -743,23 +743,23 @@ async def _handle_recovery(frontend_url: str, token: str):
             logger.info(f"Recovery: {token} not found")
             return
 
-        # Check resume window (48h worker, 120h organizer)
-        # Frontend type is determined by the frontend that's asking
+        # Check the resume window — per-profile (Sprint 25): worker/rep 48h,
+        # organizer/officer 120h, configurable in the admin.
         created_at = session.get("created_at")
         if created_at:
             from datetime import datetime, timezone
+            from src.services.session_lifecycle import resume_window_for_role
             try:
                 created = datetime.fromisoformat(created_at)
                 age_hours = (datetime.now(timezone.utc) - created).total_seconds() / 3600
-                # Use a generous default window; the frontend config has the real value
-                # but we don't know which frontend type is asking.
-                # Frontend will validate its own window. Backend uses 120h (max) as safety.
-                if age_hours > 120:
+                role = session.get("survey", {}).get("role", "worker")
+                window = resume_window_for_role(role)
+                if age_hours > window:
                     await client.post(
                         f"{frontend_url}/internal/session/{token}/recovery-data",
                         json={"token": token, "status": "expired", "data": None},
                     )
-                    logger.info(f"Recovery: {token} expired ({age_hours:.0f}h)")
+                    logger.info(f"Recovery: {token} expired ({age_hours:.0f}h > {window}h for {role})")
                     return
             except Exception:
                 pass

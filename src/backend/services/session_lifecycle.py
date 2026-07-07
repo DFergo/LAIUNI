@@ -34,6 +34,34 @@ def _atomic_write_json(path: Path, data: Any):
     tmp.rename(path)
 
 
+# --- Per-profile session resume window (Sprint 25; distinct from auto-close) ---
+# How long a USER can resume a session by token. Intrinsic to the profile
+# (REFACTOR §0.3): worker/representative 48 h, organizer/officer 120 h.
+from src.core.paths import RESUME_WINDOWS
+
+DEFAULT_RESUME_WINDOWS = {"worker": 48, "representative": 48, "organizer": 120, "officer": 120}
+
+
+def load_resume_windows() -> dict[str, int]:
+    if RESUME_WINDOWS.exists():
+        try:
+            data = json.loads(RESUME_WINDOWS.read_text())
+            return {**DEFAULT_RESUME_WINDOWS, **data}
+        except Exception as e:  # §0.7: reject-with-log, don't crash
+            logger.error(f"Malformed resume_windows.json rejected, using defaults: {e}")
+    return dict(DEFAULT_RESUME_WINDOWS)
+
+
+def save_resume_windows(windows: dict[str, int]):
+    RESUME_WINDOWS.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_json(RESUME_WINDOWS, {**DEFAULT_RESUME_WINDOWS, **windows})
+
+
+def resume_window_for_role(role: str) -> int:
+    """Resume window (hours) for a session's profile; falls back to the max (120)."""
+    return load_resume_windows().get(role, 120)
+
+
 def load_lifecycle_settings() -> dict[str, dict[str, Any]]:
     """Load per-frontend lifecycle settings. Returns {frontend_id: config}."""
     if LIFECYCLE_FILE.exists():

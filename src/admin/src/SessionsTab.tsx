@@ -4,8 +4,9 @@ import remarkGfm from 'remark-gfm'
 import {
   listSessions, getSession, toggleSessionFlag, getSessionDocuments, generateDocument,
   listFrontends, getLifecycleSettings, updateLifecycleSettings,
+  purgeFrontendSessions, getResumeWindows, updateResumeWindows,
   type SessionSummary, type SessionDetail, type SessionDocuments,
-  type Frontend, type LifecycleConfig,
+  type Frontend, type LifecycleConfig, type ResumeWindows,
 } from './api'
 
 type Filter = 'all' | 'active' | 'completed' | 'flagged'
@@ -72,6 +73,9 @@ export default function SessionsTab() {
   const [lifecycleForm, setLifecycleForm] = useState<LifecycleConfig | null>(null)
   const [lifecycleSaving, setLifecycleSaving] = useState(false)
   const [lifecycleMsg, setLifecycleMsg] = useState('')
+  const [resumeWindows, setResumeWindows] = useState<ResumeWindows | null>(null)
+  const [resumeMsg, setResumeMsg] = useState('')
+  const [purgeMsg, setPurgeMsg] = useState('')
 
   const refresh = async () => {
     try {
@@ -86,10 +90,11 @@ export default function SessionsTab() {
 
   const loadLifecycle = async () => {
     try {
-      const [fData, lcData] = await Promise.all([listFrontends(), getLifecycleSettings()])
+      const [fData, lcData, rw] = await Promise.all([listFrontends(), getLifecycleSettings(), getResumeWindows()])
       setFrontends(fData.frontends)
       setLifecycleSettings(lcData.settings)
       setLifecycleDefaults(lcData.defaults)
+      setResumeWindows(rw)
       // Auto-select first frontend if none selected
       if (!selectedFrontend && fData.frontends.length > 0) {
         const fid = fData.frontends[0].id
@@ -120,6 +125,36 @@ export default function SessionsTab() {
       setError(err instanceof Error ? err.message : 'Failed to save')
     } finally {
       setLifecycleSaving(false)
+    }
+  }
+
+  const handlePurge = async () => {
+    if (!selectedFrontend) return
+    const feName = frontends.find(f => f.id === selectedFrontend)?.name || selectedFrontend
+    if (!confirm(
+      `Permanently DELETE from disk all completed/archived sessions for "${feName}"?\n\n` +
+      `Active (in-progress) sessions are spared. This removes the case files for good and CANNOT be undone.`
+    )) return
+    setPurgeMsg('Purging…')
+    try {
+      const { purged } = await purgeFrontendSessions(selectedFrontend)
+      setPurgeMsg(`Purged ${purged} session(s)`)
+      setTimeout(() => setPurgeMsg(''), 4000)
+      await refresh()
+    } catch (err) {
+      setPurgeMsg(err instanceof Error ? err.message : 'Purge failed')
+    }
+  }
+
+  const saveResumeWindows = async () => {
+    if (!resumeWindows) return
+    setResumeMsg('')
+    try {
+      const saved = await updateResumeWindows(resumeWindows)
+      setResumeWindows(saved)
+      setResumeMsg('Saved'); setTimeout(() => setResumeMsg(''), 2000)
+    } catch (err) {
+      setResumeMsg(err instanceof Error ? err.message : 'Failed to save')
     }
   }
 
@@ -482,8 +517,43 @@ export default function SessionsTab() {
                   {lifecycleSaving ? 'Saving...' : 'Save'}
                 </button>
                 {lifecycleMsg && <span className="text-xs text-green-600 font-medium">{lifecycleMsg}</span>}
+                <div className="flex-1" />
+                <button
+                  onClick={handlePurge}
+                  className="px-3 py-1.5 border border-uni-red text-uni-red text-sm font-medium rounded-lg hover:bg-red-50 transition-colors"
+                  title="Permanently delete this frontend's completed/archived session files from disk"
+                >
+                  Purge sessions
+                </button>
+                {purgeMsg && <span className="text-xs text-gray-600">{purgeMsg}</span>}
               </div>
             </>
+          )}
+
+          {/* Per-profile resume window (global; distinct from auto-close) */}
+          {resumeWindows && (
+            <div className="border-t border-gray-200 pt-4">
+              <div className="text-sm font-medium text-gray-700 mb-1">Session resume window (per profile)</div>
+              <p className="text-xs text-gray-400 mb-3">How long a user can resume a session by token. Independent of auto-close. Applies to all frontends.</p>
+              <div className="flex flex-wrap items-end gap-3">
+                {(['worker', 'representative', 'organizer', 'officer'] as const).map(role => (
+                  <div key={role}>
+                    <label className="block text-xs text-gray-500 mb-1 capitalize">{role}</label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number" min={1} max={1000}
+                        value={resumeWindows[role]}
+                        onChange={e => setResumeWindows({ ...resumeWindows, [role]: parseInt(e.target.value) || 0 })}
+                        className="w-20 px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <span className="text-xs text-gray-500">h</span>
+                    </div>
+                  </div>
+                ))}
+                <button onClick={saveResumeWindows} className="px-4 py-1.5 bg-uni-blue text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">Save</button>
+                {resumeMsg && <span className="text-xs text-green-600 font-medium">{resumeMsg}</span>}
+              </div>
+            </div>
           )}
         </div>
       )}

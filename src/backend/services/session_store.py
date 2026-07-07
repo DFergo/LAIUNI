@@ -318,6 +318,49 @@ class SessionStore:
         """Remove a session from cache (disk files kept for audit)."""
         self._cache.pop(token, None)
 
+    def purge_frontend_sessions(self, frontend_id: str) -> int:
+        """Permanently DELETE from disk all non-active sessions of a frontend.
+
+        Sprint 25: the admin-facing purge. Scans the sessions dir (so it also
+        catches archived/soft-deleted sessions that are not in the cache).
+        Active (in-progress) sessions are spared. Irreversible.
+        """
+        import shutil
+        base = _sessions_dir()
+        if not base.exists():
+            return 0
+        count = 0
+        for d in list(base.iterdir()):
+            if not d.is_dir() or not (d / "session.json").exists():
+                continue
+            try:
+                meta = json.loads((d / "session.json").read_text())
+            except Exception:
+                continue
+            if meta.get("frontend_id", "") == frontend_id and meta.get("status") != "active":
+                shutil.rmtree(d, ignore_errors=True)
+                self._cache.pop(d.name, None)
+                count += 1
+        logger.info(f"Purged {count} sessions for frontend {frontend_id}")
+        return count
+
+    def count_frontend_purgeable(self, frontend_id: str) -> int:
+        """How many non-active sessions of a frontend the purge would delete."""
+        base = _sessions_dir()
+        if not base.exists():
+            return 0
+        n = 0
+        for d in base.iterdir():
+            if not d.is_dir() or not (d / "session.json").exists():
+                continue
+            try:
+                meta = json.loads((d / "session.json").read_text())
+            except Exception:
+                continue
+            if meta.get("frontend_id", "") == frontend_id and meta.get("status") != "active":
+                n += 1
+        return n
+
 
 # Singleton
 store = SessionStore()
