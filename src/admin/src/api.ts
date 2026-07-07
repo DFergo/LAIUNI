@@ -267,6 +267,15 @@ export async function listCustomPromptFrontends(): Promise<{ frontends: { id: st
   return request('/admin/prompts/custom-frontends');
 }
 
+export async function resetPrompt(name: string, frontendId?: string): Promise<{ name: string; content: string }> {
+  const q = frontendId ? `?frontend_id=${frontendId}` : '';
+  return request(`/admin/prompts/${encodeURIComponent(name)}/reset${q}`, { method: 'POST' });
+}
+
+export async function resetGlobalPrompts(): Promise<{ reset: number }> {
+  return request('/admin/prompts/reset-global', { method: 'POST' });
+}
+
 export async function listPrompts(frontendId?: string): Promise<PromptsResponse> {
   const qs = frontendId ? `?frontend_id=${frontendId}` : '';
   return request(`/admin/prompts${qs}`);

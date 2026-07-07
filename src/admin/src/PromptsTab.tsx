@@ -3,6 +3,7 @@ import {
   listPrompts, readPrompt, savePrompt,
   getPromptMode, setPromptMode,
   copyPromptsToFrontend, deleteFrontendPrompts, listCustomPromptFrontends,
+  resetPrompt, resetGlobalPrompts,
   listFrontends, getFrontendConfig,
   type PromptFile, type Frontend, type FrontendConfig
 } from './api'
@@ -173,6 +174,36 @@ export default function PromptsTab() {
     }
   }
 
+  const handleResetPrompt = async () => {
+    if (!selected) return
+    const fid = mode === 'per_frontend' ? selectedFrontend : undefined
+    const target = fid ? 'the current global version' : 'the factory default'
+    if (!confirm(`Reset "${selected}" to ${target}?\n\nYour current changes to this prompt will be lost. This cannot be undone.`)) return
+    setError('')
+    try {
+      const { content: c } = await resetPrompt(selected, fid)
+      setContent(c)
+      setOriginalContent(c)
+      setSuccess('Reset to default')
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reset failed')
+    }
+  }
+
+  const handleResetGlobal = async () => {
+    if (!confirm('Reset ALL global prompts to the factory defaults?\n\nPer-frontend custom sets are NOT affected. This cannot be undone.')) return
+    setError('')
+    try {
+      const { reset } = await resetGlobalPrompts()
+      setSuccess(`Reset ${reset} global prompts to factory defaults`)
+      setTimeout(() => setSuccess(''), 3000)
+      await loadPrompts()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reset failed')
+    }
+  }
+
   const handleFrontendChange = async (fid: string) => {
     setSelectedFrontend(fid)
     setError('')
@@ -272,6 +303,14 @@ export default function PromptsTab() {
               </button>
             </div>
           )}
+          {mode === 'global' && (
+            <button
+              onClick={handleResetGlobal}
+              className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-gray-50"
+            >
+              Reset all to factory
+            </button>
+          )}
         </div>
         <p className="text-xs text-gray-400 mt-2">
           {mode === 'global'
@@ -320,6 +359,13 @@ export default function PromptsTab() {
                 <h3 className="text-lg font-semibold text-gray-800">{selected}</h3>
                 <div className="flex items-center gap-3">
                   {dirty && <span className="text-xs text-gray-400">Unsaved changes</span>}
+                  <button
+                    onClick={handleResetPrompt}
+                    className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50"
+                    title={mode === 'per_frontend' ? 'Reset this prompt to the global version' : 'Reset this prompt to the factory default'}
+                  >
+                    Reset to default
+                  </button>
                   <button
                     onClick={handleSave}
                     disabled={saving || !dirty}

@@ -93,6 +93,44 @@ def frontend_has_custom_prompts(frontend_id: str) -> bool:
     return campaign_dir.exists() and any(campaign_dir.glob("*.md"))
 
 
+def reset_prompt_to_default(name: str, frontend_id: str | None = None) -> str:
+    """Reset a single prompt to its default; return the new content.
+
+    Per-frontend: restore that frontend's copy from the current GLOBAL prompt.
+    Global: restore the global prompt from the bundled FACTORY default.
+    """
+    if not name.endswith(".md") or "/" in name or "\\" in name:
+        raise ValueError("Invalid prompt name")
+    if frontend_id:
+        src = _global_prompts_dir() / name
+        dst_dir = Path(f"/app/data/campaigns/{frontend_id}/prompts")
+    else:
+        src = _DEFAULTS_DIR / name
+        dst_dir = _global_prompts_dir()
+    if not src.exists():
+        raise FileNotFoundError(f"No default available for prompt: {name}")
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    content = src.read_text()
+    (dst_dir / name).write_text(content)
+    logger.info(f"Reset prompt {name} to default (frontend={frontend_id or 'global'})")
+    return content
+
+
+def reset_global_to_defaults() -> int:
+    """Overwrite ALL global prompts from the bundled factory defaults.
+
+    Per-frontend custom sets live in separate directories and are NOT affected.
+    """
+    dest = _global_prompts_dir()
+    dest.mkdir(parents=True, exist_ok=True)
+    count = 0
+    for src_file in _DEFAULTS_DIR.glob("*.md"):
+        (dest / src_file.name).write_text(src_file.read_text())
+        count += 1
+    logger.info(f"Reset {count} global prompts to factory defaults")
+    return count
+
+
 def ensure_defaults():
     """Copy default prompt files to data dir if they don't exist yet."""
     dest = _global_prompts_dir()

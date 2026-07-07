@@ -18,6 +18,8 @@ from src.services.prompt_assembler import (
     copy_global_to_frontend,
     delete_frontend_prompts,
     frontend_has_custom_prompts,
+    reset_prompt_to_default,
+    reset_global_to_defaults,
 )
 
 logger = logging.getLogger("backend.admin.prompts")
@@ -121,6 +123,25 @@ async def delete_custom_prompts(frontend_id: str, _: dict = Depends(require_admi
     """Delete custom prompts for a frontend (reverts to global)."""
     count = delete_frontend_prompts(frontend_id)
     return {"frontend_id": frontend_id, "deleted": count}
+
+
+@router.post("/reset-global")
+async def reset_global_prompts(_: dict = Depends(require_admin)):
+    """Reset ALL global prompts to factory defaults (per-frontend sets untouched)."""
+    count = reset_global_to_defaults()
+    return {"reset": count}
+
+
+@router.post("/{name}/reset")
+async def reset_single_prompt(name: str, frontend_id: str | None = Query(None), _: dict = Depends(require_admin)):
+    """Reset one prompt to its default: per-frontend → global; global → factory."""
+    try:
+        content = reset_prompt_to_default(name, frontend_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"name": name, "content": content, "frontend_id": frontend_id}
 
 
 # --- Standard prompt CRUD with optional frontend_id ---
