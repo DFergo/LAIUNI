@@ -7,7 +7,7 @@ import {
   type LLMHealth, type LLMSettings, type LLMConnection, type ConnectionType, type Frontend,
 } from './api'
 
-type SlotKey = 'inference' | 'reporter' | 'summariser' | 'translation'
+type SlotKey = 'inference' | 'reporter' | 'summariser' | 'translation' | 'inference_fallback'
 
 const CONNECTION_TYPES: { value: ConnectionType; label: string }[] = [
   { value: 'openai', label: 'OpenAI-compatible' },
@@ -507,6 +507,41 @@ export default function LLMTab() {
                 </div>
               </label>
             </div>
+
+            {/* Concurrency (Sprint 26) — global; per-frontend override below */}
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Concurrent chat sessions</label>
+              <input
+                type="number" min={1} max={100}
+                value={settings.max_concurrent_sessions}
+                onChange={e => setField('max_concurrent_sessions', Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
+                className={`${inputCls} max-w-[8rem]`}
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                1 = sequential (one chat turn at a time). Higher = that many sessions processed in parallel —
+                only useful with a provider that supports it (local inference is limited). Max 100.
+                Can be overridden per frontend below.
+              </p>
+            </div>
+
+            {/* Inference fallback (Sprint 26) — global only */}
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <label className="flex items-start gap-3 cursor-pointer">
+                {toggle(settings.inference_fallback_enabled, () => setField('inference_fallback_enabled', !settings.inference_fallback_enabled))}
+                <div>
+                  <span className="text-sm font-medium text-gray-700">Alternative inference model (fallback)</span>
+                  <p className="text-xs text-gray-400">
+                    When the primary inference model fails — including a rate-limit / quota (429) from a commercial provider —
+                    chat falls to this model. Typically a local model kept as a safety net.
+                  </p>
+                </div>
+              </label>
+              {settings.inference_fallback_enabled && (
+                <div className="mt-4">
+                  <SlotConfig slot="inference_fallback" connections={connections} health={health} settings={settings} onSet={setField} />
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Reporter */}
@@ -677,6 +712,22 @@ export default function LLMTab() {
                             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Reporter</div>
                             <SlotConfig slot="reporter" connections={connections} health={health} settings={settings}
                               override={override} onSet={(k, v) => setFeField(f.id, k, v as string | number | null)} />
+                          </div>
+                          <div className="pt-3 border-t border-gray-100">
+                            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Concurrency</div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Concurrent chat sessions
+                              {override.max_concurrent_sessions != null
+                                ? <button onClick={() => setFeField(f.id, 'max_concurrent_sessions', null)} className="ml-2 text-xs text-gray-400 hover:text-uni-red">reset</button>
+                                : <span className="ml-2 text-xs text-gray-400">(global: {settings.max_concurrent_sessions})</span>}
+                            </label>
+                            <input
+                              type="number" min={1} max={100}
+                              value={override.max_concurrent_sessions != null ? override.max_concurrent_sessions : ''}
+                              placeholder={String(settings.max_concurrent_sessions)}
+                              onChange={e => setFeField(f.id, 'max_concurrent_sessions', e.target.value === '' ? null : Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
+                              className={`${inputCls} max-w-[8rem]`}
+                            />
                           </div>
                           <div className="flex items-center gap-3">
                             <button onClick={() => handleFeSave(f.id)} disabled={feSaving}

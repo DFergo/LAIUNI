@@ -42,10 +42,14 @@ from src.api.v1.admin.llm import get_llm_settings
 
 logger = logging.getLogger("backend.polling")
 
-# Processing queue — messages waiting for LLM
+# Work queue — chat turns + uploads waiting for the LLM (Sprint 26).
+# Detection enqueues here; the processing loop drains it under a per-frontend
+# concurrency limit. Auth/recovery/evidence-delete are dispatched off-queue.
 _processing_queue: deque[dict[str, Any]] = deque()
 _processing_lock = asyncio.Lock()
-_is_processing = False
+_active_sessions: set[str] = set()       # session_tokens with a turn in flight (per-session guard)
+_active_counts: dict[str, int] = {}      # in-flight work count per frontend_id (concurrency limit)
+_enqueued_uploads: set[str] = set()      # "{token}/{filename}" already queued/in-flight (dedupe)
 
 
 _branding_pushed: set[str] = set()  # Track which frontends have branding pushed
@@ -83,7 +87,14 @@ async def _push_branding_if_needed(client: httpx.AsyncClient, url: str, fid: str
 
 
 async def poll_frontends():
-    """Poll all enabled frontends for pending messages."""
+    """Detect work from all enabled frontends (Sprint 26 — pure detection).
+
+    Only fast work happens here: fetch the sidecar queue, enqueue chat/upload
+    work items, and dispatch auth/recovery/evidence-delete as independent tasks.
+    Nothing that touches the LLM or SMTP is awaited inline, so detection never
+    stalls behind chat processing or a slow email — which is what previously
+    made auth-code requests time out.
+    """
     client = httpx.AsyncClient(timeout=10.0)
     try:
         enabled = registry.list_enabled()
@@ -101,56 +112,34 @@ async def poll_frontends():
                 # Push branding config if exists (survives sidecar restarts)
                 await _push_branding_if_needed(client, url, fid)
 
+                # Uploads enqueued BEFORE chat so a file "ships" (is ingested)
+                # before the chat turn that references it — the per-session guard
+                # then serialises upload → chat for that session.
+                await _enqueue_uploads(client, url, fid)
+
                 for msg in messages:
                     msg["_frontend_url"] = url
                     msg["_frontend_name"] = frontend.get("name", "")
                     msg["_frontend_id"] = fid
+                    msg["_kind"] = "chat"
                     async with _processing_lock:
                         _processing_queue.append(msg)
                     logger.info(f"Queued message {msg.get('message_id')} from {fid}")
 
-                # Handle recovery requests (pull-inverse: backend resolves, pushes back)
-                recovery_requests = data.get("recovery_requests", [])
-                for token in recovery_requests:
-                    await _handle_recovery(url, token)
+                # Recovery — dispatched off the detection path
+                for token in data.get("recovery_requests", []):
+                    asyncio.create_task(_handle_recovery(url, token))
 
-                # Handle auth requests (pull-inverse: sidecar queues, backend resolves)
-                auth_requests = data.get("auth_requests", [])
-                for auth_req in auth_requests:
-                    await _handle_auth_request(client, url, auth_req, fid)
+                # Auth — dispatched as independent tasks so a slow SMTP send never
+                # serialises other requests or stalls detection (Sprint 26 fix)
+                for auth_req in data.get("auth_requests", []):
+                    asyncio.create_task(_dispatch_auth(url, auth_req, fid))
 
-                # Handle file uploads — process each file silently.
-                # Sprint 16: no automatic LLM response after upload. Files are
-                # processed (extracted, summarised, indexed into session RAG,
-                # recorded in evidence_context.json) and then "ship" with the
-                # user's NEXT chat message via the existing chat pipeline.
-                try:
-                    while True:
-                        upload_resp = await client.get(f"{url}/internal/uploads")
-                        upload_resp.raise_for_status()
-                        uploads = upload_resp.json().get("uploads", [])
-                        if not uploads:
-                            break
-                        for upload in uploads:
-                            tk = upload.get("session_token", "")
-                            if not tk:
-                                continue
-                            upload["_frontend_id"] = fid
-                            await _handle_upload(client, url, upload)
-                except Exception as e:
-                    logger.warning(f"Failed to poll uploads from {fid}: {e}")
-
-                # Handle evidence deletion requests (Sprint 16 — Claude-Style retraction)
-                try:
-                    delete_requests = data.get("evidence_delete_requests", [])
-                    for req in delete_requests:
-                        await _handle_evidence_delete(
-                            client, url, fid,
-                            req.get("token", ""),
-                            req.get("filename", ""),
-                        )
-                except Exception as e:
-                    logger.warning(f"Failed to handle evidence deletions from {fid}: {e}")
+                # Evidence deletions (Sprint 16) — dispatched off the detection path
+                for req in data.get("evidence_delete_requests", []):
+                    asyncio.create_task(_dispatch_evidence_delete(
+                        url, fid, req.get("token", ""), req.get("filename", ""),
+                    ))
 
             except Exception as e:
                 registry.set_status(fid, "offline")
@@ -159,38 +148,134 @@ async def poll_frontends():
         await client.aclose()
 
 
-async def process_queue():
-    """Process one message at a time from the queue (sequential — LLM is single-threaded)."""
-    global _is_processing
+async def _enqueue_uploads(client: httpx.AsyncClient, url: str, fid: str):
+    """Fetch pending uploads and enqueue new ones as work items (Sprint 26).
 
-    async with _processing_lock:
-        if _is_processing or not _processing_queue:
-            return
-        _is_processing = True
-
+    Deduped by "{token}/{filename}" so a file isn't re-enqueued on the next poll
+    while it is still queued or being processed. The key is cleared when the
+    upload finishes (after the sidecar temp file is deleted).
+    """
     try:
-        # Send queue position updates to all waiting messages
-        await _send_queue_positions()
+        resp = await client.get(f"{url}/internal/uploads")
+        resp.raise_for_status()
+        uploads = resp.json().get("uploads", [])
+    except Exception as e:
+        logger.warning(f"Failed to poll uploads from {fid}: {e}")
+        return
 
-        while True:
-            async with _processing_lock:
-                if not _processing_queue:
-                    break
-                msg = _processing_queue.popleft()
+    for upload in uploads:
+        token = upload.get("session_token", "")
+        filename = upload.get("filename", "")
+        if not token or not filename:
+            continue
+        key = f"{token}/{filename}"
+        async with _processing_lock:
+            if key in _enqueued_uploads:
+                continue
+            _enqueued_uploads.add(key)
+            upload["_frontend_url"] = url
+            upload["_frontend_id"] = fid
+            upload["_kind"] = "upload"
+            upload["_upload_key"] = key
+            _processing_queue.append(upload)
 
-            # Update positions for remaining messages
-            await _send_queue_positions()
 
-            await _safe_process(msg)
+async def _dispatch_auth(url: str, auth_req: dict[str, Any], fid: str):
+    """Run an auth-code request in its own client so it never blocks detection."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        await _handle_auth_request(client, url, auth_req, fid)
+
+
+async def _dispatch_evidence_delete(url: str, fid: str, token: str, filename: str):
+    """Run an evidence-delete in its own client so it never blocks detection."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await _handle_evidence_delete(client, url, fid, token, filename)
+
+
+def _concurrency_limit(frontend_id: str) -> int:
+    """Effective max concurrent sessions for a frontend (Sprint 26).
+
+    Resolved from LLM settings (per-frontend override → global), clamped 1..100.
+    Default 1 = the previous strictly-sequential behavior.
+    """
+    try:
+        val = get_llm_settings(frontend_id).get("max_concurrent_sessions")
+        n = int(val) if val else 1
+    except (TypeError, ValueError):
+        n = 1
+    return max(1, min(n, 100))
+
+
+async def _drain_queue():
+    """Start any queued work that fits its frontend's concurrency limit and is
+    not already in flight for its session (per-session guard). Sprint 26.
+
+    Settings are read outside the lock; the start decision is made under it so
+    the queue and the active-count/active-session state stay consistent.
+    """
+    async with _processing_lock:
+        if not _processing_queue:
+            return
+        fids = {item.get("_frontend_id", "") for item in _processing_queue}
+
+    limits = {fid: _concurrency_limit(fid) for fid in fids}
+
+    started: list[dict[str, Any]] = []
+    async with _processing_lock:
+        remaining: deque[dict[str, Any]] = deque()
+        while _processing_queue:
+            item = _processing_queue.popleft()
+            token = item.get("session_token", "")
+            fid = item.get("_frontend_id", "")
+            if token in _active_sessions or _active_counts.get(fid, 0) >= limits.get(fid, 1):
+                remaining.append(item)
+                continue
+            _active_sessions.add(token)
+            _active_counts[fid] = _active_counts.get(fid, 0) + 1
+            started.append(item)
+        _processing_queue.extend(remaining)
+
+    for item in started:
+        asyncio.create_task(_process_and_release(item))
+
+
+async def _process_and_release(item: dict[str, Any]):
+    """Process one work item (chat or upload), then release its slot and try to
+    dispatch more so a freed slot is filled promptly (Sprint 26)."""
+    token = item.get("session_token", "")
+    fid = item.get("_frontend_id", "")
+    try:
+        if item.get("_kind") == "upload":
+            await _run_upload(item)
+        else:
+            await _safe_process(item)
     finally:
         async with _processing_lock:
-            _is_processing = False
+            _active_sessions.discard(token)
+            if fid in _active_counts:
+                _active_counts[fid] = max(0, _active_counts[fid] - 1)
+                if _active_counts[fid] == 0:
+                    del _active_counts[fid]
+            if item.get("_kind") == "upload":
+                _enqueued_uploads.discard(item.get("_upload_key", ""))
+        await _drain_queue()
+
+
+async def _run_upload(item: dict[str, Any]):
+    """Process an enqueued upload in its own client (Sprint 26)."""
+    url = item.get("_frontend_url", "")
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        await _handle_upload(client, url, item)
 
 
 async def _send_queue_positions():
-    """Notify each queued session of their position."""
+    """Notify each waiting chat session of its (approximate) queue position.
+
+    Under concurrency the number is approximate — it counts waiting chat turns,
+    which is enough to keep the "still working" indicator alive (Sprint 26).
+    """
     async with _processing_lock:
-        items = list(_processing_queue)
+        items = [m for m in _processing_queue if m.get("_kind") == "chat"]
 
     async with httpx.AsyncClient(timeout=5.0) as client:
         for i, msg in enumerate(items):
@@ -348,15 +433,24 @@ async def _safe_process(msg: dict[str, Any]):
         visible_response = ""
         in_think = False
         rep_detector = RepetitionDetector()
-        try:
-            async for token in llm.stream_chat(
+        # Sprint 26: route chat through the fallback cascade only when an
+        # inference fallback is enabled + configured (chain length > 1). Off →
+        # a single-element chain → identical direct call as before.
+        from src.services.llm_provider import build_fallback_chain
+        chain = build_fallback_chain(settings, "inference")
+        if len(chain) > 1:
+            inference_stream = llm.stream_chat_with_fallback(llm_messages, chain)
+        else:
+            inference_stream = llm.stream_chat(
                 messages=llm_messages,
                 connection_id=settings.get("inference_connection"),
                 model=settings.get("inference_model"),
                 temperature=settings.get("inference_temperature"),
                 max_tokens=settings.get("inference_max_tokens"),
                 num_ctx=settings.get("inference_num_ctx"),
-            ):
+            )
+        try:
+            async for token in inference_stream:
                 raw_response += token
 
                 # Filter <think>...</think> blocks (Qwen3 reasoning tokens)
@@ -981,9 +1075,7 @@ async def _handle_evidence_delete(
     # If a chat inference is currently running for this session, refuse.
     # The user will see evidence_delete_error and the frontend will retry.
     async with _processing_lock:
-        busy = _is_processing and any(
-            m.get("session_token") == token for m in _processing_queue
-        )
+        busy = token in _active_sessions
     if busy:
         logger.info(f"[{token}] Evidence delete deferred for {filename}: busy")
         try:
@@ -1017,13 +1109,39 @@ async def _handle_evidence_delete(
             pass
 
 
-async def polling_loop(interval: int = 2):
-    """Main polling loop — runs as background task."""
-    logger.info(f"Polling loop started (interval: {interval}s)")
+async def _detection_loop(interval: int):
+    """Poll the sidecars on a fixed interval. Never awaits LLM/SMTP work."""
     while True:
         try:
             await poll_frontends()
-            await process_queue()
         except Exception as e:
-            logger.error(f"Polling loop error: {e}")
+            logger.error(f"Detection loop error: {e}")
         await asyncio.sleep(interval)
+
+
+async def _processing_loop():
+    """Drain the work queue continuously under the concurrency limit."""
+    while True:
+        try:
+            async with _processing_lock:
+                has_waiting = bool(_processing_queue)
+            if has_waiting:
+                await _send_queue_positions()
+                await _drain_queue()
+        except Exception as e:
+            logger.error(f"Processing loop error: {e}")
+        await asyncio.sleep(0.2)
+
+
+async def polling_loop(interval: int = 2):
+    """Run detection and processing as independent loops (Sprint 26).
+
+    Detection polls the sidecars and dispatches work; processing drains the
+    work queue under the configured concurrency limit. Running them concurrently
+    means LLM/SMTP work never blocks detection — the fix for auth-code timeouts.
+    """
+    logger.info(f"Polling loop started (interval: {interval}s)")
+    await asyncio.gather(
+        _detection_loop(interval),
+        _processing_loop(),
+    )

@@ -193,6 +193,14 @@ export interface LLMSettings {
   compression_threshold: number
   compression_first_threshold: number
   compression_step_size: number
+  // Sprint 26
+  max_concurrent_sessions: number
+  inference_fallback_enabled: boolean
+  inference_fallback_connection: string
+  inference_fallback_model: string
+  inference_fallback_temperature: number | null
+  inference_fallback_max_tokens: number | null
+  inference_fallback_num_ctx: number | null
 }
 
 export async function getLLMHealth(): Promise<LLMHealth> {

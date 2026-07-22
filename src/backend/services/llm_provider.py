@@ -331,7 +331,13 @@ def build_fallback_chain(settings: dict[str, Any], primary_slot: str) -> list[di
 
     Deduplicates slots that resolve to the same connection:model.
     """
-    slot_names = _FALLBACK_CHAINS.get(primary_slot, [primary_slot])
+    slot_names = list(_FALLBACK_CHAINS.get(primary_slot, [primary_slot]))
+    # Sprint 26: optional global inference fallback (e.g. commercial → local).
+    # When enabled, chat falls to the alternative model on any primary failure,
+    # including a 429/quota from a commercial provider. Deduped below, so if the
+    # fallback resolves to the same connection:model it is simply dropped.
+    if primary_slot == "inference" and settings.get("inference_fallback_enabled"):
+        slot_names.append("inference_fallback")
     configs: list[dict[str, Any]] = []
     seen: set[str] = set()
     for name in slot_names:

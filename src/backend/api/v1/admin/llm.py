@@ -62,6 +62,16 @@ _DEFAULTS: dict[str, Any] = {
     "compression_threshold": 0.75,  # legacy — kept for migration
     "compression_first_threshold": 20000,  # first compression at N tokens
     "compression_step_size": 15000,  # compress again every N tokens after first
+    # Sprint 26 — concurrency (per-frontend override via the merge below).
+    # 1 = sequential (one chat turn at a time); raise for parallel sessions.
+    "max_concurrent_sessions": 1,
+    # Sprint 26 — optional global inference fallback (e.g. commercial → local).
+    "inference_fallback_enabled": False,
+    "inference_fallback_connection": None,
+    "inference_fallback_model": None,
+    "inference_fallback_temperature": None,
+    "inference_fallback_max_tokens": None,
+    "inference_fallback_num_ctx": None,
 }
 
 
@@ -212,6 +222,14 @@ class LLMSettingsRequest(BaseModel):
     compression_threshold: float | None = None  # legacy
     compression_first_threshold: int | None = None
     compression_step_size: int | None = None
+    # Sprint 26
+    max_concurrent_sessions: int | None = None
+    inference_fallback_enabled: bool | None = None
+    inference_fallback_connection: str | None = None
+    inference_fallback_model: str | None = None
+    inference_fallback_temperature: float | None = None
+    inference_fallback_max_tokens: int | None = None
+    inference_fallback_num_ctx: int | None = None
 
 
 class ConnectionRequest(BaseModel):
