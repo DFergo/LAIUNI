@@ -313,19 +313,24 @@ export default function FrontendsTab() {
                         className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
                       />
                     </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-xs font-medium text-gray-600">Instructions page (Markdown — whole page, overrides default for all roles)</label>
-                        <button type="button" onClick={() => setBranding({ ...branding, instructions_text: DEFAULT_INSTRUCTIONS_MD })}
-                          className="text-xs text-uni-blue hover:underline">Load default template</button>
-                      </div>
-                      <textarea
-                        value={branding.instructions_text}
-                        onChange={e => setBranding({ ...branding, instructions_text: e.target.value })}
-                        rows={10}
-                        placeholder="Leave empty for the default instructions page. Use ## for headings."
-                        className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                      />
+                    <div className="space-y-3">
+                      <p className="text-xs text-gray-500">Instructions page — <strong>per role</strong> (Markdown, whole page). Leave a role empty to use the default for that role. (The disclaimer above is shown before role selection, so it stays single.)</p>
+                      {(['worker', 'representative', 'organizer', 'officer'] as const).map(r => (
+                        <div key={r}>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-xs font-medium text-gray-600 capitalize">Instructions — {r}</label>
+                            <button type="button" onClick={() => setBranding({ ...branding, [`instructions_text_${r}`]: DEFAULT_INSTRUCTIONS_MD } as BrandingConfig)}
+                              className="text-xs text-uni-blue hover:underline">Load default template</button>
+                          </div>
+                          <textarea
+                            value={(branding as unknown as Record<string, string | undefined>)[`instructions_text_${r}`] || ''}
+                            onChange={e => setBranding({ ...branding, [`instructions_text_${r}`]: e.target.value } as BrandingConfig)}
+                            rows={6}
+                            placeholder={`Leave empty for the default ${r} instructions page.`}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                          />
+                        </div>
+                      ))}
                     </div>
                     <div className="flex items-center gap-3">
                       <button
@@ -335,7 +340,7 @@ export default function FrontendsTab() {
                       >
                         {brandingSaving ? 'Saving...' : 'Save Branding'}
                       </button>
-                      {(branding.disclaimer_text || branding.instructions_text) && (
+                      {(branding.disclaimer_text || branding.instructions_text || (['worker', 'representative', 'organizer', 'officer'] as const).some(r => (branding as unknown as Record<string, string | undefined>)[`instructions_text_${r}`])) && (
                         <button
                           onClick={handleRetranslate}
                           disabled={brandingSaving}

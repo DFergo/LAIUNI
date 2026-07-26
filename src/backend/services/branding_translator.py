@@ -100,10 +100,17 @@ async def translate_branding(frontend_id: str, branding: dict[str, str], force: 
         branding: Dict with disclaimer_text and instructions_text (source language)
         force: Re-translate all languages even if a translation already exists
     """
-    disclaimer = branding.get("disclaimer_text", "")
-    instructions = branding.get("instructions_text", "")
+    # Collect every text field to translate (Sprint 31: per-role instructions).
+    _roles = ["worker", "representative", "organizer", "officer"]
+    fields = {
+        "disclaimer_text": branding.get("disclaimer_text", ""),
+        "instructions_text": branding.get("instructions_text", ""),
+    }
+    for _r in _roles:
+        fields[f"instructions_text_{_r}"] = branding.get(f"instructions_text_{_r}", "")
+    fields = {k: v for k, v in fields.items() if v}
 
-    if not disclaimer and not instructions:
+    if not fields:
         return
 
     from src.api.v1.admin.llm import get_llm_settings, load_translation_prompt
@@ -129,17 +136,11 @@ async def translate_branding(frontend_id: str, branding: dict[str, str], force: 
         entry = translations.setdefault(code, {})
         system_prompt = base_prompt + (_glossary_block(glossary_terms, code) if glossary_terms else "")
 
-        if disclaimer:
+        for key, src in fields.items():
             if code == "en":
-                entry["disclaimer_text"] = disclaimer
-            elif force or not entry.get("disclaimer_text"):
-                entry["disclaimer_text"] = await _translate_text(disclaimer, name, settings, system_prompt)
-
-        if instructions:
-            if code == "en":
-                entry["instructions_text"] = instructions
-            elif force or not entry.get("instructions_text"):
-                entry["instructions_text"] = await _translate_text(instructions, name, settings, system_prompt)
+                entry[key] = src
+            elif force or not entry.get(key):
+                entry[key] = await _translate_text(src, name, settings, system_prompt)
 
         translations[code] = entry
         _translation_status[frontend_id] = {"status": "translating", "progress": i + 1, "total": total}

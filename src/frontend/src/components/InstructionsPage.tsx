@@ -16,7 +16,9 @@ export default function InstructionsPage({ lang, role, onContinue, onBack, brand
   const textKey = `instructions_${role}_text` as Parameters<typeof t>[0]
   // Custom instructions text is the WHOLE page (title + body), authored in
   // Markdown; when set it replaces the default title + body entirely.
-  const custom = branding?.instructions_text
+  // Sprint 31: per-role override (instructions_text_<role>), falling back to the
+  // legacy single instructions_text, then to the per-role i18n default below.
+  const custom = (branding?.[`instructions_text_${role}` as keyof BrandingConfig] as string | undefined) || branding?.instructions_text
 
   return (
     <div className="max-w-4xl mx-auto mt-8 p-6">

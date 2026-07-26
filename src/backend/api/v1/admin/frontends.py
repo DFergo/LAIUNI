@@ -141,11 +141,27 @@ async def remove_frontend(frontend_id: str, _: dict = Depends(require_admin)):
 
 # --- Branding ---
 
+# Sprint 31: instructions are per-role; the disclaimer stays single (shown before role_select).
+_BRANDING_ROLES = ["worker", "representative", "organizer", "officer"]
+
+
+def _has_custom_branding_text(data: dict) -> bool:
+    return bool(
+        data.get("disclaimer_text")
+        or data.get("instructions_text")
+        or any(data.get(f"instructions_text_{r}") for r in _BRANDING_ROLES)
+    )
+
+
 class BrandingRequest(BaseModel):
     app_title: str = ""
     logo_url: str = ""
     disclaimer_text: str = ""
-    instructions_text: str = ""
+    instructions_text: str = ""  # legacy single instructions (fallback for all roles)
+    instructions_text_worker: str = ""
+    instructions_text_representative: str = ""
+    instructions_text_organizer: str = ""
+    instructions_text_officer: str = ""
 
 
 def _branding_path(frontend_id: str) -> Path:
@@ -160,7 +176,9 @@ async def get_branding(frontend_id: str, _: dict = Depends(require_admin)):
             return json.loads(path.read_text())
         except (json.JSONDecodeError, OSError):
             pass
-    return {"app_title": "", "logo_url": "", "disclaimer_text": "", "instructions_text": ""}
+    return {"app_title": "", "logo_url": "", "disclaimer_text": "", "instructions_text": "",
+            "instructions_text_worker": "", "instructions_text_representative": "",
+            "instructions_text_organizer": "", "instructions_text_officer": ""}
 
 
 @router.put("/{frontend_id}/branding")
@@ -178,7 +196,7 @@ async def update_branding(frontend_id: str, req: BrandingRequest, _: dict = Depe
     tmp.rename(path)
     logger.info(f"Branding saved for frontend {frontend_id}")
 
-    has_custom_text = bool(data.get("disclaimer_text") or data.get("instructions_text"))
+    has_custom_text = _has_custom_branding_text(data)
 
     if has_custom_text:
         # Launch background translation
@@ -219,7 +237,7 @@ async def _push_branding_to_sidecar(frontend_id: str):
 
     # Include translations if available
     translations = load_translations(frontend_id)
-    has_custom_text = bool(data.get("disclaimer_text") or data.get("instructions_text"))
+    has_custom_text = _has_custom_branding_text(data)
     payload = {
         **data,
         "custom": has_custom_text,
@@ -256,7 +274,7 @@ async def retranslate_branding(frontend_id: str, _: dict = Depends(require_admin
     if not path.exists():
         return {"translation_status": "idle"}
     data = json.loads(path.read_text())
-    if not (data.get("disclaimer_text") or data.get("instructions_text")):
+    if not _has_custom_branding_text(data):
         return {"translation_status": "idle"}
 
     async def _safe_translate():

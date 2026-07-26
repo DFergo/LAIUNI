@@ -10,6 +10,10 @@ export interface BrandingConfig {
   custom?: boolean
   disclaimer_text?: string
   instructions_text?: string
+  instructions_text_worker?: string
+  instructions_text_representative?: string
+  instructions_text_organizer?: string
+  instructions_text_officer?: string
 }
 
 export interface DeploymentConfig {

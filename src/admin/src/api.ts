@@ -573,6 +573,10 @@ export interface BrandingConfig {
   logo_url: string
   disclaimer_text: string
   instructions_text: string
+  instructions_text_worker?: string
+  instructions_text_representative?: string
+  instructions_text_organizer?: string
+  instructions_text_officer?: string
 }
 
 export async function getFrontendBranding(frontendId: string): Promise<BrandingConfig> {
