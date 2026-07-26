@@ -5,7 +5,7 @@ A module lives in src/backend/modules/{id}/:
   meta.json          {"id": "...", "name": "..."}
   framework.md       fragment injected into the {{module_frameworks}} slot
   report_section.md  fragment injected into the {{module_report_sections}} slot
-  documents/         RAG source docs (indexed per-module when the module is active)
+  rag/               RAG source docs (indexed per-module when the module is active)
 
 Enabled set: global config/modules.json {"enabled": [...]} plus an optional
 per-frontend override at campaigns/{fid}/modules.json {"override": bool,
@@ -38,7 +38,7 @@ def modules_dir() -> Path:
 
 
 def module_documents_dir(module_id: str) -> Path:
-    return _MODULES_DIR / module_id / "documents"
+    return _MODULES_DIR / module_id / "rag"
 
 
 def list_available_modules() -> list[dict]:
