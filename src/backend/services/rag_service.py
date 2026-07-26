@@ -26,6 +26,12 @@ _initialized = False
 _campaign_indexes: dict[str, any] = {}  # frontend_id -> VectorStoreIndex
 _campaign_lock = threading.Lock()
 
+# Default RAG documents shipped with the app (Sprint 27) — seeded into the global
+# docs dir on first run so a vanilla install ships with a coherent knowledge base.
+_RAG_DEFAULTS_DIR = Path(__file__).parent.parent / "rag_defaults"
+_SEED_SENTINEL = DOCUMENTS_DIR.parent / ".rag_seeded"  # config/.rag_seeded
+_DOC_SUFFIXES = {".md", ".txt", ".json", ".pdf"}
+
 
 def _docs_dir() -> Path:
     path = DOCUMENTS_DIR
@@ -51,8 +57,12 @@ def _get_embed_model():
     return _embed_model
 
 
-def _load_or_build_index():
-    """Load existing index from disk, or build from documents if none exists."""
+def _load_or_build_index(force_rebuild: bool = False):
+    """Load existing index from disk, or build from documents if none exists.
+
+    force_rebuild: skip loading a persisted index and rebuild from the source
+    documents (used after first-run seeding adds new default docs).
+    """
     global _index, _initialized
 
     from llama_index.core import (
@@ -70,7 +80,7 @@ def _load_or_build_index():
     index_path = _index_dir()
     index_file = index_path / "index_store.json"
 
-    if index_file.exists():
+    if index_file.exists() and not force_rebuild:
         try:
             storage_context = StorageContext.from_defaults(persist_dir=str(index_path))
             _index = load_index_from_storage(storage_context)
@@ -83,7 +93,7 @@ def _load_or_build_index():
 
     # Build from documents
     docs_path = _docs_dir()
-    doc_files = [f for f in docs_path.iterdir() if f.is_file() and f.suffix in {".md", ".txt", ".json"}]
+    doc_files = [f for f in docs_path.iterdir() if f.is_file() and f.suffix in {".md", ".txt", ".json", ".pdf"}]
 
     if not doc_files:
         logger.info("No documents found — RAG index empty")
@@ -111,7 +121,74 @@ def initialize():
     """Initialize the RAG index on startup. Call from lifespan."""
     with _index_lock:
         if not _initialized:
-            _load_or_build_index()
+            seeded = seed_default_documents()
+            _load_or_build_index(force_rebuild=bool(seeded))
+
+
+def seed_default_documents() -> int:
+    """First-run: copy the bundled default RAG documents into the global docs
+    dir so a vanilla install ships with a coherent knowledge base.
+
+    Runs once ever (guarded by a sentinel) and is non-destructive — it never
+    overwrites an existing file, and never re-seeds after the admin has curated
+    or emptied the set. Returns the number of files copied.
+    """
+    import shutil
+    if _SEED_SENTINEL.exists():
+        return 0
+    docs_path = _docs_dir()
+    copied = 0
+    if _RAG_DEFAULTS_DIR.is_dir():
+        for src in _RAG_DEFAULTS_DIR.iterdir():
+            if src.is_file() and src.suffix in _DOC_SUFFIXES:
+                dst = docs_path / src.name
+                if not dst.exists():
+                    try:
+                        shutil.copyfile(src, dst)
+                        copied += 1
+                    except Exception as e:
+                        logger.error(f"Failed to seed default RAG doc {src.name}: {e}")
+    try:
+        _SEED_SENTINEL.parent.mkdir(parents=True, exist_ok=True)
+        _SEED_SENTINEL.write_text("seeded\n")
+    except Exception as e:
+        logger.error(f"Failed to write RAG seed sentinel: {e}")
+    if copied:
+        logger.info(f"Seeded {copied} default RAG document(s) into {docs_path}")
+    return copied
+
+
+def reset_documents_to_defaults() -> dict:
+    """Restore the global RAG documents to the bundled factory set and reindex.
+
+    Replaces the current global RAG documents with the shipped defaults, then
+    rebuilds the index. Admin action (mirrors the prompt factory reset).
+    """
+    import shutil
+    docs_path = _docs_dir()
+    for f in list(docs_path.iterdir()):
+        if f.is_file() and f.suffix in _DOC_SUFFIXES:
+            try:
+                f.unlink()
+            except Exception as e:
+                logger.error(f"Failed to remove doc {f.name} during reset: {e}")
+    restored = 0
+    if _RAG_DEFAULTS_DIR.is_dir():
+        for src in _RAG_DEFAULTS_DIR.iterdir():
+            if src.is_file() and src.suffix in _DOC_SUFFIXES:
+                try:
+                    shutil.copyfile(src, docs_path / src.name)
+                    restored += 1
+                except Exception as e:
+                    logger.error(f"Failed to restore default RAG doc {src.name}: {e}")
+    try:
+        _SEED_SENTINEL.write_text("seeded\n")
+    except Exception:
+        pass
+    result = reindex()
+    result["restored"] = restored
+    logger.info(f"Reset global RAG to factory defaults: restored {restored} document(s)")
+    return result
 
 
 def reindex() -> dict:
@@ -128,7 +205,7 @@ def reindex() -> dict:
     Settings.llm = None
 
     docs_path = _docs_dir()
-    doc_files = [f for f in docs_path.iterdir() if f.is_file() and f.suffix in {".md", ".txt", ".json"}]
+    doc_files = [f for f in docs_path.iterdir() if f.is_file() and f.suffix in {".md", ".txt", ".json", ".pdf"}]
 
     if not doc_files:
         with _index_lock:
@@ -288,7 +365,7 @@ def _load_or_build_campaign_index(frontend_id: str):
             logger.warning(f"Failed to load campaign index for {frontend_id}, rebuilding: {e}")
 
     docs_path = _campaign_docs_dir(frontend_id)
-    doc_files = [f for f in docs_path.iterdir() if f.is_file() and f.suffix in {".md", ".txt", ".json"}]
+    doc_files = [f for f in docs_path.iterdir() if f.is_file() and f.suffix in {".md", ".txt", ".json", ".pdf"}]
 
     if not doc_files:
         return None
@@ -336,7 +413,7 @@ def reindex_campaign(frontend_id: str) -> dict:
     Settings.llm = None
 
     docs_path = _campaign_docs_dir(frontend_id)
-    doc_files = [f for f in docs_path.iterdir() if f.is_file() and f.suffix in {".md", ".txt", ".json"}]
+    doc_files = [f for f in docs_path.iterdir() if f.is_file() and f.suffix in {".md", ".txt", ".json", ".pdf"}]
 
     if not doc_files:
         with _campaign_lock:
@@ -374,7 +451,7 @@ def list_campaign_documents(frontend_id: str) -> list[dict]:
     docs_path = _campaign_docs_dir(frontend_id)
     docs = []
     for f in sorted(docs_path.iterdir()):
-        if f.is_file() and f.suffix in {".md", ".txt", ".json"}:
+        if f.is_file() and f.suffix in {".md", ".txt", ".json", ".pdf"}:
             stat = f.stat()
             docs.append({"name": f.name, "size": stat.st_size, "modified": stat.st_mtime})
     return docs

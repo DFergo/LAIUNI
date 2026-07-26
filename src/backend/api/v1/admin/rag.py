@@ -17,7 +17,7 @@ logger = logging.getLogger("backend.admin.rag")
 
 router = APIRouter(prefix="/admin/rag", tags=["admin-rag"])
 
-ALLOWED_EXTENSIONS = {".md", ".txt", ".json"}
+ALLOWED_EXTENSIONS = {".md", ".txt", ".json", ".pdf"}
 MAX_FILE_SIZE = config.file_max_size_mb * 1024 * 1024
 
 
@@ -94,6 +94,13 @@ async def reindex_documents(frontend_id: str | None = Query(None), _: dict = Dep
         result = rag_reindex()
         logger.info(f"Global reindex completed: {result}")
     return result
+
+
+@router.post("/reset-defaults")
+async def reset_rag_defaults(_: dict = Depends(require_admin)):
+    """Restore the global RAG documents to the bundled factory set and reindex."""
+    from src.services.rag_service import reset_documents_to_defaults
+    return reset_documents_to_defaults()
 
 
 # --- Campaign RAG config (Sprint 8h) ---

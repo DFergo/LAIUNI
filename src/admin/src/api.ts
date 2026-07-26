@@ -471,6 +471,10 @@ export async function reindexRAG(frontendId?: string): Promise<{ status: string;
   return request(`/admin/rag/reindex${qs}`, { method: 'POST' });
 }
 
+export async function resetRAGDefaults(): Promise<{ status: string; restored?: number; document_count?: number; node_count?: number }> {
+  return request('/admin/rag/reset-defaults', { method: 'POST' });
+}
+
 export async function getCampaignRAGConfig(frontendId: string): Promise<{ include_global_rag: boolean }> {
   return request(`/admin/rag/campaign/${frontendId}/config`);
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  listRAGDocuments, uploadRAGDocument, deleteRAGDocument, reindexRAG,
+  listRAGDocuments, uploadRAGDocument, deleteRAGDocument, reindexRAG, resetRAGDefaults,
   getGlossary, updateGlossary, getOrganizations, updateOrganizations,
   listFrontends, getCampaignRAGConfig, updateCampaignRAGConfig,
   type RAGDocument, type GlossaryTerm, type Organization, type Frontend
@@ -123,6 +123,21 @@ export default function RAGTab() {
       setTimeout(() => setSuccess(''), 5000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Reindex failed')
+    }
+  }
+
+  const handleResetDefaults = async () => {
+    if (!confirm('Reset global RAG documents to the factory default set? This replaces the current global documents with the shipped defaults and reindexes.')) return
+    setError('')
+    setSuccess('')
+    try {
+      const result = await resetRAGDefaults()
+      setSuccess(`Reset to defaults: ${result.restored ?? 0} documents restored`)
+      setTimeout(() => setSuccess(''), 5000)
+      const data = await listRAGDocuments()
+      setDocuments(data.documents)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reset failed')
     }
   }
 
@@ -318,6 +333,12 @@ export default function RAGTab() {
           <h3 className="text-lg font-semibold text-gray-800">Global RAG Documents</h3>
           <div className="flex items-center gap-3">
             <button
+              onClick={handleResetDefaults}
+              className="border border-gray-300 text-gray-600 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50"
+            >
+              Reset to defaults
+            </button>
+            <button
               onClick={handleReindex}
               className="border border-gray-300 text-gray-600 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50"
             >
@@ -328,7 +349,7 @@ export default function RAGTab() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".md,.txt,.json"
+                accept=".md,.txt,.json,.pdf"
                 onChange={handleUpload}
                 disabled={uploading !== ''}
                 className="hidden"
@@ -397,7 +418,7 @@ export default function RAGTab() {
                           <input
                             ref={el => { campaignFileRefs.current[fe.id] = el }}
                             type="file"
-                            accept=".md,.txt,.json"
+                            accept=".md,.txt,.json,.pdf"
                             onChange={e => handleCampaignUpload(fe.id, e)}
                             disabled={uploading !== ''}
                             className="hidden"

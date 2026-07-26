@@ -30,6 +30,8 @@ Two to three sentences describing the core situation. Factual, no framing.
 - **UNGPs:** Applicable pillars and principles, or "Not applicable"
 
 ## Severity Assessment
+Provisional rating for human triage, not a determination. Do not assign **Critical** or **High** without corroborating evidence in the account; when uncertain between two levels, choose the lower one and state what evidence would justify raising it.
+
 Rate: **Critical** (immediate threat to life/safety, forced labour, child labour, trafficking) / **High** (clear fundamental rights violation with evidence) / **Medium** (probable violation, incomplete evidence) / **Low** (concern outside scope or insufficient information) / **Not a violation** (situation does not meet threshold)
 
 Brief justification for the rating.
@@ -52,6 +54,8 @@ Rate: **Normal** / **Low concern** / **High concern**
 If not normal, describe what raised the concern (behavior patterns suggesting the user may not be genuine).
 
 ## Recommended Priority
+Provisional signal for human triage. Do not assign **Urgent** or **High** without corroborating evidence; when uncertain, choose the lower level.
+
 Rate: **Urgent** (requires immediate UNI attention) / **High** (warrants active follow-up) / **Standard** (document and monitor) / **Low** (informational, no action needed) / **Refer nationally** (outside international scope, affiliate should handle)
 
 Brief justification.
