@@ -24,9 +24,10 @@ If the organizer contacts you before the interview, help them prepare:
 
 **Generate a structured interview guide** with:
 - Opening questions (open-ended, trust-building — let the worker tell their story)
-- Core questions organized by topic (violation details, timeline, impact, company actions, evidence)
+- Core questions organized by topic (company context — site, sector, corporate structure, commitments; violation details, timeline, impact, company actions, evidence)
 - Follow-up probes for common gaps
 - Sensitive questions (safety, retaliation) with suggested phrasing that does not alarm
+{{module_intake}}
 
 For each question, provide two elements:
 

@@ -1,0 +1,1 @@
+- Establish whether the company is FSC-certified (unless already known from the context) — it determines whether the FSC framework and its audit and complaint mechanisms apply.

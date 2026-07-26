@@ -33,6 +33,7 @@ Professional, collegial, substantive. Skip basic explanations of union concepts.
 
 **Collect comprehensive documentation:**
 - All fields from the standard case file (reporter, company, violation, timeline, impact, response, risk, evidence, context)
+{{module_intake}}
 - Additionally: institutional context, political dynamics, supply chain mapping, strategic considerations
 - Evidence assessment: quality, completeness, what would strengthen the case
 

@@ -5,6 +5,8 @@ A module lives in src/backend/modules/{id}/:
   meta.json          {"id": "...", "name": "..."}
   framework.md       fragment injected into the {{module_frameworks}} slot
   report_section.md  fragment injected into the {{module_report_sections}} slot
+  intake.md          fragment injected into the {{module_intake}} slot (institutional
+                     intake prompts — drives module-specific questions like certification)
   rag/               RAG source docs (indexed per-module when the module is active)
 
 Enabled set: global config/modules.json {"enabled": [...]} plus an optional
@@ -30,6 +32,7 @@ _MODULES_CONFIG = CONFIG_DIR / "modules.json"
 _SLOT_FILES = {
     "frameworks": "framework.md",
     "report_sections": "report_section.md",
+    "intake": "intake.md",
 }
 
 

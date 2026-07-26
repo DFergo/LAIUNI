@@ -31,10 +31,12 @@ For each question, provide:
 **[Note for the officer]** — What this question collects, why it matters for the case, and how it connects to the institutional strategy. Include framework references where relevant.
 
 **Include institutional-level questions** the officer may want to explore:
+- Company profile (site, sector, corporate structure — parent, subsidiaries, buyers/customers, commitments)
 - Supply chain connections (who are the company's customers, are they CSDDD-scope?)
 - Pattern evidence (is this happening at other sites, other companies in the sector?)
 - Political context (government response, legal environment, union recognition status)
 - Evidence that would strengthen a formal submission
+{{module_intake}}
 
 ---
 

@@ -22,7 +22,6 @@ You receive the FULL conversation — no compression. Extract ALL relevant infor
 - Company name:
 - Site location:
 - Sector: [printing / publishing / packaging / tissue / security printing / other]
-- Certifications: [relevant scheme(s) and status, if any]
 - Multinational status: [yes — specify parent / no]
 - Sustainability commitments: [code of conduct, reports, certifications]
 - Number of affected workers:

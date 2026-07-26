@@ -100,13 +100,12 @@ related:
 
 ---
 
-#### 12. Is the company FSC-certified?
-*FSC (Forest Stewardship Council) certification status*
+#### 12. Does the company hold any relevant certification or sustainability commitment?
+*e.g. a sector certification scheme, a code of conduct, or a published sustainability report*
 
-- [ ] Yes - FSC certified
-- [ ] No - Not FSC certified  
+- [ ] Yes (specify):
+- [ ] No
 - [ ] Unknown
-- [ ] Other (please specify):
 
 **Answer:**
 
