@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -50,6 +50,67 @@ function docIndicator(has: boolean) {
     : <span className="text-gray-300" title="Not generated">&#10007;</span>
 }
 
+// Excel-style multi-select column filter. `excluded` holds the values to hide
+// (all shown by default); check/uncheck to include/exclude, or "All"/"None".
+function MultiSelectFilter({ label, options, excluded, onChange }: {
+  label: string
+  options: string[]
+  excluded: Set<string>
+  onChange: (next: Set<string>) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState<{ left: number; top: number }>({ left: 0, top: 0 })
+
+  const includedCount = options.filter(o => !excluded.has(o)).length
+  const active = includedCount < options.length
+
+  const openMenu = () => {
+    const r = btnRef.current?.getBoundingClientRect()
+    if (r) setPos({ left: r.left, top: r.bottom + 4 })
+    setOpen(true)
+  }
+  const toggle = (val: string) => {
+    const next = new Set(excluded)
+    if (next.has(val)) next.delete(val)
+    else next.add(val)
+    onChange(next)
+  }
+
+  return (
+    <div className="inline-block">
+      <button
+        ref={btnRef}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        className={`px-2 py-1 text-xs font-normal border rounded whitespace-nowrap ${active ? 'border-uni-blue text-uni-blue bg-blue-50' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+      >
+        {label}{active ? ` (${includedCount}/${options.length})` : ''} ▾
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div
+            className="fixed z-40 bg-white border border-gray-200 rounded-lg shadow-lg p-2 min-w-[10rem] max-h-64 overflow-auto"
+            style={{ left: pos.left, top: pos.top }}
+          >
+            <div className="flex justify-between px-1 pb-1 mb-1 border-b border-gray-100 text-xs">
+              <button className="text-uni-blue hover:underline" onClick={() => onChange(new Set())}>All</button>
+              <button className="text-gray-500 hover:underline" onClick={() => onChange(new Set(options))}>None</button>
+            </div>
+            {options.length === 0 && <div className="text-xs text-gray-400 px-1 py-1">No values</div>}
+            {options.map(opt => (
+              <label key={opt} className="flex items-center gap-2 px-1 py-0.5 text-xs cursor-pointer hover:bg-gray-50 rounded">
+                <input type="checkbox" checked={!excluded.has(opt)} onChange={() => toggle(opt)} />
+                <span className="truncate max-w-[12rem]">{opt}</span>
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function SessionsTab() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [filter, setFilter] = useState<Filter>('all')
@@ -82,7 +143,9 @@ export default function SessionsTab() {
   // Table sort/filter + archived view (Sprint 28)
   const [sortCol, setSortCol] = useState<SortCol>('last_activity')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
-  const [colFilters, setColFilters] = useState<{ frontend_name?: string; role?: string; mode?: string; status?: string; token?: string; company?: string }>({})
+  const [colFilters, setColFilters] = useState<{
+    frontend_name: Set<string>; role: Set<string>; mode: Set<string>; status: Set<string>; token: string; company: string
+  }>({ frontend_name: new Set(), role: new Set(), mode: new Set(), status: new Set(), token: '', company: '' })
   const [showArchived, setShowArchived] = useState(false)
 
   const refresh = async () => {
@@ -273,10 +336,10 @@ export default function SessionsTab() {
     Array.from(new Set(sessions.map(s => s[key]).filter(Boolean))).sort()
 
   const colFiltered = filtered.filter(s => {
-    if (colFilters.frontend_name && s.frontend_name !== colFilters.frontend_name) return false
-    if (colFilters.role && s.role !== colFilters.role) return false
-    if (colFilters.mode && s.mode !== colFilters.mode) return false
-    if (colFilters.status && s.status !== colFilters.status) return false
+    if (colFilters.frontend_name.has(s.frontend_name)) return false
+    if (colFilters.role.has(s.role)) return false
+    if (colFilters.mode.has(s.mode)) return false
+    if (colFilters.status.has(s.status)) return false
     if (colFilters.token && !s.token.toLowerCase().includes(colFilters.token.toLowerCase())) return false
     if (colFilters.company && !(s.company || '').toLowerCase().includes(colFilters.company.toLowerCase())) return false
     return true
@@ -668,34 +731,22 @@ export default function SessionsTab() {
               </tr>
               <tr className="border-b border-gray-200 bg-white">
                 <th className="px-2 py-2">
-                  <input value={colFilters.token || ''} onChange={e => setColFilters(f => ({ ...f, token: e.target.value }))} placeholder="filter" className="w-24 px-2 py-1 text-xs font-normal border border-gray-200 rounded" />
+                  <input value={colFilters.token} onChange={e => setColFilters(f => ({ ...f, token: e.target.value }))} placeholder="filter" className="w-24 px-2 py-1 text-xs font-normal border border-gray-200 rounded" />
                 </th>
                 <th className="px-2 py-2">
-                  <select value={colFilters.frontend_name || ''} onChange={e => setColFilters(f => ({ ...f, frontend_name: e.target.value || undefined }))} className="px-1 py-1 text-xs font-normal border border-gray-200 rounded">
-                    <option value="">All</option>
-                    {uniqueValues('frontend_name').map(v => <option key={v} value={v}>{v}</option>)}
-                  </select>
+                  <MultiSelectFilter label="Frontend" options={uniqueValues('frontend_name')} excluded={colFilters.frontend_name} onChange={next => setColFilters(f => ({ ...f, frontend_name: next }))} />
                 </th>
                 <th className="px-2 py-2">
-                  <input value={colFilters.company || ''} onChange={e => setColFilters(f => ({ ...f, company: e.target.value }))} placeholder="filter" className="w-24 px-2 py-1 text-xs font-normal border border-gray-200 rounded" />
+                  <input value={colFilters.company} onChange={e => setColFilters(f => ({ ...f, company: e.target.value }))} placeholder="filter" className="w-24 px-2 py-1 text-xs font-normal border border-gray-200 rounded" />
                 </th>
                 <th className="px-2 py-2">
-                  <select value={colFilters.role || ''} onChange={e => setColFilters(f => ({ ...f, role: e.target.value || undefined }))} className="px-1 py-1 text-xs font-normal border border-gray-200 rounded">
-                    <option value="">All</option>
-                    {uniqueValues('role').map(v => <option key={v} value={v}>{v}</option>)}
-                  </select>
+                  <MultiSelectFilter label="Role" options={uniqueValues('role')} excluded={colFilters.role} onChange={next => setColFilters(f => ({ ...f, role: next }))} />
                 </th>
                 <th className="px-2 py-2">
-                  <select value={colFilters.mode || ''} onChange={e => setColFilters(f => ({ ...f, mode: e.target.value || undefined }))} className="px-1 py-1 text-xs font-normal border border-gray-200 rounded">
-                    <option value="">All</option>
-                    {uniqueValues('mode').map(v => <option key={v} value={v}>{v}</option>)}
-                  </select>
+                  <MultiSelectFilter label="Mode" options={uniqueValues('mode')} excluded={colFilters.mode} onChange={next => setColFilters(f => ({ ...f, mode: next }))} />
                 </th>
                 <th className="px-2 py-2">
-                  <select value={colFilters.status || ''} onChange={e => setColFilters(f => ({ ...f, status: e.target.value || undefined }))} className="px-1 py-1 text-xs font-normal border border-gray-200 rounded">
-                    <option value="">All</option>
-                    {uniqueValues('status').map(v => <option key={v} value={v}>{v}</option>)}
-                  </select>
+                  <MultiSelectFilter label="Status" options={uniqueValues('status')} excluded={colFilters.status} onChange={next => setColFilters(f => ({ ...f, status: next }))} />
                 </th>
                 <th colSpan={7}></th>
               </tr>
