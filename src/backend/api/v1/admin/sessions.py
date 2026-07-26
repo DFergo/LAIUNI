@@ -23,9 +23,9 @@ DOC_FILES = {
 
 
 @router.get("")
-async def list_sessions(_: dict = Depends(require_admin)):
-    """List all sessions (active + completed) with document status."""
-    sessions = store.list_sessions()
+async def list_sessions(include_archived: bool = False, _: dict = Depends(require_admin)):
+    """List all sessions with document status. Archived (soft-deleted) sessions are included only when include_archived is set."""
+    sessions = store.list_sessions(include_archived=include_archived)
     for s in sessions:
         token = s["token"]
         s["docs"] = {
@@ -119,6 +119,29 @@ async def toggle_flag(token: str, _: dict = Depends(require_admin)):
         raise HTTPException(status_code=404, detail=f"Session not found: {token}")
     new_flag = store.toggle_flag(token)
     return {"token": token, "flagged": new_flag}
+
+
+@router.post("/{token}/archive")
+async def archive_session(token: str, _: dict = Depends(require_admin)):
+    """Soft delete: archive a session (hidden from the default list; files kept on disk)."""
+    store.archive_session(token)
+    return {"token": token, "archived": True}
+
+
+@router.post("/{token}/restore")
+async def restore_session(token: str, _: dict = Depends(require_admin)):
+    """Un-archive a soft-deleted session."""
+    if not store.restore_session(token):
+        raise HTTPException(status_code=404, detail=f"Session not found: {token}")
+    return {"token": token, "archived": False}
+
+
+@router.delete("/{token}")
+async def delete_session(token: str, _: dict = Depends(require_admin)):
+    """Hard delete: permanently remove a session's files from disk. Irreversible."""
+    if not store.delete_session_hard(token):
+        raise HTTPException(status_code=404, detail=f"Session not found: {token}")
+    return {"token": token, "deleted": True}
 
 
 @router.get("/{token}/documents")

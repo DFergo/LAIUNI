@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type FocusEvent } from 'react'
 import {
   getContacts,
   updateGlobalContacts,
@@ -40,6 +40,29 @@ function sortKey(scope: Scope): string {
   return `hrdd_admin_users_sort_${scope}`
 }
 
+function readSort(scope: Scope): { col: keyof Contact; dir: SortDir } {
+  const saved = localStorage.getItem(sortKey(scope))
+  if (saved) {
+    try {
+      const p = JSON.parse(saved)
+      return { col: p.col, dir: p.dir }
+    } catch {
+      // ignore
+    }
+  }
+  return { col: 'email', dir: 'asc' }
+}
+
+function applySort(list: Contact[], col: keyof Contact, dir: SortDir): Contact[] {
+  return [...list].sort((a, b) => {
+    const av = String(a[col] || '').toLowerCase()
+    const bv = String(b[col] || '').toLowerCase()
+    if (av < bv) return dir === 'asc' ? -1 : 1
+    if (av > bv) return dir === 'asc' ? 1 : -1
+    return 0
+  })
+}
+
 export default function RegisteredUsersTab() {
   const [store, setStore] = useState<ContactsStore | null>(null)
   const [frontends, setFrontends] = useState<Frontend[]>([])
@@ -78,14 +101,15 @@ export default function RegisteredUsersTab() {
 
   useEffect(() => {
     if (!store) return
+    const { col, dir } = readSort(scope)
     if (scope === 'global') {
-      setRows(store.global.map(c => ({ ...c })))
+      setRows(applySort(store.global.map(c => ({ ...c })), col, dir))
       setMode('replace')
     } else {
       const fid = scope.slice('frontend:'.length)
       const override = store.per_frontend?.[fid]
       if (override) {
-        setRows(override.contacts.map(c => ({ ...c })))
+        setRows(applySort(override.contacts.map(c => ({ ...c })), col, dir))
         setMode(override.mode)
       } else {
         setRows([])
@@ -112,20 +136,14 @@ export default function RegisteredUsersTab() {
     return new Set(Object.keys(store?.per_frontend || {}))
   }, [store])
 
-  const filteredSortedRows = useMemo(() => {
+  // Filter only — ordering lives in `rows` and is re-applied on sort / row blur,
+  // so editing a cell never reorders the list mid-typing (Sprint 28 fix).
+  const displayRows = useMemo(() => {
     const f = filter.trim().toLowerCase()
-    const filtered = f
+    return f
       ? rows.filter(r => FIELDS.some(({ key }) => String(r[key] || '').toLowerCase().includes(f)))
       : rows
-    const sorted = [...filtered].sort((a, b) => {
-      const av = String(a[sortCol] || '').toLowerCase()
-      const bv = String(b[sortCol] || '').toLowerCase()
-      if (av < bv) return sortDir === 'asc' ? -1 : 1
-      if (av > bv) return sortDir === 'asc' ? 1 : -1
-      return 0
-    })
-    return sorted
-  }, [rows, filter, sortCol, sortDir])
+  }, [rows, filter])
 
   const handleSort = (col: keyof Contact) => {
     let nextDir: SortDir = 'asc'
@@ -135,11 +153,20 @@ export default function RegisteredUsersTab() {
     setSortCol(col)
     setSortDir(nextDir)
     localStorage.setItem(sortKey(scope), JSON.stringify({ col, dir: nextDir }))
+    setRows(prev => applySort(prev, col, nextDir))
+  }
+
+  // Re-sort only when focus leaves the row (not on each keystroke, nor when
+  // tabbing between cells of the same row).
+  const handleCellBlur = (e: FocusEvent<HTMLInputElement>) => {
+    const next = e.relatedTarget as HTMLElement | null
+    if (next && next.closest('tr') === e.currentTarget.closest('tr')) return
+    setRows(prev => applySort(prev, sortCol, sortDir))
   }
 
   const updateRow = (idx: number, field: keyof Contact, value: string) => {
     // idx references the filtered/sorted list — resolve back to original rows array
-    const target = filteredSortedRows[idx]
+    const target = displayRows[idx]
     setRows(prev => prev.map(r => (r === target ? { ...r, [field]: value } : r)))
     setDirty(true)
   }
@@ -150,7 +177,7 @@ export default function RegisteredUsersTab() {
   }
 
   const deleteRow = (idx: number) => {
-    const target = filteredSortedRows[idx]
+    const target = displayRows[idx]
     setRows(prev => prev.filter(r => r !== target))
     setDirty(true)
   }
@@ -383,14 +410,14 @@ export default function RegisteredUsersTab() {
               </tr>
             </thead>
             <tbody>
-              {filteredSortedRows.length === 0 && (
+              {displayRows.length === 0 && (
                 <tr>
                   <td colSpan={FIELDS.length + 1} className="px-3 py-4 text-center text-gray-500">
                     No users. Add one or import from Excel/CSV.
                   </td>
                 </tr>
               )}
-              {filteredSortedRows.map((row, idx) => (
+              {displayRows.map((row, idx) => (
                 <tr key={idx} className="border-b border-gray-100 last:border-0">
                   {FIELDS.map(({ key }) => (
                     <td key={key} className="px-2 py-1">
@@ -398,6 +425,7 @@ export default function RegisteredUsersTab() {
                         type="text"
                         value={row[key] || ''}
                         onChange={e => updateRow(idx, key, e.target.value)}
+                        onBlur={handleCellBlur}
                         className="w-full border border-transparent focus:border-gray-300 rounded px-2 py-1 text-sm"
                       />
                     </td>

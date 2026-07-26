@@ -346,8 +346,10 @@ export interface SessionSummary {
   mode: string
   company: string
   frontend_name: string
+  frontend_id: string
   status: string
   flagged: boolean
+  archived?: boolean
   created_at: string | null
   last_activity: string | null
   docs?: Record<string, boolean>
@@ -365,8 +367,20 @@ export interface SessionDetail {
   last_activity: string | null
 }
 
-export async function listSessions(): Promise<{ sessions: SessionSummary[] }> {
-  return request('/admin/sessions');
+export async function listSessions(includeArchived = false): Promise<{ sessions: SessionSummary[] }> {
+  return request(`/admin/sessions${includeArchived ? '?include_archived=true' : ''}`);
+}
+
+export async function archiveSession(token: string): Promise<{ token: string; archived: boolean }> {
+  return request(`/admin/sessions/${token}/archive`, { method: 'POST' });
+}
+
+export async function restoreSession(token: string): Promise<{ token: string; archived: boolean }> {
+  return request(`/admin/sessions/${token}/restore`, { method: 'POST' });
+}
+
+export async function deleteSession(token: string): Promise<{ token: string; deleted: boolean }> {
+  return request(`/admin/sessions/${token}`, { method: 'DELETE' });
 }
 
 export async function getSession(token: string): Promise<SessionDetail> {

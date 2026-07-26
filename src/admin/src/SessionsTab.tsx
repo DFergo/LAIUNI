@@ -5,11 +5,13 @@ import {
   listSessions, getSession, toggleSessionFlag, getSessionDocuments, generateDocument,
   listFrontends, getLifecycleSettings, updateLifecycleSettings,
   purgeFrontendSessions, getResumeWindows, updateResumeWindows,
+  archiveSession, restoreSession, deleteSession,
   type SessionSummary, type SessionDetail, type SessionDocuments,
   type Frontend, type LifecycleConfig, type ResumeWindows,
 } from './api'
 
 type Filter = 'all' | 'active' | 'completed' | 'flagged'
+type SortCol = 'token' | 'frontend_name' | 'company' | 'role' | 'mode' | 'status' | 'message_count' | 'last_activity' | ''
 
 const DOC_LABELS: Record<string, string> = {
   summary: 'User Summary',
@@ -77,9 +79,15 @@ export default function SessionsTab() {
   const [resumeMsg, setResumeMsg] = useState('')
   const [purgeMsg, setPurgeMsg] = useState('')
 
+  // Table sort/filter + archived view (Sprint 28)
+  const [sortCol, setSortCol] = useState<SortCol>('last_activity')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [colFilters, setColFilters] = useState<{ frontend_name?: string; role?: string; mode?: string; status?: string; token?: string; company?: string }>({})
+  const [showArchived, setShowArchived] = useState(false)
+
   const refresh = async () => {
     try {
-      const data = await listSessions()
+      const data = await listSessions(showArchived)
       setSessions(data.sessions)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load sessions')
@@ -166,7 +174,7 @@ export default function SessionsTab() {
     refresh()
     const interval = setInterval(refresh, 10000)
     return () => clearInterval(interval)
-  }, [])
+  }, [showArchived])
 
   const viewSession = async (token: string) => {
     setError('')
@@ -198,6 +206,30 @@ export default function SessionsTab() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to toggle flag')
     }
+  }
+
+  const handleArchive = async (token: string) => {
+    setError('')
+    try { await archiveSession(token); await refresh() }
+    catch (err) { setError(err instanceof Error ? err.message : 'Archive failed') }
+  }
+
+  const handleRestore = async (token: string) => {
+    setError('')
+    try { await restoreSession(token); await refresh() }
+    catch (err) { setError(err instanceof Error ? err.message : 'Restore failed') }
+  }
+
+  const handleHardDelete = async (token: string) => {
+    if (!confirm(`Permanently delete session ${token} from disk? This removes the conversation, report and documents for good and CANNOT be undone.`)) return
+    setError('')
+    try { await deleteSession(token); await refresh() }
+    catch (err) { setError(err instanceof Error ? err.message : 'Delete failed') }
+  }
+
+  const handleSort = (col: SortCol) => {
+    if (sortCol === col) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortCol(col); setSortDir('asc') }
   }
 
   const handleGenerate = async (token: string, docType: string) => {
@@ -236,6 +268,40 @@ export default function SessionsTab() {
     completed: sessions.filter(s => s.status === 'completed').length,
     flagged: sessions.filter(s => s.flagged).length,
   }
+
+  const uniqueValues = (key: 'frontend_name' | 'role' | 'mode' | 'status') =>
+    Array.from(new Set(sessions.map(s => s[key]).filter(Boolean))).sort()
+
+  const colFiltered = filtered.filter(s => {
+    if (colFilters.frontend_name && s.frontend_name !== colFilters.frontend_name) return false
+    if (colFilters.role && s.role !== colFilters.role) return false
+    if (colFilters.mode && s.mode !== colFilters.mode) return false
+    if (colFilters.status && s.status !== colFilters.status) return false
+    if (colFilters.token && !s.token.toLowerCase().includes(colFilters.token.toLowerCase())) return false
+    if (colFilters.company && !(s.company || '').toLowerCase().includes(colFilters.company.toLowerCase())) return false
+    return true
+  })
+
+  const displayRows = [...colFiltered].sort((a, b) => {
+    if (!sortCol) return 0
+    let av: any
+    let bv: any
+    if (sortCol === 'last_activity') {
+      av = a.last_activity ? new Date(a.last_activity).getTime() : 0
+      bv = b.last_activity ? new Date(b.last_activity).getTime() : 0
+    } else if (sortCol === 'message_count') {
+      av = a.message_count ?? 0
+      bv = b.message_count ?? 0
+    } else {
+      av = String(a[sortCol] ?? '').toLowerCase()
+      bv = String(b[sortCol] ?? '').toLowerCase()
+    }
+    if (av < bv) return sortDir === 'asc' ? -1 : 1
+    if (av > bv) return sortDir === 'asc' ? 1 : -1
+    return 0
+  })
+
+  const sortArrow = (col: SortCol) => (sortCol === col ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '')
 
   if (loading) return <p className="text-gray-400 text-sm">Loading...</p>
 
@@ -397,6 +463,14 @@ export default function SessionsTab() {
           ))}
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => setShowArchived(v => !v)}
+            className={`text-xs px-3 py-1 rounded-lg border transition-colors font-medium ${
+              showArchived ? 'border-uni-blue text-uni-blue bg-blue-50' : 'border-gray-300 text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            {showArchived ? 'Hide archived' : 'Show archived'}
+          </button>
           <button
             onClick={() => setShowLifecycle(!showLifecycle)}
             className={`text-xs px-3 py-1 rounded-lg border transition-colors font-medium ${
@@ -560,13 +634,12 @@ export default function SessionsTab() {
 
       {error && <p className="text-sm text-uni-red">{error}</p>}
 
-      {filtered.length === 0 ? (
+      {displayRows.length === 0 ? (
         <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6 text-center">
           <p className="text-gray-400 text-sm">
-            {filter === 'flagged' ? 'No flagged sessions' :
-             filter === 'completed' ? 'No completed sessions' :
-             filter === 'active' ? 'No active sessions' :
-             'No sessions. Start a conversation on a frontend to see sessions here.'}
+            {sessions.length === 0
+              ? 'No sessions. Start a conversation on a frontend to see sessions here.'
+              : 'No sessions match the current filters.'}
           </p>
         </div>
       ) : (
@@ -574,25 +647,66 @@ export default function SessionsTab() {
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Token</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Frontend</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Company</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Role</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Mode</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Status</th>
+                {([['token', 'Token'], ['frontend_name', 'Frontend'], ['company', 'Company'], ['role', 'Role'], ['mode', 'Mode'], ['status', 'Status']] as [SortCol, string][]).map(([col, label]) => (
+                  <th key={col} className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">
+                    <button onClick={() => handleSort(col)} className="flex items-center hover:text-gray-900">
+                      {label}<span className="text-uni-blue">{sortArrow(col)}</span>
+                    </button>
+                  </th>
+                ))}
                 <th className="text-center px-3 py-3 font-medium text-gray-600 whitespace-nowrap" title="User Summary">Sum</th>
                 <th className="text-center px-3 py-3 font-medium text-gray-600 whitespace-nowrap" title="Internal Summary">Int</th>
                 <th className="text-center px-3 py-3 font-medium text-gray-600 whitespace-nowrap" title="Report">Rep</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Msgs</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Last Activity</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600 whitespace-nowrap">
+                  <button onClick={() => handleSort('message_count')} className="hover:text-gray-900">Msgs<span className="text-uni-blue">{sortArrow('message_count')}</span></button>
+                </th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600 whitespace-nowrap">
+                  <button onClick={() => handleSort('last_activity')} className="hover:text-gray-900">Last Activity<span className="text-uni-blue">{sortArrow('last_activity')}</span></button>
+                </th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Flag</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600"></th>
               </tr>
+              <tr className="border-b border-gray-200 bg-white">
+                <th className="px-2 py-2">
+                  <input value={colFilters.token || ''} onChange={e => setColFilters(f => ({ ...f, token: e.target.value }))} placeholder="filter" className="w-24 px-2 py-1 text-xs font-normal border border-gray-200 rounded" />
+                </th>
+                <th className="px-2 py-2">
+                  <select value={colFilters.frontend_name || ''} onChange={e => setColFilters(f => ({ ...f, frontend_name: e.target.value || undefined }))} className="px-1 py-1 text-xs font-normal border border-gray-200 rounded">
+                    <option value="">All</option>
+                    {uniqueValues('frontend_name').map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </th>
+                <th className="px-2 py-2">
+                  <input value={colFilters.company || ''} onChange={e => setColFilters(f => ({ ...f, company: e.target.value }))} placeholder="filter" className="w-24 px-2 py-1 text-xs font-normal border border-gray-200 rounded" />
+                </th>
+                <th className="px-2 py-2">
+                  <select value={colFilters.role || ''} onChange={e => setColFilters(f => ({ ...f, role: e.target.value || undefined }))} className="px-1 py-1 text-xs font-normal border border-gray-200 rounded">
+                    <option value="">All</option>
+                    {uniqueValues('role').map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </th>
+                <th className="px-2 py-2">
+                  <select value={colFilters.mode || ''} onChange={e => setColFilters(f => ({ ...f, mode: e.target.value || undefined }))} className="px-1 py-1 text-xs font-normal border border-gray-200 rounded">
+                    <option value="">All</option>
+                    {uniqueValues('mode').map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </th>
+                <th className="px-2 py-2">
+                  <select value={colFilters.status || ''} onChange={e => setColFilters(f => ({ ...f, status: e.target.value || undefined }))} className="px-1 py-1 text-xs font-normal border border-gray-200 rounded">
+                    <option value="">All</option>
+                    {uniqueValues('status').map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </th>
+                <th colSpan={7}></th>
+              </tr>
             </thead>
             <tbody>
-              {filtered.map(s => (
-                <tr key={s.token} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-gray-800 whitespace-nowrap">{s.token}</td>
+              {displayRows.map(s => (
+                <tr key={s.token} className={`border-b border-gray-100 hover:bg-gray-50 ${s.archived ? 'opacity-60' : ''}`}>
+                  <td className="px-4 py-3 font-mono text-gray-800 whitespace-nowrap">
+                    {s.token}
+                    {s.archived && <span className="ml-2 text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">archived</span>}
+                  </td>
                   <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">{s.frontend_name || '—'}</td>
                   <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.company || '—'}</td>
                   <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{s.role}</td>
@@ -616,12 +730,13 @@ export default function SessionsTab() {
                     </button>
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
-                    <button
-                      onClick={() => viewSession(s.token)}
-                      className="text-xs text-uni-blue hover:underline"
-                    >
-                      View
-                    </button>
+                    <div className="flex items-center gap-3 justify-end">
+                      <button onClick={() => viewSession(s.token)} className="text-xs text-uni-blue hover:underline">View</button>
+                      {s.archived
+                        ? <button onClick={() => handleRestore(s.token)} className="text-xs text-gray-500 hover:underline">Restore</button>
+                        : <button onClick={() => handleArchive(s.token)} className="text-xs text-gray-500 hover:underline">Archive</button>}
+                      <button onClick={() => handleHardDelete(s.token)} className="text-xs text-uni-red hover:underline">Delete</button>
+                    </div>
                   </td>
                 </tr>
               ))}

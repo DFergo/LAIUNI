@@ -234,8 +234,9 @@ class SessionStore:
         self._ensure_loaded()
         return self._cache.get(token)
 
-    def list_sessions(self) -> list[dict[str, Any]]:
-        """List all sessions with metadata."""
+    def list_sessions(self, include_archived: bool = False) -> list[dict[str, Any]]:
+        """List all sessions with metadata. Archived (soft-deleted) sessions are
+        excluded unless include_archived is set (they are read from disk)."""
         self._ensure_loaded()
         result = []
         for token, data in self._cache.items():
@@ -249,10 +250,42 @@ class SessionStore:
                 "frontend_id": data.get("frontend_id", ""),
                 "status": data.get("status", "active"),
                 "flagged": data.get("flagged", False),
+                "archived": False,
                 "guardrail_violations": data.get("guardrail_violations", 0),
                 "created_at": data.get("created_at"),
                 "last_activity": data.get("last_activity"),
             })
+        if include_archived:
+            base = _sessions_dir()
+            if base.exists():
+                for d in base.iterdir():
+                    if not d.is_dir() or d.name in self._cache:
+                        continue
+                    meta_path = d / "session.json"
+                    if not meta_path.exists():
+                        continue
+                    try:
+                        meta = json.loads(meta_path.read_text())
+                    except Exception:
+                        continue
+                    if not meta.get("archived"):
+                        continue
+                    survey = meta.get("survey", {})
+                    result.append({
+                        "token": d.name,
+                        "message_count": len(self._load_conversation(d.name)),
+                        "role": survey.get("role", meta.get("role", "unknown")),
+                        "mode": survey.get("type", meta.get("mode", "documentation")),
+                        "company": survey.get("company", ""),
+                        "frontend_name": meta.get("frontend_name", ""),
+                        "frontend_id": meta.get("frontend_id", ""),
+                        "status": meta.get("status", "active"),
+                        "flagged": meta.get("flagged", False),
+                        "archived": True,
+                        "guardrail_violations": meta.get("guardrail_violations", 0),
+                        "created_at": meta.get("created_at"),
+                        "last_activity": meta.get("last_activity"),
+                    })
         return result
 
     def toggle_flag(self, token: str) -> bool:
@@ -343,6 +376,50 @@ class SessionStore:
                 count += 1
         logger.info(f"Purged {count} sessions for frontend {frontend_id}")
         return count
+
+    def restore_session(self, token: str) -> bool:
+        """Un-archive a soft-deleted session: clear the archived flag on disk and
+        reload it into the cache so it appears in the default listing again."""
+        self._ensure_loaded()
+        meta_path = _session_dir(token) / "session.json"
+        if not meta_path.exists():
+            return False
+        try:
+            meta = json.loads(meta_path.read_text())
+        except Exception as e:
+            logger.warning(f"Failed to read {token} for restore: {e}")
+            return False
+        meta.pop("archived", None)
+        meta.pop("archived_at", None)
+        _atomic_write_json(meta_path, meta)
+        self._cache[token] = {
+            "system_prompt": meta.get("system_prompt", ""),
+            "messages": self._load_conversation(token),
+            "survey": meta.get("survey", {}),
+            "config": meta.get("config", {}),
+            "language": meta.get("language", "en"),
+            "frontend_name": meta.get("frontend_name", ""),
+            "frontend_id": meta.get("frontend_id", ""),
+            "status": meta.get("status", "active"),
+            "flagged": meta.get("flagged", False),
+            "created_at": meta.get("created_at"),
+            "last_activity": meta.get("last_activity"),
+            "guardrail_violations": meta.get("guardrail_violations", 0),
+        }
+        logger.info(f"Session restored: {token}")
+        return True
+
+    def delete_session_hard(self, token: str) -> bool:
+        """Permanently delete a single session's files from disk. Irreversible."""
+        import shutil
+        d = _session_dir(token)
+        existed = d.exists()
+        if existed:
+            shutil.rmtree(d, ignore_errors=True)
+        self._cache.pop(token, None)
+        if existed:
+            logger.info(f"Session hard-deleted: {token}")
+        return existed
 
     def count_frontend_purgeable(self, frontend_id: str) -> int:
         """How many non-active sessions of a frontend the purge would delete."""
