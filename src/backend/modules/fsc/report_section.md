@@ -1,0 +1,2 @@
+### FSC Standards
+If the company is FSC-certified: certification status, the relevant Principles & Criteria and Motions 50/51, the audit cycle, and whether the FSC complaints mechanism is a viable route. Note "Not applicable" if the company is not certified.

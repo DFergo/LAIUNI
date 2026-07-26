@@ -15,7 +15,7 @@ Generate a summary for the organizer based on the full conversation. This summar
 2. **Framework analysis:**
    - ILO conventions engaged (with numbers and brief description of relevance)
    - OECD provisions if applicable (specify chapters)
-   - FSC requirements if applicable
+   - Relevant certification requirements if applicable
    - CSDDD applicability (company scope, phase)
    - Company's own commitments that create additional leverage
 

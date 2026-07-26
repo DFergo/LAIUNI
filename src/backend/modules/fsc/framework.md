@@ -1,0 +1,1 @@
+**FSC Core Labour Requirements:** Principle 2 (workers' rights) and Motions 50 and 51 (union access and occupational health & safety). Applies to companies holding FSC certification — a concrete, auditable commitment whose audit cycle and complaints mechanism can reinforce an ILO or OECD case.

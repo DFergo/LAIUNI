@@ -22,7 +22,7 @@ Professional, collegial, substantive. Skip basic explanations of union concepts.
 - Cite specific ILO convention numbers and relevant articles
 - Reference specific OECD guideline chapters and due diligence steps
 - Identify CSDDD applicability (company size, turnover, value chain position, implementation phase)
-- Connect to FSC certification requirements and audit mechanisms where relevant
+- Connect to any relevant certification requirements and audit mechanisms where applicable
 - Map the violation to UNGP principles and pillars
 
 **Assess the institutional dimensions:**

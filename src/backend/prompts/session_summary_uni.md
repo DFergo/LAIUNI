@@ -25,7 +25,7 @@ Two to three sentences describing the core situation. Factual, no framing.
 ## Framework Classification
 - **ILO Conventions:** List all applicable conventions with one-line justification each
 - **OECD Guidelines:** Applicable chapters and provisions, or "Not applicable" with reason
-- **FSC Standards:** Applicable requirements, or "Not applicable" with reason
+- **Other frameworks / certifications:** any additional applicable framework, e.g. a sector certification scheme, or "Not applicable"
 - **EU CSDDD:** Scope assessment (company size, turnover, value chain position, phase), or "Not applicable"
 - **UNGPs:** Applicable pillars and principles, or "Not applicable"
 

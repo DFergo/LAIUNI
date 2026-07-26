@@ -3,12 +3,15 @@ import {
   listRAGDocuments, uploadRAGDocument, deleteRAGDocument, reindexRAG, resetRAGDefaults,
   getGlossary, updateGlossary, getOrganizations, updateOrganizations,
   listFrontends, getCampaignRAGConfig, updateCampaignRAGConfig,
-  type RAGDocument, type GlossaryTerm, type Organization, type Frontend
+  listModules, setGlobalModules, getFrontendModules, setFrontendModules,
+  type RAGDocument, type GlossaryTerm, type Organization, type Frontend, type ModuleInfo
 } from './api'
 
 interface CampaignState {
   documents: RAGDocument[]
   includeGlobal: boolean
+  modulesOverride: boolean
+  modulesEnabled: string[]
   expanded: boolean
   loading: boolean
 }
@@ -34,30 +37,40 @@ export default function RAGTab() {
   const [frontends, setFrontends] = useState<Frontend[]>([])
   const [campaigns, setCampaigns] = useState<Record<string, CampaignState>>({})
 
+  // Feature modules (Sprint 29)
+  const [availableModules, setAvailableModules] = useState<ModuleInfo[]>([])
+  const [globalModules, setGlobalModulesState] = useState<string[]>([])
+
   const refresh = async () => {
     try {
-      const [ragData, glossaryData, orgsData, feData] = await Promise.all([
+      const [ragData, glossaryData, orgsData, feData, modulesData] = await Promise.all([
         listRAGDocuments(),
         getGlossary(),
         getOrganizations(),
         listFrontends(),
+        listModules(),
       ])
       setDocuments(ragData.documents)
       setGlossary(glossaryData.terms)
       setOrganizations(orgsData.organizations)
       setFrontends(feData.frontends)
+      setAvailableModules(modulesData.available)
+      setGlobalModulesState(modulesData.global_enabled)
 
       // Load campaign state for each frontend
       const newCampaigns: Record<string, CampaignState> = {}
       for (const fe of feData.frontends) {
         try {
-          const [docs, config] = await Promise.all([
+          const [docs, config, mods] = await Promise.all([
             listRAGDocuments(fe.id),
             getCampaignRAGConfig(fe.id),
+            getFrontendModules(fe.id),
           ])
           newCampaigns[fe.id] = {
             documents: docs.documents,
             includeGlobal: config.include_global_rag,
+            modulesOverride: mods.override,
+            modulesEnabled: mods.enabled,
             expanded: campaigns[fe.id]?.expanded || false,
             loading: false,
           }
@@ -65,6 +78,8 @@ export default function RAGTab() {
           newCampaigns[fe.id] = {
             documents: [],
             includeGlobal: true,
+            modulesOverride: false,
+            modulesEnabled: [],
             expanded: campaigns[fe.id]?.expanded || false,
             loading: false,
           }
@@ -139,6 +154,31 @@ export default function RAGTab() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Reset failed')
     }
+  }
+
+  // --- Feature module handlers (Sprint 29) ---
+  const toggleGlobalModule = async (id: string) => {
+    const next = globalModules.includes(id) ? globalModules.filter(m => m !== id) : [...globalModules, id]
+    setGlobalModulesState(next)
+    try { await setGlobalModules(next) } catch (err) { setError(err instanceof Error ? err.message : 'Failed to update modules') }
+  }
+
+  const setFeModules = async (fid: string, override: boolean, enabled: string[]) => {
+    setCampaigns(prev => ({ ...prev, [fid]: { ...prev[fid], modulesOverride: override, modulesEnabled: enabled } }))
+    try { await setFrontendModules(fid, override, enabled) } catch (err) { setError(err instanceof Error ? err.message : 'Failed to update modules') }
+  }
+
+  const toggleFrontendOverride = (fid: string) => {
+    const c = campaigns[fid]
+    if (!c) return
+    setFeModules(fid, !c.modulesOverride, !c.modulesOverride ? [...globalModules] : [])
+  }
+
+  const toggleFrontendModule = (fid: string, id: string) => {
+    const c = campaigns[fid]
+    if (!c) return
+    const enabled = c.modulesEnabled.includes(id) ? c.modulesEnabled.filter(m => m !== id) : [...c.modulesEnabled, id]
+    setFeModules(fid, true, enabled)
   }
 
   // --- Campaign RAG handlers (Sprint 8h) ---
@@ -363,6 +403,24 @@ export default function RAGTab() {
         {docTable(documents, handleDelete)}
       </div>
 
+      {/* Feature Modules (Sprint 29) */}
+      {availableModules.length > 0 && (
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-1">Feature Modules</h3>
+          <p className="text-xs text-gray-400 mb-4">
+            Optional framework modules. Enabling one adds its framework to the prompts and its documents to RAG. A vanilla install has none enabled.
+          </p>
+          <div className="space-y-2">
+            {availableModules.map(m => (
+              <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={globalModules.includes(m.id)} onChange={() => toggleGlobalModule(m.id)} />
+                <span className="text-gray-800">{m.name}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Campaign Documents per Frontend (Sprint 8h) */}
       {frontends.length > 0 && (
         <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
@@ -426,6 +484,26 @@ export default function RAGTab() {
                         </label>
                       </div>
                       {docTable(campaign.documents, name => handleCampaignDelete(fe.id, name))}
+                      {availableModules.length > 0 && (
+                        <div className="mt-4 pt-3 border-t border-gray-100">
+                          <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer mb-2">
+                            <input type="checkbox" checked={campaign.modulesOverride} onChange={() => toggleFrontendOverride(fe.id)} />
+                            Override global modules
+                          </label>
+                          {campaign.modulesOverride ? (
+                            <div className="space-y-1 pl-5">
+                              {availableModules.map(m => (
+                                <label key={m.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                                  <input type="checkbox" checked={campaign.modulesEnabled.includes(m.id)} onChange={() => toggleFrontendModule(fe.id, m.id)} />
+                                  <span className="text-gray-700">{m.name}</span>
+                                </label>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-gray-400 pl-5">Inherits global: {globalModules.length ? globalModules.join(', ') : 'none'}</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

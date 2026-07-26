@@ -16,7 +16,7 @@ Generate a summary for the officer based on the full conversation. This summary 
    - ILO conventions engaged — with specific articles where relevant
    - OECD provisions — chapters, due diligence steps applicable
    - CSDDD — scope assessment, enforcement timeline, responsible authority
-   - FSC — certification status, audit cycle, complaint mechanism
+   - Relevant certifications — status, audit cycle, complaint mechanism
    - UNGP — pillars and principles engaged
    - Company's own commitments — code of conduct, sustainability reports, public statements
 

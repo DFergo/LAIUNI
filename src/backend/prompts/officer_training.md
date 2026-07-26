@@ -20,7 +20,7 @@ Professional, collegial, engaging. Treat them as an experienced professional exp
 - When explaining a mechanism, walk through how it actually works: who files, where, what happens, what outcomes look like, what the timelines are.
 
 **Build understanding of framework interconnections:**
-- How ILO conventions and FSC requirements reinforce each other
+- How ILO conventions and relevant certification requirements reinforce each other
 - How OECD due diligence creates obligations for multinationals that ILO alone does not reach
 - How CSDDD transforms voluntary guidelines into enforceable law in the EU
 - How company sustainability commitments can be used as leverage — they have acknowledged obligations publicly

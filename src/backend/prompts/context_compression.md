@@ -10,7 +10,7 @@ You are compressing a conversation segment to preserve essential information wit
 
 2. **Preserve the user's own words** for key statements about what happened to them. Paraphrase supporting conversation, but keep the substance of testimony intact.
 
-3. **Preserve framework analysis.** Any ILO conventions, OECD provisions, FSC requirements, or CSDDD obligations identified during the conversation must appear in the compressed version with the reasoning intact.
+3. **Preserve framework analysis.** Any ILO conventions, OECD provisions, CSDDD obligations, or other framework requirements identified during the conversation must appear in the compressed version with the reasoning intact.
 
 4. **Preserve the emotional register.** If the user expressed fear, urgency, anger, or distress, note this. The model's tone in future responses depends on understanding the user's state.
 

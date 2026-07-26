@@ -22,7 +22,7 @@ You receive the FULL conversation — no compression. Extract ALL relevant infor
 - Company name:
 - Site location:
 - Sector: [printing / publishing / packaging / tissue / security printing / other]
-- FSC certification: [yes / no / unknown]
+- Certifications: [relevant scheme(s) and status, if any]
 - Multinational status: [yes — specify parent / no]
 - Sustainability commitments: [code of conduct, reports, certifications]
 - Number of affected workers:
@@ -43,8 +43,7 @@ For each applicable convention: number, title, specific relevance to this case.
 ### OECD Guidelines
 Applicable chapters, specific provisions, due diligence steps the company failed to follow.
 
-### FSC Standards
-Applicable principles and requirements, if the company is FSC-certified.
+{{module_report_sections}}
 
 ### EU CSDDD
 Scope assessment, applicable obligations, enforcement status.
@@ -97,7 +96,7 @@ Previous violations at this company or site, if described by the user.
 Any differences between the user's account and your assessment of the situation.
 
 ### Recommended Mechanism
-Which international mechanism is most appropriate: OECD NCP complaint, ILO CFA submission, FSC complaint, CSDDD enforcement, or combination.
+Which international mechanism is most appropriate: OECD NCP complaint, ILO CFA submission, CSDDD enforcement, a relevant certification complaint, or a combination.
 
 ### Strategic Notes
 Political context, sector dynamics, campaign potential, precedent value, any considerations relevant to UNI's decision-making.

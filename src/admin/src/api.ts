@@ -489,6 +489,26 @@ export async function resetRAGDefaults(): Promise<{ status: string; restored?: n
   return request('/admin/rag/reset-defaults', { method: 'POST' });
 }
 
+// --- Feature modules (Sprint 29) ---
+
+export interface ModuleInfo { id: string; name: string }
+
+export async function listModules(): Promise<{ available: ModuleInfo[]; global_enabled: string[] }> {
+  return request('/admin/modules');
+}
+
+export async function setGlobalModules(enabled: string[]): Promise<{ enabled: string[] }> {
+  return request('/admin/modules/global', { method: 'PUT', body: JSON.stringify({ enabled }) });
+}
+
+export async function getFrontendModules(frontendId: string): Promise<{ frontend_id: string; override: boolean; enabled: string[]; effective: string[] }> {
+  return request(`/admin/modules/frontend/${frontendId}`);
+}
+
+export async function setFrontendModules(frontendId: string, override: boolean, enabled: string[]): Promise<{ frontend_id: string; override: boolean; effective: string[] }> {
+  return request(`/admin/modules/frontend/${frontendId}`, { method: 'PUT', body: JSON.stringify({ override, enabled }) });
+}
+
 export async function getCampaignRAGConfig(frontendId: string): Promise<{ include_global_rag: boolean }> {
   return request(`/admin/rag/campaign/${frontendId}/config`);
 }

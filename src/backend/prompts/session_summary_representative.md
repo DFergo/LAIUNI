@@ -12,7 +12,7 @@ Generate a summary for the union representative based on the full conversation. 
 
 1. **Situation documented:** A concise recap of the case as described — what happened, who is affected, the scope (number of workers, sites, timeline).
 
-2. **Relevant international frameworks:** Which standards appear to apply, explained briefly. You may mention ILO convention numbers with a plain-language description (e.g., "ILO Convention 87 — freedom of association"). Note the company's own commitments if relevant (FSC certification, code of conduct, sustainability report).
+2. **Relevant international frameworks:** Which standards appear to apply, explained briefly. You may mention ILO convention numbers with a plain-language description (e.g., "ILO Convention 87 — freedom of association"). Note the company's own commitments if relevant (certifications, code of conduct, sustainability report).
 
 3. **Key points for your union:** The most important elements of this case for escalation — what makes it strong, what gaps remain, what additional information or evidence would help.
 

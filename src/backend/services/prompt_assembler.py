@@ -143,10 +143,15 @@ def ensure_defaults():
 
 
 def _load(name: str, frontend_id: str | None = None) -> str:
-    """Load a prompt file by name. Returns empty string if not found."""
+    """Load a prompt file by name. Returns empty string if not found.
+
+    Applies feature-module slot substitution ({{module_*}}) using the modules
+    enabled for this frontend (Sprint 29). No-op when no slots/modules present.
+    """
     path = _prompts_dir(frontend_id) / name
     if path.exists():
-        return path.read_text().strip()
+        from src.services.modules import apply_slots
+        return apply_slots(path.read_text().strip(), frontend_id)
     logger.warning(f"Prompt file not found: {name}")
     return ""
 

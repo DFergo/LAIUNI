@@ -32,6 +32,9 @@ _RAG_DEFAULTS_DIR = Path(__file__).parent.parent / "rag_defaults"
 _SEED_SENTINEL = DOCUMENTS_DIR.parent / ".rag_seeded"  # config/.rag_seeded
 _DOC_SUFFIXES = {".md", ".txt", ".json", ".pdf"}
 
+# Feature-module indexes (Sprint 29) — built from modules/{id}/documents/
+_module_indexes: dict[str, any] = {}
+
 
 def _docs_dir() -> Path:
     path = DOCUMENTS_DIR
@@ -276,6 +279,11 @@ def get_relevant_chunks(query: str, top_k: int | None = None, frontend_id: str |
         campaign_chunks = _get_campaign_chunks(frontend_id, query, top_k)
         chunks.extend(campaign_chunks)
 
+    # Feature-module RAG (Sprint 29) — include docs of modules enabled for this frontend
+    from src.services.modules import get_enabled_modules
+    for module_id in get_enabled_modules(frontend_id):
+        chunks.extend(_get_module_chunks(module_id, query, top_k))
+
     if chunks:
         logger.debug(f"RAG retrieved {len(chunks)} chunks for query: {query[:80]}... (frontend={frontend_id})")
     return chunks
@@ -455,6 +463,71 @@ def list_campaign_documents(frontend_id: str) -> list[dict]:
             stat = f.stat()
             docs.append({"name": f.name, "size": stat.st_size, "modified": stat.st_mtime})
     return docs
+
+
+# --- Feature-module RAG (Sprint 29) ---
+
+def _module_index_dir(module_id: str) -> Path:
+    path = DOCUMENTS_DIR.parent / "module_indexes" / module_id
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _load_or_build_module_index(module_id: str):
+    """Load or build the RAG index for a module from modules/{id}/documents/."""
+    from llama_index.core import (
+        VectorStoreIndex,
+        SimpleDirectoryReader,
+        StorageContext,
+        Settings,
+        load_index_from_storage,
+    )
+    from src.services.modules import module_documents_dir
+
+    Settings.embed_model = _get_embed_model()
+    Settings.llm = None
+
+    index_path = _module_index_dir(module_id)
+    index_file = index_path / "index_store.json"
+    if index_file.exists():
+        try:
+            storage_context = StorageContext.from_defaults(persist_dir=str(index_path))
+            return load_index_from_storage(storage_context)
+        except Exception as e:
+            logger.warning(f"Failed to load module index for {module_id}, rebuilding: {e}")
+
+    docs_path = module_documents_dir(module_id)
+    if not docs_path.is_dir():
+        return None
+    doc_files = [f for f in docs_path.iterdir() if f.is_file() and f.suffix in _DOC_SUFFIXES]
+    if not doc_files:
+        return None
+
+    try:
+        documents = SimpleDirectoryReader(str(docs_path)).load_data()
+        idx = VectorStoreIndex.from_documents(documents, chunk_size=config.rag_chunk_size, chunk_overlap=50)
+        idx.storage_context.persist(persist_dir=str(index_path))
+        logger.info(f"Built module index for {module_id}: {len(doc_files)} files")
+        return idx
+    except Exception as e:
+        logger.error(f"Failed to build module index for {module_id}: {e}")
+        return None
+
+
+def _get_module_chunks(module_id: str, query: str, top_k: int) -> list[str]:
+    with _campaign_lock:
+        if module_id not in _module_indexes:
+            _module_indexes[module_id] = _load_or_build_module_index(module_id)
+        idx = _module_indexes.get(module_id)
+    if idx is None:
+        return []
+    try:
+        retriever = idx.as_retriever(similarity_top_k=top_k)
+        nodes = retriever.retrieve(query)
+        return [node.get_content() for node in nodes if node.get_content().strip()]
+    except Exception as e:
+        logger.error(f"Module RAG retrieval failed for {module_id}: {e}")
+        return []
 
 
 def get_index_stats() -> dict:

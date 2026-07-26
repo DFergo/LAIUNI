@@ -10,7 +10,7 @@ The user has uploaded a document during the conversation. Summarize its contents
 
 2. **Note the document type:** termination letter, union communication, company memo, audit report, legal filing, email exchange, news article, contract excerpt, code of conduct, sustainability report, other.
 
-3. **Identify framework connections:** If the document contains content relevant to ILO conventions, OECD provisions, FSC requirements, CSDDD obligations, or company sustainability commitments, note the connection explicitly.
+3. **Identify framework connections:** If the document contains content relevant to ILO conventions, OECD provisions, CSDDD obligations, relevant certifications, or company sustainability commitments, note the connection explicitly.
 
 4. **Quote key passages** that constitute direct evidence — a sentence from a termination letter, a clause from a code of conduct, a finding from an audit report. Keep quotes short and relevant.
 
