@@ -1,56 +1,66 @@
-"""Admin endpoints for feature modules (Sprint 29).
+"""Admin endpoints for feature modules.
 
-List available modules, set the global enabled set, and set/clear a per-frontend
-override.
+Sprint 32: modules are per-frontend only and can be toggled only when the
+frontend is decoupled from the global prompt set. Activating a module copies its
+RAG source files into the frontend's documents (materialised + locked); disabling
+it removes them. There is no global module set.
 """
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.api.v1.admin.auth import require_admin
 from src.services import modules as mod
+from src.services.prompt_assembler import get_use_global
+from src.services.rag_service import activate_module_rag, deactivate_module_rag
 
 logger = logging.getLogger("backend.admin.modules")
 
 router = APIRouter(prefix="/admin/modules", tags=["admin-modules"])
 
 
-class GlobalModules(BaseModel):
-    enabled: list[str]
-
-
 class FrontendModules(BaseModel):
-    override: bool
-    enabled: list[str] = []
+    enabled: list[str]
 
 
 @router.get("")
 async def list_modules(_: dict = Depends(require_admin)):
-    return {
-        "available": mod.list_available_modules(),
-        "global_enabled": mod.get_global_enabled(),
-    }
-
-
-@router.put("/global")
-async def set_global(req: GlobalModules, _: dict = Depends(require_admin)):
-    return {"enabled": mod.set_global_enabled(req.enabled)}
+    """All modules bundled with the app, with the number of RAG files each adds."""
+    available = [
+        {**m, "doc_count": len(mod.module_document_names(m["id"]))}
+        for m in mod.list_available_modules()
+    ]
+    return {"available": available}
 
 
 @router.get("/frontend/{frontend_id}")
 async def get_frontend(frontend_id: str, _: dict = Depends(require_admin)):
-    override = mod.get_frontend_override(frontend_id)
     return {
         "frontend_id": frontend_id,
-        "override": override is not None,
-        "enabled": override if override is not None else mod.get_global_enabled(),
-        "effective": mod.get_enabled_modules(frontend_id),
+        "enabled": mod.get_enabled_modules(frontend_id),
+        "use_global": get_use_global(frontend_id),
     }
 
 
 @router.put("/frontend/{frontend_id}")
 async def set_frontend(frontend_id: str, req: FrontendModules, _: dict = Depends(require_admin)):
-    mod.set_frontend_override(frontend_id, req.enabled if req.override else None)
-    return {"frontend_id": frontend_id, "override": req.override, "effective": mod.get_enabled_modules(frontend_id)}
+    """Set the enabled module set for a frontend. Diffs against the current set:
+    newly-enabled modules materialise their RAG files, disabled ones remove theirs."""
+    if get_use_global(frontend_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Decouple this frontend from the global prompt set before enabling modules.",
+        )
+    current = set(mod.get_enabled_modules(frontend_id))
+    target = set(mod._valid_ids(req.enabled))
+
+    added_files: dict[str, list[str]] = {}
+    for mid in target - current:
+        added_files[mid] = activate_module_rag(frontend_id, mid).get("added", [])
+    for mid in current - target:
+        deactivate_module_rag(frontend_id, mid)
+
+    mod.set_frontend_override(frontend_id, sorted(target))
+    return {"frontend_id": frontend_id, "enabled": sorted(target), "added_files": added_files}

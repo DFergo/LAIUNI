@@ -10,27 +10,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from src.core.paths import PROMPTS_DIR, PROMPT_MODE, CAMPAIGNS_DIR
+from src.core.paths import PROMPTS_DIR, CAMPAIGNS_DIR
 
 logger = logging.getLogger("backend.prompts")
 
 # Default prompts shipped with the app — copied to data dir on first run
 _DEFAULTS_DIR = Path(__file__).parent.parent / "prompts"
-
-# Prompt mode config file (Sprint 24: config/ layout)
-_PROMPT_MODE_PATH = PROMPT_MODE
-
-
-def _prompts_dir(frontend_id: str | None = None) -> Path:
-    """Resolve prompts directory based on prompt mode and frontend_id."""
-    mode = get_prompt_mode()
-    if mode == "per_frontend" and frontend_id:
-        campaign_dir = CAMPAIGNS_DIR / frontend_id / "prompts"
-        if campaign_dir.exists() and any(campaign_dir.glob("*.md")):
-            return campaign_dir
-        # Fallback to global if frontend has no custom prompts yet
-        logger.debug(f"No custom prompts for frontend {frontend_id}, using global")
-    return PROMPTS_DIR
 
 
 def _global_prompts_dir() -> Path:
@@ -38,53 +23,39 @@ def _global_prompts_dir() -> Path:
     return PROMPTS_DIR
 
 
-def get_prompt_mode() -> str:
-    """Get current prompt mode: 'global' or 'per_frontend'."""
-    if _PROMPT_MODE_PATH.exists():
+def _frontend_prompts_dir(frontend_id: str) -> Path:
+    return CAMPAIGNS_DIR / frontend_id / "prompts"
+
+
+# --- Per-frontend Global/Custom flag (Sprint 32) ---
+# Replaces the single global prompt-mode switch. Each frontend either serves the
+# GLOBAL prompt set (use_global=True) or its own custom copies (False). Custom
+# copies are never deleted when re-coupling — they simply stop being applied.
+
+def _prompts_flag_path(frontend_id: str) -> Path:
+    return CAMPAIGNS_DIR / frontend_id / "prompts_config.json"
+
+
+def get_use_global(frontend_id: str) -> bool:
+    """Whether a frontend serves the GLOBAL prompt set (True) or its own custom
+    copies (False). Default when unset: derive from current state — a frontend
+    that already has custom prompt files is treated as decoupled (custom)."""
+    p = _prompts_flag_path(frontend_id)
+    if p.exists():
         try:
-            data = json.loads(_PROMPT_MODE_PATH.read_text())
-            return data.get("mode", "global")
+            return bool(json.loads(p.read_text()).get("use_global", True))
         except Exception:
             pass
-    return "global"
+    return not frontend_has_custom_prompts(frontend_id)
 
 
-def set_prompt_mode(mode: str) -> str:
-    """Set prompt mode. Returns the new mode."""
-    if mode not in ("global", "per_frontend"):
-        raise ValueError(f"Invalid prompt mode: {mode}")
-    _PROMPT_MODE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _PROMPT_MODE_PATH.write_text(json.dumps({"mode": mode}))
-    logger.info(f"Prompt mode set to: {mode}")
-    return mode
-
-
-def copy_global_to_frontend(frontend_id: str) -> int:
-    """Copy all global prompts to a frontend's campaign directory. Returns count."""
-    global_dir = _global_prompts_dir()
-    campaign_dir = CAMPAIGNS_DIR / frontend_id / "prompts"
-    campaign_dir.mkdir(parents=True, exist_ok=True)
-    count = 0
-    for src_file in global_dir.glob("*.md"):
-        dst_file = campaign_dir / src_file.name
-        if not dst_file.exists():
-            dst_file.write_text(src_file.read_text())
-            count += 1
-    logger.info(f"Copied {count} global prompts to frontend {frontend_id}")
-    return count
-
-
-def delete_frontend_prompts(frontend_id: str) -> int:
-    """Delete all custom prompts for a frontend. Returns count deleted."""
-    campaign_dir = CAMPAIGNS_DIR / frontend_id / "prompts"
-    if not campaign_dir.exists():
-        return 0
-    count = 0
-    for f in campaign_dir.glob("*.md"):
-        f.unlink()
-        count += 1
-    logger.info(f"Deleted {count} custom prompts for frontend {frontend_id}")
-    return count
+def set_use_global(frontend_id: str, use_global: bool) -> bool:
+    """Set the Global/Custom flag for a frontend (does not touch custom files)."""
+    p = _prompts_flag_path(frontend_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"use_global": bool(use_global)}))
+    logger.info(f"Prompt source for {frontend_id}: {'global' if use_global else 'custom'}")
+    return bool(use_global)
 
 
 def frontend_has_custom_prompts(frontend_id: str) -> bool:
@@ -116,19 +87,23 @@ def reset_prompt_to_default(name: str, frontend_id: str | None = None) -> str:
     return content
 
 
-def reset_global_to_defaults() -> int:
-    """Overwrite ALL global prompts from the bundled factory defaults.
+def reset_frontend_prompt_to_factory(name: str, frontend_id: str) -> str:
+    """Overwrite a frontend's custom copy of a prompt from the FACTORY default.
 
-    Per-frontend custom sets live in separate directories and are NOT affected.
+    Distinct from reset_prompt_to_default(name, frontend_id), which restores the
+    frontend copy from the current GLOBAL prompt (Sprint 32: two reset sources).
     """
-    dest = _global_prompts_dir()
-    dest.mkdir(parents=True, exist_ok=True)
-    count = 0
-    for src_file in _DEFAULTS_DIR.glob("*.md"):
-        (dest / src_file.name).write_text(src_file.read_text())
-        count += 1
-    logger.info(f"Reset {count} global prompts to factory defaults")
-    return count
+    if not name.endswith(".md") or "/" in name or "\\" in name:
+        raise ValueError("Invalid prompt name")
+    src = _DEFAULTS_DIR / name
+    if not src.exists():
+        raise FileNotFoundError(f"No factory default for prompt: {name}")
+    dst_dir = _frontend_prompts_dir(frontend_id)
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    content = src.read_text()
+    (dst_dir / name).write_text(content)
+    logger.info(f"Reset frontend {frontend_id} prompt {name} to factory")
+    return content
 
 
 def ensure_defaults():
@@ -145,10 +120,18 @@ def ensure_defaults():
 def _load(name: str, frontend_id: str | None = None) -> str:
     """Load a prompt file by name. Returns empty string if not found.
 
-    Applies feature-module slot substitution ({{module_*}}) using the modules
-    enabled for this frontend (Sprint 29). No-op when no slots/modules present.
+    Per-frontend (Sprint 32): a decoupled frontend (use_global=False) serves its
+    own custom copy of a prompt when present, otherwise falls back to the global
+    file. A coupled frontend always serves the global file.
+    Applies feature-module slot substitution ({{module_*}}); no-op when absent.
     """
-    path = _prompts_dir(frontend_id) / name
+    path = None
+    if frontend_id and not get_use_global(frontend_id):
+        cand = _frontend_prompts_dir(frontend_id) / name
+        if cand.exists():
+            path = cand
+    if path is None:
+        path = _global_prompts_dir() / name
     if path.exists():
         from src.services.modules import apply_slots
         return apply_slots(path.read_text().strip(), frontend_id)

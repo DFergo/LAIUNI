@@ -9,7 +9,6 @@ from pydantic import BaseModel
 
 from src.api.v1.admin.auth import require_admin
 from src.services.frontend_registry import registry
-from src.services.prompt_assembler import get_prompt_mode, copy_global_to_frontend
 
 logger = logging.getLogger("backend.admin.frontends")
 _CAMPAIGNS_DIR = Path("/app/data/campaigns")
@@ -49,12 +48,8 @@ async def register_frontend(req: RegisterRequest, _: dict = Depends(require_admi
     frontend = registry.register(url, req.name)
     registry.set_status(frontend["id"], "online")
 
-    # Auto-copy global prompts if in per_frontend mode (Sprint 8h loose end)
-    if get_prompt_mode() == "per_frontend":
-        copied = copy_global_to_frontend(frontend["id"])
-        if copied:
-            frontend["prompts_copied"] = copied
-
+    # New frontends default to the global prompt set (Sprint 32); decouple from
+    # the Prompts panel to customise or enable modules.
     return {"frontend": frontend}
 
 

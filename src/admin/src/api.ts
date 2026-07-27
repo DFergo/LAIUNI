@@ -287,36 +287,24 @@ export interface PromptsResponse {
   categories: Record<string, PromptFile[]>
 }
 
-export async function getPromptMode(): Promise<{ mode: string }> {
-  return request('/admin/prompts/mode');
+// Sprint 32: per-frontend Global/Custom source flag + selective reset.
+
+export async function getPromptSource(frontendId: string): Promise<{ frontend_id: string; use_global: boolean; has_custom: boolean }> {
+  return request(`/admin/prompts/frontend/${frontendId}/source`);
 }
 
-export async function setPromptMode(mode: string): Promise<{ mode: string }> {
-  return request('/admin/prompts/mode', {
+export async function setPromptSource(frontendId: string, useGlobal: boolean): Promise<{ frontend_id: string; use_global: boolean; modules_deactivated: string[] }> {
+  return request(`/admin/prompts/frontend/${frontendId}/source`, {
     method: 'PUT',
-    body: JSON.stringify({ mode }),
+    body: JSON.stringify({ use_global: useGlobal }),
   });
 }
 
-export async function copyPromptsToFrontend(frontendId: string): Promise<{ frontend_id: string; copied: number }> {
-  return request(`/admin/prompts/copy-to-frontend/${frontendId}`, { method: 'POST' });
-}
-
-export async function deleteFrontendPrompts(frontendId: string): Promise<{ frontend_id: string; deleted: number }> {
-  return request(`/admin/prompts/frontend/${frontendId}`, { method: 'DELETE' });
-}
-
-export async function listCustomPromptFrontends(): Promise<{ frontends: { id: string; name: string }[] }> {
-  return request('/admin/prompts/custom-frontends');
-}
-
-export async function resetPrompt(name: string, frontendId?: string): Promise<{ name: string; content: string }> {
-  const q = frontendId ? `?frontend_id=${frontendId}` : '';
-  return request(`/admin/prompts/${encodeURIComponent(name)}/reset${q}`, { method: 'POST' });
-}
-
-export async function resetGlobalPrompts(): Promise<{ reset: number }> {
-  return request('/admin/prompts/reset-global', { method: 'POST' });
+export async function resetPrompts(opts: { frontendId?: string; toFactory: boolean; names: string[] }): Promise<{ reset: string[]; errors: { name: string; error: string }[] }> {
+  return request('/admin/prompts/reset', {
+    method: 'POST',
+    body: JSON.stringify({ frontend_id: opts.frontendId ?? null, to_factory: opts.toFactory, names: opts.names }),
+  });
 }
 
 export async function listPrompts(frontendId?: string): Promise<PromptsResponse> {
@@ -324,7 +312,7 @@ export async function listPrompts(frontendId?: string): Promise<PromptsResponse>
   return request(`/admin/prompts${qs}`);
 }
 
-export async function readPrompt(name: string, frontendId?: string): Promise<{ name: string; content: string }> {
+export async function readPrompt(name: string, frontendId?: string): Promise<{ name: string; content: string; custom?: boolean }> {
   const qs = frontendId ? `?frontend_id=${frontendId}` : '';
   return request(`/admin/prompts/${name}${qs}`);
 }
@@ -451,6 +439,8 @@ export interface RAGDocument {
   name: string
   size: number
   modified: number
+  locked?: boolean
+  module?: string | null
 }
 
 export async function listRAGDocuments(frontendId?: string): Promise<{ documents: RAGDocument[] }> {
@@ -489,24 +479,20 @@ export async function resetRAGDefaults(): Promise<{ status: string; restored?: n
   return request('/admin/rag/reset-defaults', { method: 'POST' });
 }
 
-// --- Feature modules (Sprint 29) ---
+// --- Feature modules (Sprint 32: per-frontend only, toggled from Prompts panel) ---
 
-export interface ModuleInfo { id: string; name: string }
+export interface ModuleInfo { id: string; name: string; doc_count: number }
 
-export async function listModules(): Promise<{ available: ModuleInfo[]; global_enabled: string[] }> {
+export async function listModules(): Promise<{ available: ModuleInfo[] }> {
   return request('/admin/modules');
 }
 
-export async function setGlobalModules(enabled: string[]): Promise<{ enabled: string[] }> {
-  return request('/admin/modules/global', { method: 'PUT', body: JSON.stringify({ enabled }) });
-}
-
-export async function getFrontendModules(frontendId: string): Promise<{ frontend_id: string; override: boolean; enabled: string[]; effective: string[] }> {
+export async function getFrontendModules(frontendId: string): Promise<{ frontend_id: string; enabled: string[]; use_global: boolean }> {
   return request(`/admin/modules/frontend/${frontendId}`);
 }
 
-export async function setFrontendModules(frontendId: string, override: boolean, enabled: string[]): Promise<{ frontend_id: string; override: boolean; effective: string[] }> {
-  return request(`/admin/modules/frontend/${frontendId}`, { method: 'PUT', body: JSON.stringify({ override, enabled }) });
+export async function setFrontendModules(frontendId: string, enabled: string[]): Promise<{ frontend_id: string; enabled: string[]; added_files: Record<string, string[]> }> {
+  return request(`/admin/modules/frontend/${frontendId}`, { method: 'PUT', body: JSON.stringify({ enabled }) });
 }
 
 export async function getCampaignRAGConfig(frontendId: string): Promise<{ include_global_rag: boolean }> {

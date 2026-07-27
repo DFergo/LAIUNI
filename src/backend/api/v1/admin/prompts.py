@@ -13,13 +13,11 @@ from pydantic import BaseModel
 from src.api.v1.admin.auth import require_admin
 from src.services.prompt_assembler import (
     _global_prompts_dir,
-    get_prompt_mode,
-    set_prompt_mode,
-    copy_global_to_frontend,
-    delete_frontend_prompts,
+    get_use_global,
+    set_use_global,
     frontend_has_custom_prompts,
     reset_prompt_to_default,
-    reset_global_to_defaults,
+    reset_frontend_prompt_to_factory,
 )
 
 logger = logging.getLogger("backend.admin.prompts")
@@ -66,82 +64,75 @@ def _file_meta(path: Path) -> dict[str, Any]:
     }
 
 
-# --- Prompt Mode endpoints (Sprint 8h) ---
+# --- Global/Custom source flag + reset (Sprint 32) ---
 
-@router.get("/mode")
-async def get_mode(_: dict = Depends(require_admin)):
-    """Get current prompt mode."""
-    return {"mode": get_prompt_mode()}
-
-
-class PromptModeRequest(BaseModel):
-    mode: str
+def _all_prompt_names() -> list[str]:
+    names: list[str] = []
+    for files in CATEGORIES.values():
+        names.extend(files)
+    return names
 
 
-@router.put("/mode")
-async def update_mode(req: PromptModeRequest, _: dict = Depends(require_admin)):
-    """Set prompt mode (global / per_frontend). Auto-copies prompts when switching to per_frontend."""
-    if req.mode not in ("global", "per_frontend"):
-        raise HTTPException(status_code=400, detail="Mode must be 'global' or 'per_frontend'")
-
-    old_mode = get_prompt_mode()
-    new_mode = set_prompt_mode(req.mode)
-
-    # Auto-copy global prompts to all frontends that don't have custom sets
-    if old_mode == "global" and new_mode == "per_frontend":
-        from src.services.frontend_registry import registry
-        frontends = registry.list_all()
-        for fe in frontends:
-            if not frontend_has_custom_prompts(fe["id"]):
-                copy_global_to_frontend(fe["id"])
-                logger.info(f"Auto-copied global prompts to frontend {fe['id']}")
-
-    return {"mode": new_mode}
+class SourceRequest(BaseModel):
+    use_global: bool
 
 
-@router.get("/custom-frontends")
-async def list_custom_prompt_frontends(_: dict = Depends(require_admin)):
-    """Frontends that currently have a custom prompt set (Sprint 23 guard)."""
-    from src.services.frontend_registry import registry
-    out = [
-        {"id": fe["id"], "name": fe.get("name", fe["id"])}
-        for fe in registry.list_all()
-        if frontend_has_custom_prompts(fe["id"])
-    ]
-    return {"frontends": out}
+@router.get("/frontend/{frontend_id}/source")
+async def get_source(frontend_id: str, _: dict = Depends(require_admin)):
+    """Whether a frontend serves the global prompt set or its own custom copies."""
+    return {
+        "frontend_id": frontend_id,
+        "use_global": get_use_global(frontend_id),
+        "has_custom": frontend_has_custom_prompts(frontend_id),
+    }
 
 
-@router.post("/copy-to-frontend/{frontend_id}")
-async def copy_to_frontend(frontend_id: str, _: dict = Depends(require_admin)):
-    """Copy global prompts to a frontend's campaign directory."""
-    count = copy_global_to_frontend(frontend_id)
-    return {"frontend_id": frontend_id, "copied": count}
+@router.put("/frontend/{frontend_id}/source")
+async def set_source(frontend_id: str, req: SourceRequest, _: dict = Depends(require_admin)):
+    """Couple a frontend to global, or decouple it to use custom prompts.
+
+    Re-coupling to global auto-deactivates any active feature modules (removing
+    their materialised RAG files) — global is pure vanilla and cannot carry
+    module content. Custom prompt files are NOT deleted; they simply stop applying.
+    """
+    deactivated: list[str] = []
+    if req.use_global:
+        from src.services.modules import get_enabled_modules, set_frontend_override
+        from src.services.rag_service import deactivate_module_rag
+        for mid in get_enabled_modules(frontend_id):
+            deactivate_module_rag(frontend_id, mid)
+            deactivated.append(mid)
+        set_frontend_override(frontend_id, None)
+    set_use_global(frontend_id, req.use_global)
+    return {"frontend_id": frontend_id, "use_global": req.use_global, "modules_deactivated": deactivated}
 
 
-@router.delete("/frontend/{frontend_id}")
-async def delete_custom_prompts(frontend_id: str, _: dict = Depends(require_admin)):
-    """Delete custom prompts for a frontend (reverts to global)."""
-    count = delete_frontend_prompts(frontend_id)
-    return {"frontend_id": frontend_id, "deleted": count}
+class ResetRequest(BaseModel):
+    frontend_id: str | None = None
+    to_factory: bool = False
+    names: list[str] = []  # empty or ["all"] → every prompt
 
 
-@router.post("/reset-global")
-async def reset_global_prompts(_: dict = Depends(require_admin)):
-    """Reset ALL global prompts to factory defaults (per-frontend sets untouched)."""
-    count = reset_global_to_defaults()
-    return {"reset": count}
-
-
-@router.post("/{name}/reset")
-async def reset_single_prompt(name: str, frontend_id: str | None = Query(None), _: dict = Depends(require_admin)):
-    """Reset one prompt to its default: per-frontend → global; global → factory."""
-    try:
-        content = reset_prompt_to_default(name, frontend_id)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return {"name": name, "content": content, "frontend_id": frontend_id}
+@router.post("/reset")
+async def reset_prompts(req: ResetRequest, _: dict = Depends(require_admin)):
+    """Overwrite the selected prompts. Frontend scope: from global (to_factory=False)
+    or from factory (True). Global scope (frontend_id=None): always from factory."""
+    names = req.names
+    if not names or "all" in names:
+        names = _all_prompt_names()
+    done: list[str] = []
+    errors: list[dict] = []
+    for name in names:
+        try:
+            if req.frontend_id and req.to_factory:
+                reset_frontend_prompt_to_factory(name, req.frontend_id)
+            else:
+                # frontend + !to_factory → from global; global scope → from factory
+                reset_prompt_to_default(name, req.frontend_id)
+            done.append(name)
+        except (FileNotFoundError, ValueError) as e:
+            errors.append({"name": name, "error": str(e)})
+    return {"reset": done, "errors": errors}
 
 
 # --- Standard prompt CRUD with optional frontend_id ---
@@ -167,11 +158,16 @@ async def list_prompts(frontend_id: str | None = Query(None), _: dict = Depends(
 
 @router.get("/{name}")
 async def read_prompt(name: str, frontend_id: str | None = Query(None), _: dict = Depends(require_admin)):
-    """Read a prompt file's content."""
-    path = _resolve_prompts_dir(frontend_id) / name
-    if not path.exists():
-        raise HTTPException(status_code=404, detail=f"Prompt not found: {name}")
-    return {"name": name, "content": path.read_text()}
+    """Read a prompt's content. Frontend scope shows the custom copy if present,
+    otherwise the global file (the effective content, shown read-only when coupled)."""
+    if frontend_id:
+        cand = _resolve_prompts_dir(frontend_id) / name
+        if cand.exists():
+            return {"name": name, "content": cand.read_text(), "custom": True}
+    gpath = _global_prompts_dir() / name
+    if gpath.exists():
+        return {"name": name, "content": gpath.read_text(), "custom": False}
+    raise HTTPException(status_code=404, detail=f"Prompt not found: {name}")
 
 
 class SavePromptRequest(BaseModel):

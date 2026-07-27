@@ -20,13 +20,14 @@ import json
 import logging
 from pathlib import Path
 
-from src.core.paths import CONFIG_DIR, CAMPAIGNS_DIR
+from src.core.paths import CAMPAIGNS_DIR
 
 logger = logging.getLogger("backend.modules")
 
 # Modules shipped with the app (read-only, in the image).
 _MODULES_DIR = Path(__file__).parent.parent / "modules"
-_MODULES_CONFIG = CONFIG_DIR / "modules.json"
+
+_DOC_SUFFIXES = {".md", ".txt", ".json", ".pdf"}
 
 # Prompt slot name -> the module fragment filename that fills it.
 _SLOT_FILES = {
@@ -64,26 +65,16 @@ def _valid_ids(ids: list[str]) -> list[str]:
     return [i for i in ids if i in available]
 
 
-# --- Global enabled set ---
-
-def get_global_enabled() -> list[str]:
-    if _MODULES_CONFIG.exists():
-        try:
-            return list(json.loads(_MODULES_CONFIG.read_text()).get("enabled", []))
-        except Exception as e:
-            logger.warning(f"Failed to read modules.json: {e}")
-    return []
+def module_document_names(module_id: str) -> list[str]:
+    """Names of the RAG source files a module contributes (for the activation
+    preview: "N files will be added to this frontend's RAG")."""
+    d = module_documents_dir(module_id)
+    if not d.is_dir():
+        return []
+    return sorted(f.name for f in d.iterdir() if f.is_file() and f.suffix.lower() in _DOC_SUFFIXES)
 
 
-def set_global_enabled(ids: list[str]) -> list[str]:
-    ids = _valid_ids(ids)
-    _MODULES_CONFIG.parent.mkdir(parents=True, exist_ok=True)
-    _MODULES_CONFIG.write_text(json.dumps({"enabled": ids}))
-    logger.info(f"Global modules enabled: {ids}")
-    return ids
-
-
-# --- Per-frontend override ---
+# --- Per-frontend enabled set (Sprint 32: modules are per-frontend only) ---
 
 def _frontend_config_path(frontend_id: str) -> Path:
     return CAMPAIGNS_DIR / frontend_id / "modules.json"
@@ -114,12 +105,13 @@ def set_frontend_override(frontend_id: str, enabled: list[str] | None) -> None:
 
 
 def get_enabled_modules(frontend_id: str | None = None) -> list[str]:
-    """Effective enabled module ids for a frontend (per-frontend override → global)."""
-    if frontend_id:
-        override = get_frontend_override(frontend_id)
-        if override is not None:
-            return override
-    return get_global_enabled()
+    """Effective enabled module ids for a frontend. Modules are per-frontend only
+    (Sprint 32) and are toggled from the Prompts panel when the frontend is
+    decoupled from global; there is no global module set."""
+    if not frontend_id:
+        return []
+    override = get_frontend_override(frontend_id)
+    return override if override is not None else []
 
 
 # --- Slot rendering ---

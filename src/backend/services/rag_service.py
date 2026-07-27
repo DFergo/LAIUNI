@@ -32,8 +32,6 @@ _RAG_DEFAULTS_DIR = Path(__file__).parent.parent / "rag_defaults"
 _SEED_SENTINEL = DOCUMENTS_DIR.parent / ".rag_seeded"  # config/.rag_seeded
 _DOC_SUFFIXES = {".md", ".txt", ".json", ".pdf"}
 
-# Feature-module indexes (Sprint 29) — built from modules/{id}/documents/
-_module_indexes: dict[str, any] = {}
 
 
 def _docs_dir() -> Path:
@@ -274,15 +272,12 @@ def get_relevant_chunks(query: str, top_k: int | None = None, frontend_id: str |
         except Exception as e:
             logger.error(f"Global RAG retrieval failed: {e}")
 
-    # Campaign-specific RAG
+    # Campaign-specific RAG — Sprint 32: an active module's source files are
+    # materialised into the frontend's own documents (see activate_module_rag),
+    # so they are indexed and retrieved here like any other campaign document.
     if frontend_id:
         campaign_chunks = _get_campaign_chunks(frontend_id, query, top_k)
         chunks.extend(campaign_chunks)
-
-    # Feature-module RAG (Sprint 29) — include docs of modules enabled for this frontend
-    from src.services.modules import get_enabled_modules
-    for module_id in get_enabled_modules(frontend_id):
-        chunks.extend(_get_module_chunks(module_id, query, top_k))
 
     if chunks:
         logger.debug(f"RAG retrieved {len(chunks)} chunks for query: {query[:80]}... (frontend={frontend_id})")
@@ -455,79 +450,104 @@ def reindex_campaign(frontend_id: str) -> dict:
 
 
 def list_campaign_documents(frontend_id: str) -> list[dict]:
-    """List documents in a campaign's document directory."""
+    """List documents in a campaign's document directory.
+
+    Sprint 32: files materialised by an active module are flagged locked (and
+    carry their owning module id) so the RAG panel can show them undeletable.
+    """
     docs_path = _campaign_docs_dir(frontend_id)
+    owner = {}
+    for mid, files in get_module_docs_manifest(frontend_id).items():
+        for name in files:
+            owner[name] = mid
     docs = []
     for f in sorted(docs_path.iterdir()):
         if f.is_file() and f.suffix in {".md", ".txt", ".json", ".pdf"}:
             stat = f.stat()
-            docs.append({"name": f.name, "size": stat.st_size, "modified": stat.st_mtime})
+            docs.append({
+                "name": f.name, "size": stat.st_size, "modified": stat.st_mtime,
+                "locked": f.name in owner, "module": owner.get(f.name),
+            })
     return docs
 
 
-# --- Feature-module RAG (Sprint 29) ---
+# --- Feature-module RAG (Sprint 32) ---
+# A module's source files are materialised into the frontend's own document set
+# when the module is activated, and removed when it is deactivated. They index
+# and retrieve exactly like a normal campaign document; the only difference is
+# they are locked — the RAG panel cannot delete them while the module is on.
+# A manifest records which files belong to which module.
 
-def _module_index_dir(module_id: str) -> Path:
-    path = DOCUMENTS_DIR.parent / "module_indexes" / module_id
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+def _module_manifest_path(frontend_id: str) -> Path:
+    return Path(f"/app/data/campaigns/{frontend_id}/module_docs.json")
 
 
-def _load_or_build_module_index(module_id: str):
-    """Load or build the RAG index for a module from modules/{id}/documents/."""
-    from llama_index.core import (
-        VectorStoreIndex,
-        SimpleDirectoryReader,
-        StorageContext,
-        Settings,
-        load_index_from_storage,
-    )
+def get_module_docs_manifest(frontend_id: str) -> dict:
+    """{module_id: [filename, ...]} of module-owned files in this frontend's RAG."""
+    p = _module_manifest_path(frontend_id)
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Failed to read module manifest for {frontend_id}: {e}")
+    return {}
+
+
+def _write_module_manifest(frontend_id: str, manifest: dict) -> None:
+    p = _module_manifest_path(frontend_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(manifest))
+
+
+def locked_document_names(frontend_id: str) -> set[str]:
+    """Filenames in this frontend's RAG owned by an active module (undeletable)."""
+    names: set[str] = set()
+    for files in get_module_docs_manifest(frontend_id).values():
+        names.update(files)
+    return names
+
+
+def activate_module_rag(frontend_id: str, module_id: str) -> dict:
+    """Copy a module's RAG source files into the frontend's documents, record them
+    in the manifest, and reindex. Returns {"added": [...]}. Idempotent."""
+    import shutil
     from src.services.modules import module_documents_dir
 
-    Settings.embed_model = _get_embed_model()
-    Settings.llm = None
+    src_dir = module_documents_dir(module_id)
+    docs_dir = _campaign_docs_dir(frontend_id)
+    added: list[str] = []
+    if src_dir.is_dir():
+        for f in sorted(src_dir.iterdir()):
+            if f.is_file() and f.suffix.lower() in _DOC_SUFFIXES:
+                shutil.copy2(f, docs_dir / f.name)
+                added.append(f.name)
 
-    index_path = _module_index_dir(module_id)
-    index_file = index_path / "index_store.json"
-    if index_file.exists():
-        try:
-            storage_context = StorageContext.from_defaults(persist_dir=str(index_path))
-            return load_index_from_storage(storage_context)
-        except Exception as e:
-            logger.warning(f"Failed to load module index for {module_id}, rebuilding: {e}")
+    manifest = get_module_docs_manifest(frontend_id)
+    manifest[module_id] = added
+    _write_module_manifest(frontend_id, manifest)
 
-    docs_path = module_documents_dir(module_id)
-    if not docs_path.is_dir():
-        return None
-    doc_files = [f for f in docs_path.iterdir() if f.is_file() and f.suffix in _DOC_SUFFIXES]
-    if not doc_files:
-        return None
-
-    try:
-        documents = SimpleDirectoryReader(str(docs_path)).load_data()
-        idx = VectorStoreIndex.from_documents(documents, chunk_size=config.rag_chunk_size, chunk_overlap=50)
-        idx.storage_context.persist(persist_dir=str(index_path))
-        logger.info(f"Built module index for {module_id}: {len(doc_files)} files")
-        return idx
-    except Exception as e:
-        logger.error(f"Failed to build module index for {module_id}: {e}")
-        return None
+    reindex_campaign(frontend_id)
+    logger.info(f"Activated module {module_id} RAG for {frontend_id}: +{len(added)} files")
+    return {"added": added}
 
 
-def _get_module_chunks(module_id: str, query: str, top_k: int) -> list[str]:
-    with _campaign_lock:
-        if module_id not in _module_indexes:
-            _module_indexes[module_id] = _load_or_build_module_index(module_id)
-        idx = _module_indexes.get(module_id)
-    if idx is None:
-        return []
-    try:
-        retriever = idx.as_retriever(similarity_top_k=top_k)
-        nodes = retriever.retrieve(query)
-        return [node.get_content() for node in nodes if node.get_content().strip()]
-    except Exception as e:
-        logger.error(f"Module RAG retrieval failed for {module_id}: {e}")
-        return []
+def deactivate_module_rag(frontend_id: str, module_id: str) -> dict:
+    """Remove a module's materialised files from the frontend's documents, drop it
+    from the manifest, and reindex. Returns {"removed": [...]}."""
+    manifest = get_module_docs_manifest(frontend_id)
+    files = manifest.pop(module_id, [])
+    docs_dir = _campaign_docs_dir(frontend_id)
+    removed: list[str] = []
+    for name in files:
+        fp = docs_dir / name
+        if fp.exists():
+            fp.unlink()
+            removed.append(name)
+    _write_module_manifest(frontend_id, manifest)
+
+    reindex_campaign(frontend_id)
+    logger.info(f"Deactivated module {module_id} RAG for {frontend_id}: -{len(removed)} files")
+    return {"removed": removed}
 
 
 def get_index_stats() -> dict:

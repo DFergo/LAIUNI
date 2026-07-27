@@ -42,7 +42,14 @@ def _file_meta(path: Path) -> dict[str, Any]:
 
 @router.get("/documents")
 async def list_documents(frontend_id: str | None = Query(None), _: dict = Depends(require_admin)):
-    """List RAG documents (global or per-frontend)."""
+    """List RAG documents (global or per-frontend).
+
+    Per-frontend: files materialised by an active module are flagged locked
+    (Sprint 32) so the UI can show them undeletable.
+    """
+    if frontend_id:
+        from src.services.rag_service import list_campaign_documents
+        return {"documents": list_campaign_documents(frontend_id)}
     docs_dir = _docs_dir(frontend_id)
     docs = []
     for f in sorted(docs_dir.iterdir()):
@@ -73,7 +80,15 @@ async def upload_document(file: UploadFile = File(...), frontend_id: str | None 
 
 @router.delete("/documents/{name}")
 async def delete_document(name: str, frontend_id: str | None = Query(None), _: dict = Depends(require_admin)):
-    """Delete a RAG document (global or per-frontend)."""
+    """Delete a RAG document (global or per-frontend). Module-owned files are
+    locked (Sprint 32) — they can only be removed by disabling the module."""
+    if frontend_id:
+        from src.services.rag_service import locked_document_names
+        if name in locked_document_names(frontend_id):
+            raise HTTPException(
+                status_code=409,
+                detail="This file belongs to an active module. Disable the module (Prompts panel) to remove it.",
+            )
     path = _docs_dir(frontend_id) / name
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Document not found: {name}")
