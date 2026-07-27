@@ -317,6 +317,11 @@ export async function readPrompt(name: string, frontendId?: string): Promise<{ n
   return request(`/admin/prompts/${name}${qs}`);
 }
 
+export async function previewPrompt(name: string, frontendId?: string): Promise<{ name: string; content: string }> {
+  const qs = frontendId ? `?frontend_id=${frontendId}` : '';
+  return request(`/admin/prompts/${name}/preview${qs}`);
+}
+
 export async function savePrompt(name: string, content: string, frontendId?: string): Promise<PromptFile> {
   const qs = frontendId ? `?frontend_id=${frontendId}` : '';
   return request(`/admin/prompts/${name}${qs}`, {

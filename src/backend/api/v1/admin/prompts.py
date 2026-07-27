@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from src.api.v1.admin.auth import require_admin
 from src.services.prompt_assembler import (
     _global_prompts_dir,
+    _load,
     get_use_global,
     set_use_global,
     frontend_has_custom_prompts,
@@ -154,6 +155,14 @@ async def list_prompts(frontend_id: str | None = Query(None), _: dict = Depends(
         result[category] = items
 
     return {"categories": result}
+
+
+@router.get("/{name}/preview")
+async def preview_prompt(name: str, frontend_id: str | None = Query(None), _: dict = Depends(require_admin)):
+    """Assembled view: the prompt with its {{module_*}} slots resolved for this
+    scope — a frontend's active modules fill them; global scope resolves to empty
+    slots. Read-only; mirrors exactly what the LLM receives at assembly time."""
+    return {"name": name, "content": _load(name, frontend_id)}
 
 
 @router.get("/{name}")

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  listPrompts, readPrompt, savePrompt,
+  listPrompts, readPrompt, savePrompt, previewPrompt,
   getPromptSource, setPromptSource, resetPrompts,
   listFrontends, getFrontendConfig,
   listModules, getFrontendModules, setFrontendModules,
@@ -67,6 +67,10 @@ export default function PromptsTab() {
   const [resetModal, setResetModal] = useState<{ source: ResetSource } | null>(null)
   const [resetSelection, setResetSelection] = useState<Set<string>>(new Set())
 
+  // Assembled preview (slots resolved) — read-only
+  const [previewOn, setPreviewOn] = useState(false)
+  const [previewContent, setPreviewContent] = useState('')
+
   const frontendId = scope === 'global' ? undefined : scope
   const isFrontend = !!frontendId
   const readOnly = isFrontend && useGlobal
@@ -87,7 +91,7 @@ export default function PromptsTab() {
   }
 
   const loadScope = async (sc: string) => {
-    setError(''); setSuccess('')
+    setError(''); setSuccess(''); setPreviewOn(false)
     setSelected(null); setContent(''); setOriginalContent('')
     const fid = sc === 'global' ? undefined : sc
     if (fid) {
@@ -108,7 +112,7 @@ export default function PromptsTab() {
   const handleScopeChange = async (sc: string) => { setScope(sc); await loadScope(sc) }
 
   const selectPrompt = async (name: string) => {
-    setError(''); setSuccess('')
+    setError(''); setSuccess(''); setPreviewOn(false)
     try {
       const data = await readPrompt(name, frontendId)
       setSelected(name)
@@ -116,6 +120,19 @@ export default function PromptsTab() {
       setOriginalContent(data.content)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load prompt')
+    }
+  }
+
+  const togglePreview = async () => {
+    if (previewOn) { setPreviewOn(false); return }
+    if (!selected) return
+    setError('')
+    try {
+      const data = await previewPrompt(selected, frontendId)
+      setPreviewContent(data.content)
+      setPreviewOn(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Preview failed')
     }
   }
 
@@ -317,31 +334,51 @@ export default function PromptsTab() {
           {selected ? (
             <>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-semibold text-gray-800">{selected}{readOnly && <span className="ml-2 text-xs font-normal text-gray-400">(read-only — using global)</span>}</h3>
+                <h3 className="text-lg font-semibold text-gray-800">{selected}
+                  {readOnly && <span className="ml-2 text-xs font-normal text-gray-400">(read-only — using global)</span>}
+                  {previewOn && <span className="ml-2 text-xs font-normal text-uni-blue">(assembled preview)</span>}
+                </h3>
                 <div className="flex items-center gap-3">
-                  {dirty && !readOnly && <span className="text-xs text-gray-400">Unsaved changes</span>}
+                  {dirty && !readOnly && !previewOn && <span className="text-xs text-gray-400">Unsaved changes</span>}
+                  <button
+                    onClick={togglePreview}
+                    className={`border rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-gray-50 ${previewOn ? 'border-uni-blue text-uni-blue' : 'border-gray-300 text-gray-600'}`}
+                    title="Show the prompt with its {{module_*}} slots resolved — exactly what the LLM receives"
+                  >
+                    {previewOn ? 'Edit template' : 'Assembled preview'}
+                  </button>
                   <button
                     onClick={() => selected && (!dirty || confirm('Reload from disk and discard unsaved changes?')) && selectPrompt(selected)}
-                    className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-gray-50"
+                    disabled={previewOn}
+                    className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
                   >
                     Reload from disk
                   </button>
                   <button
                     onClick={handleSave}
-                    disabled={saving || !dirty || readOnly}
+                    disabled={saving || !dirty || readOnly || previewOn}
                     className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
                   >
                     {saving ? 'Saving...' : 'Save'}
                   </button>
                 </div>
               </div>
-              <textarea
-                value={content}
-                onChange={e => setContent(e.target.value)}
-                readOnly={readOnly}
-                className={`flex-1 border border-gray-300 rounded-lg p-4 font-mono text-sm resize-none focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none ${readOnly ? 'bg-gray-100 text-gray-500' : ''}`}
-                spellCheck={false}
-              />
+              {previewOn ? (
+                <textarea
+                  value={previewContent}
+                  readOnly
+                  className="flex-1 border border-uni-blue/40 rounded-lg p-4 font-mono text-sm resize-none bg-blue-50/40 text-gray-700 outline-none"
+                  spellCheck={false}
+                />
+              ) : (
+                <textarea
+                  value={content}
+                  onChange={e => setContent(e.target.value)}
+                  readOnly={readOnly}
+                  className={`flex-1 border border-gray-300 rounded-lg p-4 font-mono text-sm resize-none focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none ${readOnly ? 'bg-gray-100 text-gray-500' : ''}`}
+                  spellCheck={false}
+                />
+              )}
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center">
