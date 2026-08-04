@@ -1,5 +1,11 @@
 # HRDD Helper — Changelog
 
+## Maintenance — Editable frontend URL
+
+- **`PUT /admin/frontends/{id}`** now accepts `url` (in addition to `enabled`/`name`). Editing the URL preserves the fid, so campaign config under `campaigns/{fid}/` survives (no delete + re-register). The URL is normalised, checked for collision (409) and reachability via `GET {url}/internal/config` (400); `?verify=false` skips only the reachability check (collision always checked). Any `http(s)://host:port` is accepted — reachability decides, not the format. Fixes: an office-DHCP frontend whose IP rotated could only be re-pointed by hand-editing `frontends.json` + restarting.
+- Admin panel: the per-frontend "edit" affordance now edits the URL too, surfacing 400/409 inline.
+- Tests: `src/backend/tests/test_frontend_url_edit.py` (run: `python -m unittest src.tests.test_frontend_url_edit -v`).
+
 ## v2.0 — Clean Rewrite
 
 ### Sprint 18 — Authorized contacts directory: extended fields + Excel import/export + per-frontend override (2026-04-13)

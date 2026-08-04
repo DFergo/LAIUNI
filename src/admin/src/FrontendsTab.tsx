@@ -79,6 +79,8 @@ export default function FrontendsTab() {
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [editUrl, setEditUrl] = useState('')
+  const [editError, setEditError] = useState('')
 
   // Branding
   const [brandingOpen, setBrandingOpen] = useState<string | null>(null)
@@ -91,12 +93,25 @@ export default function FrontendsTab() {
   const startEdit = (f: Frontend) => {
     setEditingId(f.id)
     setEditName(f.name)
+    setEditUrl(f.url)
+    setEditError('')
   }
 
   const saveEdit = async (id: string) => {
-    await updateFrontend(id, { name: editName })
-    setEditingId(null)
-    await refresh()
+    setEditError('')
+    // Only send url when it actually changed — otherwise a name-only edit would
+    // trigger a reachability check and fail 400 if the frontend is momentarily down.
+    const current = frontends.find(fr => fr.id === id)
+    const data: { name: string; url?: string } = { name: editName }
+    if (current && editUrl !== current.url) data.url = editUrl
+    try {
+      await updateFrontend(id, data)
+      setEditingId(null)
+      await refresh()
+    } catch (err) {
+      // Reachability (400) / collision (409) errors surface here
+      setEditError(err instanceof Error ? err.message : 'Update failed')
+    }
   }
 
   const toggleBranding = async (id: string) => {
@@ -217,25 +232,39 @@ export default function FrontendsTab() {
                     <div className={`w-2.5 h-2.5 rounded-full ${statusColor(f.status)}`} />
                     <div>
                       {editingId === f.id ? (
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            value={editName}
-                            onChange={e => setEditName(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && saveEdit(f.id)}
-                            className="border border-gray-300 rounded px-2 py-0.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                            autoFocus
-                          />
-                          <button onClick={() => saveEdit(f.id)} className="text-xs text-uni-blue hover:underline">Save</button>
-                          <button onClick={() => setEditingId(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={editName}
+                              onChange={e => setEditName(e.target.value)}
+                              onKeyDown={e => e.key === 'Enter' && saveEdit(f.id)}
+                              placeholder="Name"
+                              className="border border-gray-300 rounded px-2 py-0.5 text-sm w-40 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                              autoFocus
+                            />
+                            <input
+                              type="text"
+                              value={editUrl}
+                              onChange={e => setEditUrl(e.target.value)}
+                              onKeyDown={e => e.key === 'Enter' && saveEdit(f.id)}
+                              placeholder="http://host:port"
+                              className="border border-gray-300 rounded px-2 py-0.5 text-sm w-64 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                            />
+                            <button onClick={() => saveEdit(f.id)} className="text-xs text-uni-blue hover:underline">Save</button>
+                            <button onClick={() => setEditingId(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
+                          </div>
+                          {editError && <p className="text-xs text-uni-red">{editError}</p>}
                         </div>
                       ) : (
-                        <div className="text-sm font-medium text-gray-800">
-                          {f.name}
-                          <button onClick={() => startEdit(f)} className="ml-2 text-xs text-gray-400 hover:text-uni-blue">edit</button>
-                        </div>
+                        <>
+                          <div className="text-sm font-medium text-gray-800">
+                            {f.name}
+                            <button onClick={() => startEdit(f)} className="ml-2 text-xs text-gray-400 hover:text-uni-blue">edit</button>
+                          </div>
+                          <div className="text-xs text-gray-400">{f.url}</div>
+                        </>
                       )}
-                      <div className="text-xs text-gray-400">{f.url}</div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

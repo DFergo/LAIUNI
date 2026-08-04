@@ -24,6 +24,7 @@ class RegisterRequest(BaseModel):
 class UpdateRequest(BaseModel):
     enabled: bool | None = None
     name: str | None = None
+    url: str | None = None
 
 
 @router.get("")
@@ -119,11 +120,45 @@ async def _push_config_to_sidecar(frontend_id: str):
 
 
 @router.put("/{frontend_id}")
-async def update_frontend(frontend_id: str, req: UpdateRequest, _: dict = Depends(require_admin)):
-    updates = {k: v for k, v in req.model_dump().items() if v is not None}
-    frontend = registry.update(frontend_id, **updates)
-    if not frontend:
+async def update_frontend(
+    frontend_id: str,
+    req: UpdateRequest,
+    verify: bool = True,
+    _: dict = Depends(require_admin),
+):
+    """Update a frontend's enabled/name/url.
+
+    Editing the URL preserves the fid — so all campaign config under
+    campaigns/{fid}/ (profiles, auth, branding, translations) stays intact.
+    This is the reason to edit in place instead of delete + re-register, which
+    would mint a new fid and lose that config. `?verify=false` skips only the
+    reachability check (for the launchd reconciler); collision is always checked.
+    """
+    if not registry.get(frontend_id):
         raise HTTPException(status_code=404, detail="Frontend not found")
+
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+
+    if "url" in updates:
+        url = updates["url"].rstrip("/")  # normalise like register()
+        updates["url"] = url
+        # Reject collision with a *different* frontend — always, even when
+        # reachability verification is skipped.
+        for f in registry.list_all():
+            if f["id"] != frontend_id and f["url"] == url:
+                raise HTTPException(status_code=409, detail=f"URL already registered to frontend {f['id']}")
+        # Verify reachability before saving (same pattern as register()). Any
+        # http(s) host is accepted — IP, hostname, .local, Tailscale MagicDNS;
+        # the reachability check decides, not the format.
+        if verify:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(f"{url}/internal/config")
+                    resp.raise_for_status()
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Cannot reach frontend at {url}: {str(e)}")
+
+    frontend = registry.update(frontend_id, **updates)
     return {"frontend": frontend}
 
 
