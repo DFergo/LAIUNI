@@ -562,6 +562,9 @@ export async function getFrontendNotificationEmails(frontendId: string): Promise
 export interface BrandingConfig {
   app_title: string
   logo_url: string
+  logo_mode?: 'white' | 'color'
+  logo_uploaded?: boolean
+  logo_has_white?: boolean
   disclaimer_text: string
   instructions_text: string
   instructions_text_worker?: string
@@ -587,6 +590,36 @@ export async function getBrandingTranslationStatus(frontendId: string): Promise<
 
 export async function retranslateBranding(frontendId: string): Promise<{ translation_status: string }> {
   return request(`/admin/frontends/${frontendId}/branding/retranslate`, { method: 'POST' });
+}
+
+export async function uploadFrontendLogo(frontendId: string, file: File): Promise<{ logo_uploaded: boolean; logo_has_white: boolean }> {
+  const token = localStorage.getItem('hrdd_admin_token');
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`/admin/frontends/${frontendId}/branding/logo`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: 'Upload failed' }));
+    throw new Error(body.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteFrontendLogo(frontendId: string): Promise<{ logo_uploaded: boolean }> {
+  return request(`/admin/frontends/${frontendId}/branding/logo`, { method: 'DELETE' });
+}
+
+/** Fetch a processed logo variant as an object URL for preview (null if absent). */
+export async function fetchLogoVariant(frontendId: string, variant: 'color' | 'white'): Promise<string | null> {
+  const token = localStorage.getItem('hrdd_admin_token');
+  const res = await fetch(`/admin/frontends/${frontendId}/branding/logo/${variant}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return null;
+  return URL.createObjectURL(await res.blob());
 }
 
 export async function updateFrontendNotificationEmails(frontendId: string, emails: string[]): Promise<{ emails: string[] }> {

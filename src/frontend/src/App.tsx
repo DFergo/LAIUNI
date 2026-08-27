@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { t } from './i18n'
 import type { Phase, LangCode, Role, DeploymentConfig, SurveyData, RecoveryData, BrandingConfig } from './types'
+import { headerLogo } from './logo'
 import LanguageSelector from './components/LanguageSelector'
 import DisclaimerPage from './components/DisclaimerPage'
 import SessionPage from './components/SessionPage'
@@ -208,12 +209,13 @@ function App() {
     : undefined
 
   const showFooter = phase !== 'chat' && phase !== 'loading'
+  const headerLg = headerLogo(mergedBranding)
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-uni-blue text-white px-6 py-3 shadow-md flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <img src={mergedBranding?.logo_url || '/uni-logo.png'} alt="UNI" className="h-8 brightness-0 invert" />
+          <img src={headerLg.src} alt="UNI" className={headerLg.invert ? 'h-8 brightness-0 invert' : 'h-8'} />
           <h1 className="text-xl font-semibold">{mergedBranding?.app_title || 'HRDD Helper'}</h1>
         </div>
         <span className="text-sm opacity-75">UNI Global Union</span>

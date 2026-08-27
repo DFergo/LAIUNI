@@ -2,6 +2,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { t } from '../i18n'
 import type { LangCode, BrandingConfig } from '../types'
+import { pageLogo } from '../logo'
 
 interface Props {
   lang: LangCode
@@ -21,7 +22,7 @@ export default function DisclaimerPage({ lang, onAccept, onBack, branding, dataP
     <div className="max-w-4xl mx-auto mt-8 p-6">
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6 max-h-[80vh] overflow-y-auto">
         <div className="flex justify-center mb-4">
-          <img src={branding?.logo_url || '/uni-logo.png'} alt="UNI Global Union" className="h-[7.5rem]" />
+          <img src={pageLogo(branding)} alt="UNI Global Union" className="h-[7.5rem]" />
         </div>
 
         {custom ? (

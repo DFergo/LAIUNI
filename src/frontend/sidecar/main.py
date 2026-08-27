@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 
@@ -170,6 +170,51 @@ async def get_branding_translation(lang_code: str):
     }
 
 
+@app.post("/internal/branding-logo")
+async def update_branding_logo(
+    mode: str = Form("white"),
+    clear: str = Form(""),
+    color: UploadFile | None = File(None),
+    white: UploadFile | None = File(None),
+):
+    """Backend pushes the processed logo variants + header mode (Sprint 33)."""
+    _BRANDING_DIR.mkdir(parents=True, exist_ok=True)
+    color_path = _BRANDING_DIR / "logo_color.png"
+    white_path = _BRANDING_DIR / "logo_white.png"
+
+    if clear:
+        for p in (color_path, white_path):
+            if p.exists():
+                p.unlink()
+        (_BRANDING_DIR / "logo_meta.json").write_text(json.dumps({"mode": mode}))
+        logger.info("Branding logo cleared")
+        return {"status": "ok"}
+
+    if color is not None:
+        color_path.write_bytes(await color.read())
+        # white accompanies a fresh upload; drop any stale white if none was sent
+        if white is not None:
+            white_path.write_bytes(await white.read())
+        elif white_path.exists():
+            white_path.unlink()
+    # meta always reflects the latest mode (mode-only toggles re-push here too)
+    (_BRANDING_DIR / "logo_meta.json").write_text(json.dumps({"mode": mode}))
+    logger.info(f"Branding logo updated (mode={mode})")
+    return {"status": "ok"}
+
+
+@app.get("/internal/branding-logo/{variant}")
+async def get_branding_logo(variant: str):
+    """Serve a stored logo variant; 404 lets the React app fall back to logo_url/default."""
+    fname = {"color": "logo_color.png", "white": "logo_white.png"}.get(variant)
+    if not fname:
+        raise HTTPException(status_code=404, detail="Unknown variant")
+    p = _BRANDING_DIR / fname
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(p, media_type="image/png")
+
+
 @app.get("/internal/config")
 async def get_config():
     if _frontend_config.get("configured"):
@@ -188,11 +233,26 @@ async def get_config():
         }
     else:
         cfg = {"role": "frontend", "configured": False}
-    if _branding:
+    # Logo state is derived from disk (source of truth), so it survives restarts
+    # and works even when there is no custom text branding.
+    logo_uploaded = (_BRANDING_DIR / "logo_color.png").exists()
+    logo_has_white = (_BRANDING_DIR / "logo_white.png").exists()
+    logo_mode = "white"
+    meta = _BRANDING_DIR / "logo_meta.json"
+    if meta.exists():
+        try:
+            logo_mode = json.loads(meta.read_text()).get("mode", "white")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    if _branding or logo_uploaded:
         cfg["branding"] = {
             "app_title": _branding.get("app_title", ""),
             "logo_url": _branding.get("logo_url", ""),
             "custom": _branding.get("custom", False),
+            "logo_mode": logo_mode,
+            "logo_uploaded": logo_uploaded,
+            "logo_has_white": logo_has_white,
         }
     return cfg
 

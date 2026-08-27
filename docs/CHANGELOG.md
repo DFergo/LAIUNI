@@ -1,5 +1,12 @@
 # HRDD Helper — Changelog
 
+## Sprint 33 — Logo upload + header colour mode
+
+- **Upload a logo image** per frontend (PNG/WEBP/JPG, ≤ 2 MB) instead of only a URL. `POST /admin/frontends/{fid}/branding/logo` normalises it with Pillow (RGBA, downscaled to ≤ 240 px height) into a colour variant; when the image has real transparency it also builds a whitened variant for the blue header. `DELETE` reverts to the URL/bundled default; a processed image overrides the Logo URL. New dep: `Pillow>=10.0`.
+- **Header white/colour is now a choice** (`logo_mode`), not forced. The blue-bar logo shows the whitened variant only when the uploaded image has transparency **and** white mode is selected; otherwise it shows the original colours. A JPG (no transparency) renders in colour everywhere and the toggle is hidden — no more white block.
+- **Sidecar** receives the processed variants once on change (`POST /internal/branding-logo`) and serves them locally (`GET /internal/branding-logo/{color|white}`); the React app loads the logo from its own origin (unchanged pull-inverse). Logo state is derived from disk so it survives sidecar restarts.
+- **Admin** branding editor gains Upload/Replace/Remove, a live preview of both variants (colour + header-on-blue), and a white/colour selector shown only when the image supports it.
+
 ## Maintenance — Editable frontend URL
 
 - **`PUT /admin/frontends/{id}`** now accepts `url` (in addition to `enabled`/`name`). Editing the URL preserves the fid, so campaign config under `campaigns/{fid}/` survives (no delete + re-register). The URL is normalised, checked for collision (409) and reachability via `GET {url}/internal/config` (400); `?verify=false` skips only the reachability check (collision always checked). Any `http(s)://host:port` is accepted — reachability decides, not the format. Fixes: an office-DHCP frontend whose IP rotated could only be re-pointed by hand-editing `frontends.json` + restarting.

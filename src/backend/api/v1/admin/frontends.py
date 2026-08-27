@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from pydantic import BaseModel
 
 from src.api.v1.admin.auth import require_admin
@@ -186,6 +186,7 @@ def _has_custom_branding_text(data: dict) -> bool:
 class BrandingRequest(BaseModel):
     app_title: str = ""
     logo_url: str = ""
+    logo_mode: str = "white"  # "white" | "color" — header rendering of the logo
     disclaimer_text: str = ""
     instructions_text: str = ""  # legacy single instructions (fallback for all roles)
     instructions_text_worker: str = ""
@@ -203,10 +204,17 @@ async def get_branding(frontend_id: str, _: dict = Depends(require_admin)):
     path = _branding_path(frontend_id)
     if path.exists():
         try:
-            return json.loads(path.read_text())
+            data = json.loads(path.read_text())
+            # Fill logo defaults for branding.json written before Sprint 33
+            data.setdefault("logo_mode", "white")
+            data.setdefault("logo_uploaded", False)
+            data.setdefault("logo_has_white", False)
+            return data
         except (json.JSONDecodeError, OSError):
             pass
-    return {"app_title": "", "logo_url": "", "disclaimer_text": "", "instructions_text": "",
+    return {"app_title": "", "logo_url": "", "logo_mode": "white",
+            "logo_uploaded": False, "logo_has_white": False,
+            "disclaimer_text": "", "instructions_text": "",
             "instructions_text_worker": "", "instructions_text_representative": "",
             "instructions_text_organizer": "", "instructions_text_officer": ""}
 
@@ -221,10 +229,21 @@ async def update_branding(frontend_id: str, req: BrandingRequest, _: dict = Depe
     # Save to disk
     path = _branding_path(frontend_id)
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Preserve server-managed logo flags (set by the upload endpoint, not the admin form)
+    if path.exists():
+        try:
+            prev = json.loads(path.read_text())
+            data["logo_uploaded"] = prev.get("logo_uploaded", False)
+            data["logo_has_white"] = prev.get("logo_has_white", False)
+        except (json.JSONDecodeError, OSError):
+            pass
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2))
     tmp.rename(path)
     logger.info(f"Branding saved for frontend {frontend_id}")
+
+    # Push the logo (mode may have changed via the toggle) alongside text branding
+    await _push_logo_to_sidecar(frontend_id)
 
     has_custom_text = _has_custom_branding_text(data)
 
@@ -316,3 +335,156 @@ async def retranslate_branding(frontend_id: str, _: dict = Depends(require_admin
 
     asyncio.create_task(_safe_translate())
     return {"translation_status": "translating"}
+
+
+# --- Logo upload + processing (Sprint 33) ---
+
+_LOGO_ALLOWED = {"png", "webp", "jpg", "jpeg"}
+_LOGO_MAX_SIZE = 2 * 1024 * 1024  # 2 MB
+_LOGO_MAX_HEIGHT = 240  # px — covers retina of the largest use (language page h-28 ≈ 112px)
+
+
+def _logo_dir(frontend_id: str) -> Path:
+    return _CAMPAIGNS_DIR / frontend_id
+
+
+def _process_logo(raw: bytes) -> tuple[bytes, bytes | None]:
+    """Normalise an uploaded logo. Returns (color_png, white_png_or_None).
+
+    The white variant is produced only when the image has real transparency —
+    a JPG (or a flat PNG/WEBP) has none, so it renders in colour everywhere.
+    """
+    import io
+    from PIL import Image
+
+    try:
+        img = Image.open(io.BytesIO(raw))
+        img.load()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid or unreadable image file")
+
+    img = img.convert("RGBA")
+    # Downscale (keep aspect) so the pushed asset stays small; CSS handles final sizing
+    if img.height > _LOGO_MAX_HEIGHT:
+        ratio = _LOGO_MAX_HEIGHT / img.height
+        img = img.resize((max(1, round(img.width * ratio)), _LOGO_MAX_HEIGHT), Image.LANCZOS)
+
+    color_buf = io.BytesIO()
+    img.save(color_buf, format="PNG")
+
+    # White variant: only if there's meaningful transparency to carve the silhouette
+    alpha = img.getchannel("A")
+    has_transparency = alpha.getextrema()[0] < 250
+    white_png = None
+    if has_transparency:
+        w = Image.new("L", img.size, 255)
+        white = Image.merge("RGBA", (w, w, w, alpha))
+        white_buf = io.BytesIO()
+        white.save(white_buf, format="PNG")
+        white_png = white_buf.getvalue()
+
+    return color_buf.getvalue(), white_png
+
+
+def _write_branding_flags(frontend_id: str, uploaded: bool, has_white: bool):
+    """Update the server-managed logo flags in branding.json (atomic), keeping mode."""
+    path = _branding_path(frontend_id)
+    data = {}
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            data = {}
+    data["logo_uploaded"] = uploaded
+    data["logo_has_white"] = has_white
+    data.setdefault("logo_mode", "white")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.rename(path)
+
+
+@router.post("/{frontend_id}/branding/logo")
+async def upload_logo(frontend_id: str, file: UploadFile = File(...), _: dict = Depends(require_admin)):
+    """Upload + normalise a logo image (PNG/WEBP/JPG). Stores a colour variant and,
+    when the image has transparency, a whitened variant for the blue header."""
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
+    if ext not in _LOGO_ALLOWED:
+        raise HTTPException(status_code=400, detail=f"Unsupported format. Allowed: {', '.join(sorted(_LOGO_ALLOWED))}")
+    raw = await file.read()
+    if len(raw) > _LOGO_MAX_SIZE:
+        raise HTTPException(status_code=400, detail="Image too large (max 2 MB)")
+
+    color_png, white_png = _process_logo(raw)
+
+    d = _logo_dir(frontend_id)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "logo_color.png").write_bytes(color_png)
+    if white_png is not None:
+        (d / "logo_white.png").write_bytes(white_png)
+    else:
+        (d / "logo_white.png").unlink(missing_ok=True)
+
+    _write_branding_flags(frontend_id, uploaded=True, has_white=white_png is not None)
+    await _push_logo_to_sidecar(frontend_id)
+    return {"logo_uploaded": True, "logo_has_white": white_png is not None}
+
+
+@router.get("/{frontend_id}/branding/logo/{variant}")
+async def get_logo_variant(frontend_id: str, variant: str, _: dict = Depends(require_admin)):
+    """Serve a processed logo variant for the admin preview (auth-gated)."""
+    from fastapi.responses import FileResponse
+    fname = {"color": "logo_color.png", "white": "logo_white.png"}.get(variant)
+    if not fname:
+        raise HTTPException(status_code=404, detail="Unknown variant")
+    p = _logo_dir(frontend_id) / fname
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(p, media_type="image/png")
+
+
+@router.delete("/{frontend_id}/branding/logo")
+async def delete_logo(frontend_id: str, _: dict = Depends(require_admin)):
+    """Remove the uploaded logo; the frontend falls back to logo_url / bundled default."""
+    d = _logo_dir(frontend_id)
+    (d / "logo_color.png").unlink(missing_ok=True)
+    (d / "logo_white.png").unlink(missing_ok=True)
+    _write_branding_flags(frontend_id, uploaded=False, has_white=False)
+    await _push_logo_to_sidecar(frontend_id)
+    return {"logo_uploaded": False}
+
+
+async def _push_logo_to_sidecar(frontend_id: str):
+    """Push logo image variants + mode to the sidecar (multipart). When no logo is
+    uploaded, sends a clear flag so the sidecar drops any stored images."""
+    fe = registry.get(frontend_id)
+    if not (fe and fe.get("enabled")):
+        return
+
+    d = _logo_dir(frontend_id)
+    color = d / "logo_color.png"
+    white = d / "logo_white.png"
+
+    mode = "white"
+    path = _branding_path(frontend_id)
+    if path.exists():
+        try:
+            mode = json.loads(path.read_text()).get("logo_mode", "white")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    data = {"mode": mode}
+    files = {}
+    if color.exists():
+        files["color"] = ("logo_color.png", color.read_bytes(), "image/png")
+        if white.exists():
+            files["white"] = ("logo_white.png", white.read_bytes(), "image/png")
+    else:
+        data["clear"] = "1"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(f"{fe['url']}/internal/branding-logo", data=data, files=files or None)
+            logger.info(f"Logo pushed to {fe['url']} (mode={mode}, clear={'clear' in data})")
+    except Exception as e:
+        logger.warning(f"Failed to push logo to {fe['url']}: {e}")

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, retranslateBranding, listDeletedFrontends, restoreFrontend, exportGlobalConfig, importGlobalConfig, type Frontend, type BrandingConfig } from './api'
+import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, retranslateBranding, uploadFrontendLogo, deleteFrontendLogo, fetchLogoVariant, listDeletedFrontends, restoreFrontend, exportGlobalConfig, importGlobalConfig, type Frontend, type BrandingConfig } from './api'
 import FrontendConfigPanel from './FrontendConfigPanel'
 import { DEFAULT_DISCLAIMER_MD, DEFAULT_INSTRUCTIONS_MD } from './brandingDefaults'
 
@@ -89,6 +89,41 @@ export default function FrontendsTab() {
   const [brandingSuccess, setBrandingSuccess] = useState('')
   const [translationStatus, setTranslationStatus] = useState<{ status: string; progress: number; total: number } | null>(null)
   const [configOpen, setConfigOpen] = useState<string | null>(null)
+  // Logo upload (Sprint 33)
+  const [logoBusy, setLogoBusy] = useState(false)
+  const [logoErr, setLogoErr] = useState('')
+  const [logoPreview, setLogoPreview] = useState<{ color: string | null; white: string | null }>({ color: null, white: null })
+
+  const loadLogoPreviews = async (fid: string) => {
+    const [color, white] = await Promise.all([fetchLogoVariant(fid, 'color'), fetchLogoVariant(fid, 'white')])
+    setLogoPreview({ color, white })
+  }
+
+  const handleLogoUpload = async (fid: string, file: File) => {
+    setLogoErr(''); setLogoBusy(true)
+    try {
+      const r = await uploadFrontendLogo(fid, file)
+      setBranding(b => b ? { ...b, logo_uploaded: r.logo_uploaded, logo_has_white: r.logo_has_white } : b)
+      await loadLogoPreviews(fid)
+    } catch (e) {
+      setLogoErr(e instanceof Error ? e.message : 'Upload failed')
+    } finally {
+      setLogoBusy(false)
+    }
+  }
+
+  const handleLogoDelete = async (fid: string) => {
+    setLogoErr(''); setLogoBusy(true)
+    try {
+      await deleteFrontendLogo(fid)
+      setBranding(b => b ? { ...b, logo_uploaded: false, logo_has_white: false } : b)
+      setLogoPreview({ color: null, white: null })
+    } catch (e) {
+      setLogoErr(e instanceof Error ? e.message : 'Delete failed')
+    } finally {
+      setLogoBusy(false)
+    }
+  }
 
   const startEdit = (f: Frontend) => {
     setEditingId(f.id)
@@ -119,12 +154,17 @@ export default function FrontendsTab() {
       setBrandingOpen(null)
       setBranding(null)
       setTranslationStatus(null)
+      setLogoPreview({ color: null, white: null })
+      setLogoErr('')
       return
     }
     try {
       const data = await getFrontendBranding(id)
       setBranding(data)
       setBrandingOpen(id)
+      setLogoErr('')
+      if (data.logo_uploaded) await loadLogoPreviews(id)
+      else setLogoPreview({ color: null, white: null })
     } catch {
       // ignore
     }
@@ -327,6 +367,63 @@ export default function FrontendsTab() {
                           className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
                         />
                       </div>
+                    </div>
+
+                    {/* Logo upload (overrides the URL when set) */}
+                    <div className="border border-gray-200 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-medium text-gray-600">Logo image (PNG / WEBP / JPG, max 2 MB — overrides Logo URL)</label>
+                        <div className="flex items-center gap-2">
+                          <label className={`text-xs px-2 py-1 rounded-lg border cursor-pointer ${logoBusy ? 'opacity-50 pointer-events-none' : ''} border-uni-blue text-uni-blue hover:bg-blue-50`}>
+                            {branding.logo_uploaded ? 'Replace' : 'Upload'}
+                            <input type="file" accept=".png,.webp,.jpg,.jpeg" className="hidden"
+                              onChange={e => { const file = e.target.files?.[0]; if (file) handleLogoUpload(f.id, file); e.target.value = '' }} />
+                          </label>
+                          {branding.logo_uploaded && (
+                            <button type="button" disabled={logoBusy} onClick={() => handleLogoDelete(f.id)}
+                              className="text-xs px-2 py-1 rounded-lg border border-uni-red text-uni-red hover:bg-red-50 disabled:opacity-50">Remove</button>
+                          )}
+                        </div>
+                      </div>
+                      {logoErr && <p className="text-xs text-uni-red">{logoErr}</p>}
+                      {branding.logo_uploaded ? (
+                        <>
+                          <div className="flex items-end gap-4">
+                            <div>
+                              <p className="text-[11px] text-gray-400 mb-1">Colour</p>
+                              <div className="bg-gray-100 rounded-lg p-2 flex items-center justify-center h-16">
+                                {logoPreview.color && <img src={logoPreview.color} alt="colour" className="max-h-12 max-w-[140px] object-contain" />}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-[11px] text-gray-400 mb-1">Header (blue bar)</p>
+                              <div className="bg-uni-blue rounded-lg p-2 flex items-center justify-center h-16">
+                                {(branding.logo_mode !== 'color' && branding.logo_has_white)
+                                  ? (logoPreview.white && <img src={logoPreview.white} alt="white" className="max-h-12 max-w-[140px] object-contain" />)
+                                  : (logoPreview.color && <img src={logoPreview.color} alt="colour on blue" className="max-h-12 max-w-[140px] object-contain" />)}
+                              </div>
+                            </div>
+                          </div>
+                          {branding.logo_has_white ? (
+                            <div className="flex items-center gap-4 text-xs text-gray-600">
+                              <span className="font-medium">Header logo:</span>
+                              <label className="flex items-center gap-1 cursor-pointer">
+                                <input type="radio" name={`logomode-${f.id}`} checked={branding.logo_mode !== 'color'}
+                                  onChange={() => setBranding({ ...branding, logo_mode: 'white' })} /> White
+                              </label>
+                              <label className="flex items-center gap-1 cursor-pointer">
+                                <input type="radio" name={`logomode-${f.id}`} checked={branding.logo_mode === 'color'}
+                                  onChange={() => setBranding({ ...branding, logo_mode: 'color' })} /> Original colour
+                              </label>
+                              <span className="text-gray-400">(applied on Save)</span>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-gray-400">This image has no transparency, so the header shows it in colour. Upload a transparent PNG for a white header logo.</p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-[11px] text-gray-400">No image uploaded — the frontend uses the Logo URL above, or the bundled UNI logo.</p>
+                      )}
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1">

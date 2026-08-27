@@ -7,6 +7,9 @@ export type ConsultationMode = 'documentation' | 'interview' | 'advisory' | 'sub
 export interface BrandingConfig {
   app_title?: string
   logo_url?: string
+  logo_mode?: 'white' | 'color'
+  logo_uploaded?: boolean
+  logo_has_white?: boolean
   custom?: boolean
   disclaimer_text?: string
   instructions_text?: string
