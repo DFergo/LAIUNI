@@ -8,6 +8,7 @@ Provides get_relevant_chunks(query, top_k, frontend_id) for prompt injection.
 
 import json
 import logging
+import re
 import threading
 from pathlib import Path
 
@@ -40,8 +41,24 @@ def _docs_dir() -> Path:
     return path
 
 
+def _current_embed_key() -> str:
+    """Filesystem-safe key identifying the active embedding model.
+
+    Indexes are stored per-key (Sprint 34) so switching the embedding slot
+    back and forth reuses a previously-built index instead of rebuilding —
+    only a genuinely new (connection, model) pair costs a rebuild.
+    """
+    from src.api.v1.admin.llm import get_llm_settings
+
+    settings = get_llm_settings()
+    connection_id = settings.get("embedding_connection")
+    model = settings.get("embedding_model")
+    raw = f"{connection_id}__{model}" if connection_id and model else f"local__{config.rag_embedding_model}"
+    return re.sub(r"[^a-zA-Z0-9_.-]", "_", raw)
+
+
 def _index_dir() -> Path:
-    path = Path(config.rag_index_path)
+    path = Path(config.rag_index_path) / _current_embed_key()
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -106,14 +123,60 @@ def _get_embed_model():
     return _embed_model
 
 
-def reset_embed_model():
-    """Drop the cached embedding model so the next index load picks up new
-    embedding-slot settings. Called by the admin API after a settings change.
-    Does NOT reindex — a changed embedding model produces incompatible vector
-    dimensions, so existing indexes must be rebuilt via the RAG reindex action.
+def switch_embedding_and_reindex() -> dict:
+    """Activate the currently-saved embedding slot everywhere — global RAG
+    AND every campaign (per-frontend) index.
+
+    Never runs automatically — only from the Embeddings card's dedicated
+    "Reindex" button (Sprint 34), after the embedding_connection/model fields
+    are saved. Until this runs, the old embedding model and every index keep
+    serving requests unchanged, however long the admin takes to switch.
+
+    The embedding model is a single **global** setting (no per-frontend
+    override) shared by the global index and every campaign index — a
+    campaign's own `include_global_rag` toggle only controls whether global
+    chunks are *mixed in*, it does not give a campaign its own embedding
+    space. So a provider switch must reindex all of them together, not just
+    the global index: otherwise a campaign's stored vectors would silently
+    stay in the old embedding space while queries embed with the new one,
+    producing meaningless "closest match" results instead of an error.
+
+    For each index (global + every registered frontend), loads it under the
+    new (connection, model) key if already built (instant — no rebuild), or
+    builds it fresh from source documents (one-time cost) the first time
+    that embedding is used. Runs synchronously — an explicit admin action,
+    not something a live user session waits on.
     """
-    global _embed_model
-    _embed_model = None
+    global _embed_model, _index, _initialized
+
+    with _index_lock:
+        _embed_model = None
+        _index = None
+        _initialized = False
+    with _campaign_lock:
+        _campaign_indexes.clear()
+
+    _load_or_build_index(force_rebuild=False)
+    doc_count = len(_index.docstore.docs) if _index is not None and hasattr(_index, "docstore") else 0
+
+    from src.services.frontend_registry import registry
+    campaigns: dict[str, str] = {}
+    for f in registry.list_all():
+        fid = f["id"]
+        try:
+            idx = _load_or_build_campaign_index(fid)
+            with _campaign_lock:
+                _campaign_indexes[fid] = idx
+            campaigns[fid] = "indexed" if idx is not None else "empty"
+        except Exception as e:
+            logger.error(f"Embedding switch: campaign reindex failed for {fid}: {e}")
+            campaigns[fid] = "error"
+
+    return {
+        "status": "indexed" if _index is not None else "empty",
+        "node_count": doc_count,
+        "campaigns": campaigns,
+    }
 
 
 def _load_or_build_index(force_rebuild: bool = False):
@@ -351,7 +414,7 @@ def _campaign_docs_dir(frontend_id: str) -> Path:
 
 
 def _campaign_index_dir(frontend_id: str) -> Path:
-    path = Path(f"/app/data/campaigns/{frontend_id}/rag_index")
+    path = Path(f"/app/data/campaigns/{frontend_id}/rag_index") / _current_embed_key()
     path.mkdir(parents=True, exist_ok=True)
     return path
 

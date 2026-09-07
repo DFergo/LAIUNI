@@ -217,6 +217,15 @@ export async function getEmbeddingHealth(): Promise<LLMHealth> {
   return request('/admin/llm/embedding-health');
 }
 
+// Activates the saved embedding slot everywhere — global RAG AND every
+// campaign (per-frontend) index (Sprint 34). Dedicated action, never
+// triggered by saving settings — see LLMTab's "Reindex now" button. Reuses a
+// previously-built index per (connection, model) if one exists; only a new
+// pairing costs a rebuild.
+export async function reindexEmbedding(): Promise<{ status: string; node_count: number; campaigns: Record<string, string> }> {
+  return request('/admin/llm/embedding/reindex', { method: 'POST' });
+}
+
 // --- Provider connections ---
 
 export async function listConnections(): Promise<{ connections: LLMConnection[] }> {

@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import {
   getLLMHealth, getLLMSettings, updateLLMSettings, resetLLMSettings,
   listFrontends, getFrontendLLMSettings, updateFrontendLLMSettings, deleteFrontendLLMSettings,
   listConnections, addConnection, updateConnection, deleteConnection, getConnectionModels,
-  getEmbeddingHealth,
+  getEmbeddingHealth, reindexEmbedding,
   getTranslationPrompt, updateTranslationPrompt,
   type LLMHealth, type LLMSettings, type LLMConnection, type ConnectionType, type Frontend,
 } from './api'
@@ -17,6 +17,71 @@ const CONNECTION_TYPES: { value: ConnectionType; label: string }[] = [
 ]
 
 const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none'
+
+// Per-card field groups — each card saves only its own keys (partial PUT),
+// independently of every other card.
+const INFERENCE_KEYS: (keyof LLMSettings)[] = [
+  'inference_connection', 'inference_model', 'inference_temperature', 'inference_max_tokens', 'inference_num_ctx',
+  'multimodal_enabled', 'max_concurrent_sessions',
+  'inference_fallback_enabled', 'inference_fallback_connection', 'inference_fallback_model',
+  'inference_fallback_temperature', 'inference_fallback_max_tokens', 'inference_fallback_num_ctx',
+]
+const REPORTER_KEYS: (keyof LLMSettings)[] = [
+  'reporter_connection', 'reporter_model', 'reporter_temperature', 'reporter_max_tokens', 'reporter_num_ctx',
+  'use_reporter_for_user_summary',
+]
+const COMPRESSION_KEYS: (keyof LLMSettings)[] = [
+  'summariser_enabled', 'summariser_connection', 'summariser_model', 'summariser_temperature',
+  'summariser_max_tokens', 'summariser_num_ctx', 'compression_first_threshold', 'compression_step_size',
+]
+const TRANSLATION_KEYS: (keyof LLMSettings)[] = [
+  'translation_connection', 'translation_model', 'translation_temperature', 'translation_max_tokens',
+  'translation_num_ctx', 'translation_glossary_enabled',
+]
+const EMBEDDING_KEYS: (keyof LLMSettings)[] = ['embedding_connection', 'embedding_model']
+
+// Per-card save button + status — dirty (and enabled) only when one of its
+// own keys differs from the last-saved settings; saving one card never
+// touches another card's unsaved edits (partial PUT, see savePartial).
+function SaveBar({
+  keys, settings, savedSettings, onSave, label = 'Save Changes',
+}: {
+  keys: (keyof LLMSettings)[]
+  settings: LLMSettings
+  savedSettings: LLMSettings
+  onSave: (patch: Partial<LLMSettings>) => Promise<void>
+  label?: string
+}) {
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+  const dirty = keys.some(k => settings[k] !== savedSettings[k])
+
+  const save = async () => {
+    setSaving(true); setMsg('')
+    try {
+      const patch: Partial<LLMSettings> = {}
+      keys.forEach(k => { (patch as Record<string, unknown>)[k] = settings[k] })
+      await onSave(patch)
+      setMsg('Saved'); setTimeout(() => setMsg(''), 2500)
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Save failed')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <>
+      <button
+        onClick={save}
+        disabled={!dirty || saving}
+        className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {saving ? 'Saving...' : label}
+      </button>
+      {dirty && !saving && !msg && <span className="text-xs text-gray-400">Unsaved changes</span>}
+      {msg && <span className={`text-xs ${msg === 'Saved' ? 'text-green-600' : 'text-uni-red'}`}>{msg}</span>}
+    </>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Reusable slot editor: connection → model (with manual entry) + optional params
@@ -419,10 +484,14 @@ export default function LLMTab() {
   const [settings, setSettings] = useState<LLMSettings | null>(null)
   const [savedSettings, setSavedSettings] = useState<LLMSettings | null>(null)
   const [connections, setConnections] = useState<LLMConnection[]>([])
-  const [saving, setSaving] = useState(false)
+  const [resetting, setResetting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const dirty = useRef(false)
+
+  // Embedding reindex (Sprint 34) — separate from any card's Save; never
+  // triggered automatically by picking a connection/model.
+  const [embedReindexing, setEmbedReindexing] = useState(false)
+  const [embedReindexMsg, setEmbedReindexMsg] = useState('')
 
   // Translation prompt (Sprint 20; editable, disk source-of-truth)
   const [translatePrompt, setTranslatePrompt] = useState('')
@@ -483,37 +552,53 @@ export default function LLMTab() {
     return () => clearInterval(interval)
   }, [])
 
-  const handleSave = async () => {
-    if (!settings) return
-    setSaving(true); setError(''); setSuccess('')
-    try {
-      const updated = await updateLLMSettings(settings)
-      setSettings(updated); setSavedSettings(updated); dirty.current = false
-      setSuccess('Settings saved'); setTimeout(() => setSuccess(''), 3000)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed')
-    } finally { setSaving(false) }
+  // Saves only the keys in `patch` (partial PUT) — used by every card's
+  // SaveBar. Applies the same patch to both `settings` and `savedSettings`
+  // instead of trusting the server's full merged response, so unsaved edits
+  // still in progress on OTHER cards are never clobbered.
+  const savePartial = async (patch: Partial<LLMSettings>) => {
+    await updateLLMSettings(patch)
+    setSettings(prev => (prev ? { ...prev, ...patch } : prev))
+    setSavedSettings(prev => (prev ? { ...prev, ...patch } : prev))
   }
 
   const handleReset = async () => {
-    setError(''); setSuccess('')
+    if (!confirm('Reset ALL global LLM settings to factory defaults? This discards every card\'s configuration, saved or not.')) return
+    setResetting(true); setError(''); setSuccess('')
     try {
       const defaults = await resetLLMSettings()
-      setSettings(defaults); setSavedSettings(defaults); dirty.current = false
+      setSettings(defaults); setSavedSettings(defaults)
       setSuccess('Settings reset to defaults'); setTimeout(() => setSuccess(''), 3000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Reset failed')
-    }
+    } finally { setResetting(false) }
   }
 
   const handleDiscard = () => {
-    if (savedSettings) { setSettings({ ...savedSettings }); dirty.current = false }
+    if (savedSettings) setSettings({ ...savedSettings })
+  }
+
+  const handleReindexEmbedding = async () => {
+    if (!settings || !savedSettings) return
+    setEmbedReindexing(true); setEmbedReindexMsg('')
+    try {
+      // The reindex action activates whatever is currently SAVED — if the
+      // card has unsaved edits, save them first so Reindex acts on what's shown.
+      const dirty = EMBEDDING_KEYS.some(k => settings[k] !== savedSettings[k])
+      if (dirty) {
+        await savePartial({ embedding_connection: settings.embedding_connection, embedding_model: settings.embedding_model })
+      }
+      const result = await reindexEmbedding()
+      const campaignCount = Object.keys(result.campaigns || {}).length
+      setEmbedReindexMsg(`Active — global: ${result.node_count} node(s)${campaignCount ? `, ${campaignCount} campaign(s) reindexed` : ''}`)
+      setTimeout(() => setEmbedReindexMsg(''), 6000)
+    } catch (e) {
+      setEmbedReindexMsg(e instanceof Error ? e.message : 'Reindex failed')
+    } finally { setEmbedReindexing(false) }
   }
 
   const setField = (key: keyof LLMSettings, value: string | number | null | boolean) => {
-    if (!settings) return
-    dirty.current = true
-    setSettings({ ...settings, [key]: value })
+    setSettings(prev => (prev ? { ...prev, [key]: value } : prev))
   }
 
   // Per-slot circuit-breaker badge (keyed connection:model)
@@ -638,6 +723,10 @@ export default function LLMTab() {
                 </div>
               )}
             </div>
+
+            <div className="border-t border-gray-200 pt-4 mt-4 flex items-center gap-3">
+              <SaveBar keys={INFERENCE_KEYS} settings={settings} savedSettings={savedSettings ?? settings} onSave={savePartial} />
+            </div>
           </div>
 
           {/* Reporter */}
@@ -658,6 +747,10 @@ export default function LLMTab() {
                   </p>
                 </div>
               </label>
+            </div>
+
+            <div className="border-t border-gray-200 pt-4 mt-4 flex items-center gap-3">
+              <SaveBar keys={REPORTER_KEYS} settings={settings} savedSettings={savedSettings ?? settings} onSave={savePartial} />
             </div>
           </div>
 
@@ -701,6 +794,10 @@ export default function LLMTab() {
                 </div>
               </div>
             )}
+
+            <div className="border-t border-gray-200 pt-4 mt-4 flex items-center gap-3">
+              <SaveBar keys={COMPRESSION_KEYS} settings={settings} savedSettings={savedSettings ?? settings} onSave={savePartial} />
+            </div>
           </div>
 
           {/* Translation (Sprint 20) */}
@@ -721,6 +818,10 @@ export default function LLMTab() {
                   </p>
                 </div>
               </label>
+            </div>
+
+            <div className="border-t border-gray-200 pt-4 mt-4 flex items-center gap-3">
+              <SaveBar keys={TRANSLATION_KEYS} settings={settings} savedSettings={savedSettings ?? settings} onSave={savePartial} />
             </div>
 
             <div className="border-t border-gray-200 pt-4 mt-4">
@@ -755,21 +856,32 @@ export default function LLMTab() {
           <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-800 mb-1">Embeddings (RAG)</h3>
             <p className="text-xs text-gray-400 mb-4">
-              Model used to index and search the RAG documents. Defaults to a local CPU model; pointing this at a network connection (LM Studio or Ollama, with GPU) noticeably speeds up RAG-heavy responses. The dropdown lists only embedding-capable models per connection. <span className="font-medium">Changing this requires a RAG reindex</span> (Knowledge tab) — vectors from different embedding models aren't compatible.
+              Model used to index and search the RAG documents. Defaults to a local CPU model; pointing this at a network connection (LM Studio or Ollama, with GPU) noticeably speeds up RAG-heavy responses. The dropdown lists only embedding-capable models per connection.
+              This card has its own save — it never triggers a reindex by itself. The old model + index keep serving every request until you click <span className="font-medium">Reindex now</span>, which reuses a previously-built index for the same connection/model instantly (or builds a new one if this is the first time it's used) and applies to <span className="font-medium">every index — global and all per-frontend campaigns</span>, regardless of each frontend's own "include global RAG" setting: they all share this one embedding model, so they must switch together.
             </p>
             <EmbeddingSlotConfig connections={connections} embeddingHealth={embeddingHealth} settings={settings} onSet={setField} />
+
+            <div className="border-t border-gray-200 pt-4 mt-4 flex items-center gap-3 flex-wrap">
+              <SaveBar keys={EMBEDDING_KEYS} settings={settings} savedSettings={savedSettings ?? settings} onSave={savePartial} />
+              <button
+                onClick={handleReindexEmbedding}
+                disabled={embedReindexing}
+                className="border border-uni-blue text-uni-blue rounded-lg px-4 py-1.5 text-sm font-medium hover:bg-uni-blue/5 disabled:opacity-50"
+              >
+                {embedReindexing ? 'Reindexing...' : 'Reindex now'}
+              </button>
+              {embedReindexMsg && <span className="text-xs text-gray-500">{embedReindexMsg}</span>}
+            </div>
           </div>
 
           {/* Actions */}
           <div className="flex items-center gap-3">
-            <button onClick={handleSave} disabled={saving}
-              className="bg-uni-blue text-white rounded-lg px-5 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50">
-              {saving ? 'Saving...' : 'Save Settings'}
-            </button>
             <button onClick={handleDiscard} className="border border-gray-300 text-gray-600 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">
-              Discard Changes
+              Discard All Unsaved Changes
             </button>
-            <button onClick={handleReset} className="text-xs text-gray-400 hover:text-uni-red px-2 py-2">Reset to Defaults</button>
+            <button onClick={handleReset} disabled={resetting} className="text-xs text-gray-400 hover:text-uni-red px-2 py-2 disabled:opacity-50">
+              {resetting ? 'Resetting...' : 'Reset to Defaults'}
+            </button>
             {success && <span className="text-sm text-green-600">{success}</span>}
             {error && <span className="text-sm text-uni-red">{error}</span>}
           </div>

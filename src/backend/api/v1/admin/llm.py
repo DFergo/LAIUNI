@@ -354,15 +354,27 @@ async def update_settings(req: LLMSettingsRequest, _: dict = Depends(require_adm
     _save_settings(current)
     logger.info(f"LLM settings updated: {list(updates.keys())}")
 
-    if "embedding_connection" in updates or "embedding_model" in updates:
-        from src.services.rag_service import reset_embed_model
-        reset_embed_model()
-        logger.info("Embedding config changed — reindex the RAG documents for it to take effect")
-
     if _has_ollama_slot(current):
         asyncio.create_task(_warmup_ollama_slots(current))
 
     return current
+
+
+@router.post("/embedding/reindex")
+async def reindex_embedding(_: dict = Depends(require_admin)):
+    """Activate the saved embedding slot everywhere — global RAG AND every
+    campaign (per-frontend) index (Sprint 34).
+
+    Dedicated action — never triggered by saving settings. The old embedding
+    model + every index keep serving requests until this runs. The embedding
+    model is a single global setting shared by all indexes (a campaign's
+    `include_global_rag` toggle doesn't give it its own embedding space), so
+    a provider switch must reindex all of them together, not just the global
+    one. Reuses a previously-built index for the same (connection, model) per
+    index if one exists; only a genuinely new pairing costs a rebuild.
+    """
+    from src.services.rag_service import switch_embedding_and_reindex
+    return switch_embedding_and_reindex()
 
 
 @router.post("/settings/reset")
