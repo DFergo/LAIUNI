@@ -190,6 +190,8 @@ export interface LLMSettings {
   translation_max_tokens: number | null
   translation_num_ctx: number | null
   translation_glossary_enabled: boolean
+  embedding_connection: string | null
+  embedding_model: string | null
   compression_threshold: number
   compression_first_threshold: number
   compression_step_size: number
@@ -209,6 +211,10 @@ export async function getLLMHealth(): Promise<LLMHealth> {
 
 export async function getLLMModels(): Promise<LLMHealth> {
   return request('/admin/llm/models');
+}
+
+export async function getEmbeddingHealth(): Promise<LLMHealth> {
+  return request('/admin/llm/embedding-health');
 }
 
 // --- Provider connections ---

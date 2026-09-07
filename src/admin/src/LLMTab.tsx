@@ -3,6 +3,7 @@ import {
   getLLMHealth, getLLMSettings, updateLLMSettings, resetLLMSettings,
   listFrontends, getFrontendLLMSettings, updateFrontendLLMSettings, deleteFrontendLLMSettings,
   listConnections, addConnection, updateConnection, deleteConnection, getConnectionModels,
+  getEmbeddingHealth,
   getTranslationPrompt, updateTranslationPrompt,
   type LLMHealth, type LLMSettings, type LLMConnection, type ConnectionType, type Frontend,
 } from './api'
@@ -145,6 +146,92 @@ function SlotConfig({
         {numField(tempKey, 'Temperature', '0 = deterministic, ~0.7 = balanced, >1 = creative.')}
         {numField(maxKey, 'Max Tokens', maxTokensHelp)}
         {isOllama && numField(ctxKey, 'Context Window (num_ctx)', 'Ollama only. Blank = model default.')}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Embedding slot editor: connection → model, filtered to embedding-only
+// models (not the full model list) — no chat params (temp/tokens/ctx don't
+// apply to embeddings). Unset connection = built-in local CPU model.
+// ---------------------------------------------------------------------------
+
+function EmbeddingSlotConfig({
+  connections, embeddingHealth, settings, onSet,
+}: {
+  connections: LLMConnection[]
+  embeddingHealth: LLMHealth | null
+  settings: LLMSettings
+  onSet: (key: keyof LLMSettings, val: string | number | null) => void
+}) {
+  const [manualModel, setManualModel] = useState(false)
+  const connId = settings.embedding_connection || ''
+  // Anthropic has no embedding models — only offer connections that can have them.
+  const eligible = connections.filter(c => c.type === 'openai' || c.type === 'ollama')
+  const discovered = embeddingHealth?.connections?.[connId]?.models || []
+  const currentModel = settings.embedding_model || ''
+  const modelInList = discovered.includes(currentModel)
+  const useManual = discovered.length === 0 || manualModel || (currentModel !== '' && !modelInList)
+
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Connection</label>
+        <select
+          value={connId}
+          onChange={e => {
+            onSet('embedding_connection', e.target.value || null)
+            onSet('embedding_model', null)
+            setManualModel(false)
+          }}
+          className={inputCls}
+        >
+          <option value="">— Local (sentence-transformers, CPU) —</option>
+          {!eligible.some(c => c.id === connId) && connId && (
+            <option value={connId}>{connId} (missing)</option>
+          )}
+          {eligible.map(c => (
+            <option key={c.id} value={c.id} disabled={!c.enable}>
+              {c.id} ({c.type}){c.enable ? '' : ' — disabled'}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Model</label>
+        {!connId && (
+          <p className="text-xs text-gray-400 mt-2">Built-in all-MiniLM-L6-v2 (CPU, in-container).</p>
+        )}
+        {connId && (
+          <>
+            {discovered.length > 0 && (
+              <select
+                value={modelInList && !useManual ? currentModel : '__manual__'}
+                onChange={e => {
+                  if (e.target.value === '__manual__') setManualModel(true)
+                  else { setManualModel(false); onSet('embedding_model', e.target.value) }
+                }}
+                className={inputCls}
+              >
+                {discovered.map(m => <option key={m} value={m}>{m}</option>)}
+                <option value="__manual__">✏️ Enter manually…</option>
+              </select>
+            )}
+            {useManual && (
+              <input
+                type="text"
+                value={currentModel}
+                onChange={e => onSet('embedding_model', e.target.value)}
+                placeholder="model ID"
+                className={`${inputCls} ${discovered.length > 0 ? 'mt-2' : ''}`}
+              />
+            )}
+            {discovered.length === 0 && (
+              <p className="text-xs text-gray-400 mt-1">No embedding models discovered on this connection — enter the ID manually.</p>
+            )}
+          </>
+        )}
       </div>
     </div>
   )
@@ -328,6 +415,7 @@ function ConnForm({
 
 export default function LLMTab() {
   const [health, setHealth] = useState<LLMHealth | null>(null)
+  const [embeddingHealth, setEmbeddingHealth] = useState<LLMHealth | null>(null)
   const [settings, setSettings] = useState<LLMSettings | null>(null)
   const [savedSettings, setSavedSettings] = useState<LLMSettings | null>(null)
   const [connections, setConnections] = useState<LLMConnection[]>([])
@@ -346,14 +434,22 @@ export default function LLMTab() {
     catch (err) { setError(err instanceof Error ? err.message : 'Failed to load health') }
   }
 
+  const refreshEmbeddingHealth = async () => {
+    try { setEmbeddingHealth(await getEmbeddingHealth()) } catch { /* ignore */ }
+  }
+
+  const refreshAllHealth = async () => { await Promise.all([refreshHealth(), refreshEmbeddingHealth()]) }
+
   const reloadConnections = async () => {
     try { setConnections((await listConnections()).connections) } catch { /* ignore */ }
   }
 
   const loadAll = async () => {
     try {
-      const [h, s, c, tp] = await Promise.all([getLLMHealth(), getLLMSettings(), listConnections(), getTranslationPrompt()])
-      setHealth(h); setSettings(s); setSavedSettings(s); setConnections(c.connections)
+      const [h, eh, s, c, tp] = await Promise.all([
+        getLLMHealth(), getEmbeddingHealth(), getLLMSettings(), listConnections(), getTranslationPrompt(),
+      ])
+      setHealth(h); setEmbeddingHealth(eh); setSettings(s); setSavedSettings(s); setConnections(c.connections)
       setTranslatePrompt(tp.prompt); setTranslatePromptSaved(tp.prompt)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
@@ -383,7 +479,7 @@ export default function LLMTab() {
 
   useEffect(() => {
     loadAll()
-    const interval = setInterval(refreshHealth, 15000)
+    const interval = setInterval(() => { refreshHealth(); refreshEmbeddingHealth() }, 15000)
     return () => clearInterval(interval)
   }, [])
 
@@ -485,7 +581,7 @@ export default function LLMTab() {
 
   return (
     <div className="space-y-6">
-      <ConnectionsCard connections={connections} health={health} reload={reloadConnections} refreshHealth={refreshHealth} />
+      <ConnectionsCard connections={connections} health={health} reload={reloadConnections} refreshHealth={refreshAllHealth} />
 
       {settings && (
         <>
@@ -653,6 +749,15 @@ export default function LLMTab() {
                 {translatePromptMsg && <span className="text-xs text-green-600">{translatePromptMsg}</span>}
               </div>
             </div>
+          </div>
+
+          {/* Embeddings (RAG) */}
+          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-800 mb-1">Embeddings (RAG)</h3>
+            <p className="text-xs text-gray-400 mb-4">
+              Model used to index and search the RAG documents. Defaults to a local CPU model; pointing this at a network connection (LM Studio or Ollama, with GPU) noticeably speeds up RAG-heavy responses. The dropdown lists only embedding-capable models per connection. <span className="font-medium">Changing this requires a RAG reindex</span> (Knowledge tab) — vectors from different embedding models aren't compatible.
+            </p>
+            <EmbeddingSlotConfig connections={connections} embeddingHealth={embeddingHealth} settings={settings} onSet={setField} />
           </div>
 
           {/* Actions */}

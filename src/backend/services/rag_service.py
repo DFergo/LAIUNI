@@ -46,16 +46,74 @@ def _index_dir() -> Path:
     return path
 
 
+def _local_embed_model():
+    from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+    model = HuggingFaceEmbedding(model_name=f"sentence-transformers/{config.rag_embedding_model}")
+    logger.info(f"Loaded local embedding model: {config.rag_embedding_model} (CPU, in-container)")
+    return model
+
+
+def _network_embed_model():
+    """Build a LlamaIndex embedding client from the configured embedding slot.
+
+    Returns None if no embedding connection is configured, the connection is
+    missing, or its type has no embeddings support (e.g. anthropic) — callers
+    fall back to the local model. Never raises (lesson #3).
+    """
+    from src.api.v1.admin.llm import get_llm_settings
+    from src.services.connection_registry import connections
+
+    settings = get_llm_settings()
+    connection_id = settings.get("embedding_connection")
+    model = settings.get("embedding_model")
+    if not connection_id or not model:
+        return None
+
+    conn = connections.get(connection_id)
+    if conn is None:
+        logger.warning(f"Embedding connection not found: {connection_id} — using local fallback")
+        return None
+
+    try:
+        if conn["type"] == "openai":
+            # OpenAILikeEmbedding (not OpenAIEmbedding) — the plain OpenAI
+            # client validates model_name against a fixed enum of OpenAI's
+            # own models and rejects local ones (LM Studio, vLLM, ...).
+            from llama_index.embeddings.openai_like import OpenAILikeEmbedding
+            embed = OpenAILikeEmbedding(
+                model_name=model,
+                api_base=conn["base_url"],
+                api_key=conn.get("api_key") or "fake",
+            )
+        elif conn["type"] == "ollama":
+            from llama_index.embeddings.ollama import OllamaEmbedding
+            embed = OllamaEmbedding(model_name=model, base_url=conn["base_url"])
+        else:
+            logger.warning(f"Connection type {conn['type']!r} has no embeddings support — using local fallback")
+            return None
+        logger.info(f"Loaded network embedding model: {connection_id}/{model} ({conn['type']})")
+        return embed
+    except Exception as e:
+        logger.error(f"Failed to load network embedding model {connection_id}/{model}: {e} — using local fallback")
+        return None
+
+
 def _get_embed_model():
-    """Lazy-load the embedding model."""
+    """Lazy-load the embedding model — network connection if configured, else local."""
     global _embed_model
     if _embed_model is None:
-        from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-        _embed_model = HuggingFaceEmbedding(
-            model_name=f"sentence-transformers/{config.rag_embedding_model}"
-        )
-        logger.info(f"Loaded embedding model: {config.rag_embedding_model}")
+        _embed_model = _network_embed_model() or _local_embed_model()
     return _embed_model
+
+
+def reset_embed_model():
+    """Drop the cached embedding model so the next index load picks up new
+    embedding-slot settings. Called by the admin API after a settings change.
+    Does NOT reindex — a changed embedding model produces incompatible vector
+    dimensions, so existing indexes must be rebuilt via the RAG reindex action.
+    """
+    global _embed_model
+    _embed_model = None
 
 
 def _load_or_build_index(force_rebuild: bool = False):

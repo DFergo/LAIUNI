@@ -59,6 +59,12 @@ _DEFAULTS: dict[str, Any] = {
     "translation_max_tokens": None,
     "translation_num_ctx": None,
     "translation_glossary_enabled": False,
+    # Embedding slot (RAG). None → local sentence-transformers fallback (CPU,
+    # baked into the image, unchanged default behaviour). Set both to route
+    # embeddings through a connection instead (network/GPU, far faster on
+    # RAG-heavy responses — see connection_registry.py).
+    "embedding_connection": None,
+    "embedding_model": None,
     "compression_threshold": 0.75,  # legacy — kept for migration
     "compression_first_threshold": 20000,  # first compression at N tokens
     "compression_step_size": 15000,  # compress again every N tokens after first
@@ -219,6 +225,8 @@ class LLMSettingsRequest(BaseModel):
     translation_max_tokens: int | None = None
     translation_num_ctx: int | None = None
     translation_glossary_enabled: bool | None = None
+    embedding_connection: str | None = None
+    embedding_model: str | None = None
     compression_threshold: float | None = None  # legacy
     compression_first_threshold: int | None = None
     compression_step_size: int | None = None
@@ -308,6 +316,22 @@ async def llm_models(_: dict = Depends(require_admin)):
     return {"connections": await llm.check_health()}
 
 
+@router.get("/embedding-health")
+async def llm_embedding_health(_: dict = Depends(require_admin)):
+    """Embedding-only models per enabled connection, for the embedding slot's dropdown."""
+    return {"connections": await llm.check_embedding_health()}
+
+
+@router.get("/connections/{connection_id}/embedding-models")
+async def connection_embedding_models(connection_id: str, _: dict = Depends(require_admin)):
+    """Fetch a connection's embedding-only models (async, short timeout)."""
+    conn = connections.get(connection_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail=f"Connection not found: {connection_id}")
+    result = await llm.check_embedding_connection(conn)
+    return {"connection_id": connection_id, **result}
+
+
 # --- Settings ---
 
 
@@ -329,6 +353,11 @@ async def update_settings(req: LLMSettingsRequest, _: dict = Depends(require_adm
     current.update(updates)
     _save_settings(current)
     logger.info(f"LLM settings updated: {list(updates.keys())}")
+
+    if "embedding_connection" in updates or "embedding_model" in updates:
+        from src.services.rag_service import reset_embed_model
+        reset_embed_model()
+        logger.info("Embedding config changed — reindex the RAG documents for it to take effect")
 
     if _has_ollama_slot(current):
         asyncio.create_task(_warmup_ollama_slots(current))

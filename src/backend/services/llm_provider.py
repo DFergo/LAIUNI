@@ -68,6 +68,23 @@ def _split_multimodal(content: Any) -> tuple[str, list[dict[str, str]]]:
 
 
 # ---------------------------------------------------------------------------
+# Embedding-model detection (used to filter the embedding slot's dropdown)
+# ---------------------------------------------------------------------------
+
+# Name fragments seen in embedding model IDs across HF/Ollama/OpenAI catalogs.
+# Used as a fallback when a provider's API doesn't expose a model "type".
+_EMBEDDING_NAME_HINTS = (
+    "embed", "bge-", "bge_", "gte-", "gte_", "e5-", "e5_", "minilm",
+    "nomic-embed", "mxbai", "gtr-t5", "sentence-t5",
+)
+
+
+def _looks_like_embedding_model(model_id: str) -> bool:
+    name = model_id.lower()
+    return any(hint in name for hint in _EMBEDDING_NAME_HINTS)
+
+
+# ---------------------------------------------------------------------------
 # Protocol adapters
 # ---------------------------------------------------------------------------
 
@@ -88,6 +105,32 @@ class OpenAIAdapter:
             resp.raise_for_status()
             data = resp.json()
             return [m["id"] for m in data.get("data", [])]
+
+    async def list_embedding_models(self, conn: dict[str, Any]) -> list[str]:
+        """Embedding-only models for this connection.
+
+        LM Studio exposes a native endpoint (`/api/v0/models`, sibling to the
+        OpenAI-compatible `/v1/models`) that tags each model's `type`
+        ("llm" | "embeddings" | "vlm") — the only reliable signal available.
+        Derived by swapping the base_url's trailing `/v1` for `/api/v0`; on
+        any other OpenAI-compatible provider (real OpenAI, OpenRouter, vLLM)
+        this 404s and we fall back to a name-based heuristic over `/models`.
+        """
+        base = conn["base_url"].rstrip("/")
+        native_base = base[: -len("/v1")] if base.endswith("/v1") else base
+        native_url = f"{native_base}/api/v0/models"
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(native_url, headers=self._headers(conn))
+                resp.raise_for_status()
+                data = resp.json()
+                return [
+                    m["id"] for m in data.get("data", [])
+                    if m.get("type") == "embeddings"
+                ]
+        except Exception:
+            models = await self.list_models(conn)
+            return [m for m in models if _looks_like_embedding_model(m)]
 
     async def stream(
         self, conn, model, messages, temperature, max_tokens, num_ctx
@@ -136,6 +179,10 @@ class AnthropicAdapter:
             resp.raise_for_status()
             data = resp.json()
             return [m["id"] for m in data.get("data", [])]
+
+    async def list_embedding_models(self, conn: dict[str, Any]) -> list[str]:
+        # Anthropic has no embedding models (Claude is chat-only).
+        return []
 
     def _convert_messages(self, messages) -> tuple[str, list[dict[str, Any]]]:
         """Hoist system messages to a top-level string; convert the rest to
@@ -216,6 +263,28 @@ class OllamaAdapter:
             resp.raise_for_status()
             data = resp.json()
             return [m["name"] for m in data.get("models", [])]
+
+    async def list_embedding_models(self, conn: dict[str, Any]) -> list[str]:
+        """Embedding-only models for this connection.
+
+        Ollama's `/api/tags` includes each model's family under
+        `details.family`; every embedding model in the Ollama library is
+        BERT-derived (`bert`, `nomic-bert`, …) while chat models never are —
+        a more reliable signal than the model name. Falls back to the shared
+        name heuristic if `details` is missing (older Ollama versions).
+        """
+        url = f"{conn['base_url'].rstrip('/')}/api/tags"
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url, headers=self._headers(conn))
+            resp.raise_for_status()
+            data = resp.json()
+        result = []
+        for m in data.get("models", []):
+            name = m["name"]
+            family = (m.get("details") or {}).get("family", "").lower()
+            if "bert" in family or (not family and _looks_like_embedding_model(name)):
+                result.append(name)
+        return result
 
     def _convert_messages(self, messages) -> list[dict[str, Any]]:
         """Convert OpenAI-style messages to Ollama native (images as a base64
@@ -415,6 +484,28 @@ class LLMProvider:
         enabled = connections.enabled()
         results = await asyncio.gather(
             *(self.check_connection(c) for c in enabled), return_exceptions=True
+        )
+        health: dict[str, Any] = {}
+        for conn, res in zip(enabled, results):
+            if isinstance(res, Exception):
+                health[conn["id"]] = {"status": "offline", "error": str(res), "models": []}
+            else:
+                health[conn["id"]] = res
+        return health
+
+    async def check_embedding_connection(self, conn: dict[str, Any]) -> dict[str, Any]:
+        """Probe one connection's embedding-only model list. Never raises."""
+        try:
+            models = await _adapter_for(conn).list_embedding_models(conn)
+            return {"status": "online", "models": models}
+        except Exception as e:
+            return {"status": "offline", "error": str(e), "models": []}
+
+    async def check_embedding_health(self) -> dict[str, Any]:
+        """Probe all enabled connections for embedding models, in parallel."""
+        enabled = connections.enabled()
+        results = await asyncio.gather(
+            *(self.check_embedding_connection(c) for c in enabled), return_exceptions=True
         )
         health: dict[str, Any] = {}
         for conn, res in zip(enabled, results):
