@@ -84,20 +84,28 @@ export interface Frontend {
   status: string
   last_seen: string | null
   created_at: string
+  // Backend-surface credentials — the values themselves are write-only.
+  signing_enabled?: boolean
+  extra_header_names?: string[]
+}
+
+export interface FrontendCredentials {
+  signing_secret?: string
+  extra_headers?: Record<string, string>
 }
 
 export async function listFrontends(): Promise<{ frontends: Frontend[] }> {
   return request('/admin/frontends');
 }
 
-export async function registerFrontend(url: string, name: string = ''): Promise<{ frontend: Frontend }> {
+export async function registerFrontend(url: string, name: string = '', creds: FrontendCredentials = {}): Promise<{ frontend: Frontend }> {
   return request('/admin/frontends', {
     method: 'POST',
-    body: JSON.stringify({ url, name }),
+    body: JSON.stringify({ url, name, ...creds }),
   });
 }
 
-export async function updateFrontend(id: string, data: { enabled?: boolean; name?: string; url?: string }): Promise<{ frontend: Frontend }> {
+export async function updateFrontend(id: string, data: { enabled?: boolean; name?: string; url?: string } & FrontendCredentials): Promise<{ frontend: Frontend }> {
   return request(`/admin/frontends/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),

@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from pydantic import BaseModel
 
 from src.api.v1.admin.auth import require_admin
+from src.services import frontend_client
 from src.services.frontend_registry import registry
 
 logger = logging.getLogger("backend.admin.frontends")
@@ -19,17 +20,56 @@ router = APIRouter(prefix="/admin/frontends", tags=["admin-frontends"])
 class RegisterRequest(BaseModel):
     url: str
     name: str = ""
+    # Backend-surface credentials. URL = the frontend's backend port.
+    signing_secret: str = ""
+    extra_headers: dict[str, str] = {}
 
 
 class UpdateRequest(BaseModel):
     enabled: bool | None = None
     name: str | None = None
     url: str | None = None
+    # None = unchanged; "" = remove (back to legacy unsigned transition mode)
+    signing_secret: str | None = None
+    # None = unchanged; {} = remove. Values are write-only (never returned).
+    extra_headers: dict[str, str] | None = None
+
+
+MIN_SECRET_LENGTH = 32
+
+
+def _public_view(fe: dict | None) -> dict | None:
+    """Registry entry without secrets: the admin only sees whether they are set."""
+    if fe is None:
+        return None
+    out = {k: v for k, v in fe.items() if k not in ("signing_secret", "extra_headers")}
+    out["signing_enabled"] = bool(fe.get("signing_secret"))
+    out["extra_header_names"] = sorted((fe.get("extra_headers") or {}).keys())
+    return out
+
+
+def _check_secret(secret: str):
+    if secret and len(secret) < MIN_SECRET_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Signing secret must be at least {MIN_SECRET_LENGTH} characters")
+
+
+async def _probe(url: str, secret: str | None, extra_headers: dict[str, str] | None):
+    """Reachability + credential check against the frontend (GET config)."""
+    try:
+        async with frontend_client.ProbeClient(secret, extra_headers) as client:
+            resp = await client.get(f"{url}/internal/config")
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            raise HTTPException(status_code=400, detail=f"Frontend at {url} rejected the signature — check the signing secret and clock sync")
+        raise HTTPException(status_code=400, detail=f"Cannot reach frontend at {url}: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Cannot reach frontend at {url}: {str(e)}")
 
 
 @router.get("")
 async def list_frontends(_: dict = Depends(require_admin)):
-    return {"frontends": registry.list_all()}
+    return {"frontends": [_public_view(f) for f in registry.list_all()]}
 
 
 @router.post("")
@@ -37,28 +77,27 @@ async def register_frontend(req: RegisterRequest, _: dict = Depends(require_admi
     """Register a frontend by URL. Discovery stays URL-based (verify reachability
     via GET /internal/config); the frontend starts unconfigured (Sprint 21)."""
     url = req.url.rstrip("/")
+    secret = req.signing_secret.strip()
+    _check_secret(secret)
 
-    # Verify the frontend is reachable (URL-based detection, unchanged)
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{url}/internal/config")
-            resp.raise_for_status()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Cannot reach frontend at {url}: {str(e)}")
+    # Verify the frontend is reachable — and, with a secret, that it accepts our signature
+    await _probe(url, secret or None, req.extra_headers or None)
 
     frontend = registry.register(url, req.name)
+    if secret or req.extra_headers:
+        frontend = registry.update(frontend["id"], signing_secret=secret, extra_headers=req.extra_headers)
     registry.set_status(frontend["id"], "online")
 
     # New frontends default to the global prompt set (Sprint 32); decouple from
     # the Prompts panel to customise or enable modules.
-    return {"frontend": frontend}
+    return {"frontend": _public_view(frontend)}
 
 
 # --- Deleted / restore (Sprint 21 soft-delete) ---
 
 @router.get("/deleted")
 async def list_deleted_frontends(_: dict = Depends(require_admin)):
-    return {"frontends": registry.list_deleted()}
+    return {"frontends": [_public_view(f) for f in registry.list_deleted()]}
 
 
 @router.post("/{frontend_id}/restore")
@@ -66,7 +105,7 @@ async def restore_frontend(frontend_id: str, _: dict = Depends(require_admin)):
     frontend = registry.restore(frontend_id)
     if not frontend:
         raise HTTPException(status_code=404, detail="Deleted frontend not found")
-    return {"frontend": frontend}
+    return {"frontend": _public_view(frontend)}
 
 
 # --- Per-frontend config (Sprint 21 schema; panel is Sprint 22) ---
@@ -112,7 +151,7 @@ async def _push_config_to_sidecar(frontend_id: str):
         except Exception:
             pass
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with frontend_client.AsyncClient(timeout=10.0) as client:
             await client.post(f"{fe['url']}/internal/frontend-config", json=config)
             logger.info(f"Config pushed to {fe['url']}")
     except Exception as e:
@@ -137,7 +176,11 @@ async def update_frontend(
     if not registry.get(frontend_id):
         raise HTTPException(status_code=404, detail="Frontend not found")
 
+    current = registry.get(frontend_id)
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    if "signing_secret" in updates:
+        updates["signing_secret"] = updates["signing_secret"].strip()
+        _check_secret(updates["signing_secret"])
 
     if "url" in updates:
         url = updates["url"].rstrip("/")  # normalise like register()
@@ -147,19 +190,18 @@ async def update_frontend(
         for f in registry.list_all():
             if f["id"] != frontend_id and f["url"] == url:
                 raise HTTPException(status_code=409, detail=f"URL already registered to frontend {f['id']}")
-        # Verify reachability before saving (same pattern as register()). Any
-        # http(s) host is accepted — IP, hostname, .local, Tailscale MagicDNS;
-        # the reachability check decides, not the format.
-        if verify:
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get(f"{url}/internal/config")
-                    resp.raise_for_status()
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Cannot reach frontend at {url}: {str(e)}")
+
+    # Verify reachability (and the signature, if any) with the credentials that
+    # will be in effect after the update. Any http(s) host is accepted — IP,
+    # hostname, .local, Tailscale MagicDNS; the check decides, not the format.
+    if verify and ({"url", "signing_secret", "extra_headers"} & updates.keys()):
+        url = updates.get("url", current["url"])
+        secret = updates.get("signing_secret", current.get("signing_secret", ""))
+        headers = updates.get("extra_headers", current.get("extra_headers") or {})
+        await _probe(url, secret or None, headers or None)
 
     frontend = registry.update(frontend_id, **updates)
-    return {"frontend": frontend}
+    return {"frontend": _public_view(frontend)}
 
 
 @router.delete("/{frontend_id}")
@@ -296,7 +338,7 @@ async def _push_branding_to_sidecar(frontend_id: str):
     fe = registry.get(frontend_id)
     if fe and fe.get("enabled"):
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with frontend_client.AsyncClient(timeout=10.0) as client:
                 await client.post(f"{fe['url']}/internal/branding", json=payload)
                 logger.info(f"Branding pushed to {fe['url']}")
         except Exception as e:
@@ -483,7 +525,7 @@ async def _push_logo_to_sidecar(frontend_id: str):
         data["clear"] = "1"
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with frontend_client.AsyncClient(timeout=10.0) as client:
             await client.post(f"{fe['url']}/internal/branding-logo", data=data, files=files or None)
             logger.info(f"Logo pushed to {fe['url']} (mode={mode}, clear={'clear' in data})")
     except Exception as e:

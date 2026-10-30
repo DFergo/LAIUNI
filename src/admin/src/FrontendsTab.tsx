@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, retranslateBranding, uploadFrontendLogo, deleteFrontendLogo, fetchLogoVariant, listDeletedFrontends, restoreFrontend, exportGlobalConfig, importGlobalConfig, type Frontend, type BrandingConfig } from './api'
+import FrontendSecurityPanel, { CredentialFields, SigningBadge, parseHeaders } from './FrontendSecurityPanel'
 import FrontendConfigPanel from './FrontendConfigPanel'
 import { DEFAULT_DISCLAIMER_MD, DEFAULT_INSTRUCTIONS_MD } from './brandingDefaults'
 
@@ -7,6 +8,9 @@ export default function FrontendsTab() {
   const [frontends, setFrontends] = useState<Frontend[]>([])
   const [newUrl, setNewUrl] = useState('')
   const [newName, setNewName] = useState('')
+  const [newSecret, setNewSecret] = useState('')
+  const [newHeaders, setNewHeaders] = useState('')
+  const [securityOpen, setSecurityOpen] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -56,9 +60,14 @@ export default function FrontendsTab() {
     setError('')
     setLoading(true)
     try {
-      await registerFrontend(newUrl, newName)
+      await registerFrontend(newUrl, newName, {
+        signing_secret: newSecret.trim(),
+        extra_headers: parseHeaders(newHeaders),
+      })
       setNewUrl('')
       setNewName('')
+      setNewSecret('')
+      setNewHeaders('')
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed')
@@ -225,14 +234,15 @@ export default function FrontendsTab() {
       {/* Register form */}
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-4">Add Frontend</h3>
-        <form onSubmit={handleRegister} className="flex gap-3 items-end">
+        <form onSubmit={handleRegister} className="space-y-3">
+        <div className="flex gap-3 items-end">
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">URL</label>
             <input
               type="text"
               value={newUrl}
               onChange={e => setNewUrl(e.target.value)}
-              placeholder="http://10.210.66.103:8091"
+              placeholder="Backend-port URL, e.g. http://10.0.0.20:8081 or https://hrdd-fe1-backend.example.org"
               className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none text-sm"
               required
             />
@@ -254,6 +264,8 @@ export default function FrontendsTab() {
           >
             {loading ? '...' : 'Register'}
           </button>
+        </div>
+        <CredentialFields secret={newSecret} setSecret={setNewSecret} headers={newHeaders} setHeaders={setNewHeaders} />
         </form>
         {error && <p className="text-uni-red text-sm mt-2">{error}</p>}
       </div>
@@ -300,6 +312,7 @@ export default function FrontendsTab() {
                         <>
                           <div className="text-sm font-medium text-gray-800">
                             {f.name}
+                            <SigningBadge f={f} />
                             <button onClick={() => startEdit(f)} className="ml-2 text-xs text-gray-400 hover:text-uni-blue">edit</button>
                           </div>
                           <div className="text-xs text-gray-400">{f.url}</div>
@@ -308,6 +321,12 @@ export default function FrontendsTab() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSecurityOpen(securityOpen === f.id ? null : f.id)}
+                      className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium transition-colors"
+                    >
+                      {securityOpen === f.id ? 'Close Security' : 'Security'}
+                    </button>
                     <button
                       onClick={() => setConfigOpen(configOpen === f.id ? null : f.id)}
                       className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium transition-colors"
@@ -338,6 +357,9 @@ export default function FrontendsTab() {
                     </button>
                   </div>
                 </div>
+
+                {/* Backend-surface credentials */}
+                {securityOpen === f.id && <FrontendSecurityPanel f={f} onSaved={refresh} />}
 
                 {/* Per-frontend config panel */}
                 {configOpen === f.id && <FrontendConfigPanel frontendId={f.id} />}
