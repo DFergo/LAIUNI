@@ -7,6 +7,7 @@ import {
   getTranslationPrompt, updateTranslationPrompt,
   type LLMHealth, type LLMSettings, type LLMConnection, type ConnectionType, type Frontend,
 } from './api'
+import ModelCombobox from './ModelCombobox'
 
 type SlotKey = 'inference' | 'reporter' | 'summariser' | 'translation' | 'inference_fallback'
 
@@ -84,7 +85,7 @@ function SaveBar({
 }
 
 // ---------------------------------------------------------------------------
-// Reusable slot editor: connection → model (with manual entry) + optional params
+// Reusable slot editor: connection → model (searchable, free ID allowed) + optional params
 // ---------------------------------------------------------------------------
 
 function SlotConfig({
@@ -98,7 +99,6 @@ function SlotConfig({
   onSet: (key: keyof LLMSettings, val: string | number | null) => void
 }) {
   const isOverride = override !== undefined
-  const [manualModel, setManualModel] = useState(false)  // user forced manual model entry
   const connKey = `${slot}_connection` as keyof LLMSettings
   const modelKey = `${slot}_model` as keyof LLMSettings
   const tempKey = `${slot}_temperature` as keyof LLMSettings
@@ -115,10 +115,8 @@ function SlotConfig({
   const discovered = health?.connections?.[connId]?.models || []
   const models = allow.length ? allow : discovered
   const currentModel = (eff(modelKey) as string) || ''
-  const modelInList = models.includes(currentModel)
-  // Manual text entry: forced by the user, or unavoidable (no models discovered,
-  // or the current value isn't in the discovered list).
-  const useManual = models.length === 0 || manualModel || (currentModel !== '' && !modelInList)
+  // With an allow-list, the endpoint's other models stay selectable by exact ID
+  const extraModels = allow.length ? discovered.filter(m => !allow.includes(m)) : []
   const isAnthropic = conn?.type === 'anthropic'
   const isOllama = conn?.type === 'ollama'
 
@@ -180,31 +178,14 @@ function SlotConfig({
           <label className="block text-xs font-medium text-gray-600 mb-1">
             Model{resetLink(modelKey, String(settings[modelKey]))}
           </label>
-          {models.length > 0 && (
-            <select
-              value={modelInList && !useManual ? currentModel : '__manual__'}
-              onChange={e => {
-                if (e.target.value === '__manual__') setManualModel(true)
-                else { setManualModel(false); onSet(modelKey, e.target.value) }
-              }}
-              className={inputCls}
-            >
-              {models.map(m => <option key={m} value={m}>{m}</option>)}
-              <option value="__manual__">✏️ Enter manually…</option>
-            </select>
-          )}
-          {useManual && (
-            <input
-              type="text"
-              value={currentModel}
-              onChange={e => onSet(modelKey, e.target.value)}
-              placeholder="model ID"
-              className={`${inputCls} ${models.length > 0 ? 'mt-2' : ''}`}
-            />
-          )}
-          {models.length === 0 && (
-            <p className="text-xs text-gray-400 mt-1">No models discovered — enter the ID manually.</p>
-          )}
+          <ModelCombobox
+            key={connId}
+            value={currentModel}
+            models={models}
+            extra={extraModels}
+            onChange={id => onSet(modelKey, id)}
+            emptyHint="No models discovered on this connection — type the model ID."
+          />
         </div>
       </div>
       <div className={`grid ${isOllama ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
@@ -230,14 +211,11 @@ function EmbeddingSlotConfig({
   settings: LLMSettings
   onSet: (key: keyof LLMSettings, val: string | number | null) => void
 }) {
-  const [manualModel, setManualModel] = useState(false)
   const connId = settings.embedding_connection || ''
   // Anthropic has no embedding models — only offer connections that can have them.
   const eligible = connections.filter(c => c.type === 'openai' || c.type === 'ollama')
   const discovered = embeddingHealth?.connections?.[connId]?.models || []
   const currentModel = settings.embedding_model || ''
-  const modelInList = discovered.includes(currentModel)
-  const useManual = discovered.length === 0 || manualModel || (currentModel !== '' && !modelInList)
 
   return (
     <div className="grid grid-cols-2 gap-3">
@@ -248,7 +226,6 @@ function EmbeddingSlotConfig({
           onChange={e => {
             onSet('embedding_connection', e.target.value || null)
             onSet('embedding_model', null)
-            setManualModel(false)
           }}
           className={inputCls}
         >
@@ -269,33 +246,13 @@ function EmbeddingSlotConfig({
           <p className="text-xs text-gray-400 mt-2">Built-in all-MiniLM-L6-v2 (CPU, in-container).</p>
         )}
         {connId && (
-          <>
-            {discovered.length > 0 && (
-              <select
-                value={modelInList && !useManual ? currentModel : '__manual__'}
-                onChange={e => {
-                  if (e.target.value === '__manual__') setManualModel(true)
-                  else { setManualModel(false); onSet('embedding_model', e.target.value) }
-                }}
-                className={inputCls}
-              >
-                {discovered.map(m => <option key={m} value={m}>{m}</option>)}
-                <option value="__manual__">✏️ Enter manually…</option>
-              </select>
-            )}
-            {useManual && (
-              <input
-                type="text"
-                value={currentModel}
-                onChange={e => onSet('embedding_model', e.target.value)}
-                placeholder="model ID"
-                className={`${inputCls} ${discovered.length > 0 ? 'mt-2' : ''}`}
-              />
-            )}
-            {discovered.length === 0 && (
-              <p className="text-xs text-gray-400 mt-1">No embedding models discovered on this connection — enter the ID manually.</p>
-            )}
-          </>
+          <ModelCombobox
+            key={connId}
+            value={currentModel}
+            models={discovered}
+            onChange={id => onSet('embedding_model', id)}
+            emptyHint="No embedding models discovered on this connection — type the model ID."
+          />
         )}
       </div>
     </div>

@@ -1,5 +1,9 @@
 # HRDD Helper — Changelog
 
+## Maintenance — Searchable model field (Admin → LLM)
+
+- The model picker of every LLM slot and of the embeddings slot is now a **single search field** (`ModelCombobox.tsx`) instead of a dropdown with an "Enter manually" option plus a second text box. Typing filters the connection's model list (its allow-list when one is configured, otherwise everything the endpoint reports); with an allow-list, a model the endpoint offers outside it can still be picked by typing its exact ID; any other exact ID can be committed with "use exact ID", with a warning that the connection doesn't offer it. Keyboard: ↑/↓, Enter, Esc. The value is committed on pick/Enter/blur, never per keystroke.
+
 ## Sprint 35 — Flexible frontend deployment (pilot, branch `feat/flexible-deploy`)
 
 - **Two surfaces, two ports.** The frontend container now serves the SPA and browser routes on port `80` (unchanged `/internal/*`) and the backend-facing routes on port `8080` under `/backend/v1/*` (queue, uploads, config/branding/logo push, recovery data, auth results, response chunks). Separate FastAPI apps (`sidecar/main.py`: `app` / `backend_app`, run together by `sidecar/serve.py` so they share state) behind two Nginx listeners; neither listener proxies the other prefix (`/backend/` → 404 on the public port).
