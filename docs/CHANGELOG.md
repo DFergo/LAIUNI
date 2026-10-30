@@ -1,5 +1,11 @@
 # HRDD Helper — Changelog
 
+## Documentation — New installation guide
+
+- **`docs/INSTALL.md` rewritten** for the current architecture: published images, the two-port frontend, the T1/T2/T3 topologies (`deploy/`), access modes (installation secret, own secret, trusted network) and what each one gives up, the five LLM slots including embeddings and reindexing, Cloudflare Tunnel + Access, backups, secret rotation, troubleshooting, and a ports/variables appendix. Still-valid parts of the old guide (Portainer, Ollama concurrency/keep-alive/warm-up, slot fallbacks, admin notifications) are folded in. Corrections over earlier notes: the backend health check is `GET /health`; "Preparing..." means the message is waiting for the backend (plain HTTP works); backups copy the volume through the running container (Compose prefixes volume names).
+- **`README.md`** added, linking the guide, the deployment examples and the campaign guide.
+- **`deploy/t2-vps`**: Watchtower now sets `DOCKER_API_VERSION=1.44` — recent Docker Engines reject its default API version and it stopped at startup.
+
 ## Sprint 36 — Address-only frontend registration and access modes (branch `feat/simple-frontend-registration`)
 
 - **Installation secret.** New backend env var `HRDD_FRONTEND_SECRET` (≥ 32 chars): every frontend registered in **Signed** mode without its own secret signs with it. Give the same value to the frontends as `HRDD_BACKEND_SECRET` and registering a frontend needs only its backend-port URL. A per-frontend secret (Security panel) still overrides it.

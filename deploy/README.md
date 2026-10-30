@@ -1,5 +1,7 @@
 # Deployment topologies
 
+Reference for the example compose files in this folder. Step-by-step installation: [`docs/INSTALL.md`](../docs/INSTALL.md).
+
 The frontend container exposes two surfaces on two ports:
 
 | Container port | Surface | Who uses it | Expose it to |

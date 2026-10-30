@@ -54,6 +54,9 @@ services:
     image: containrrr/watchtower:latest
     restart: unless-stopped
     command: --cleanup --label-enable --schedule "0 0 4 * * *"
+    environment:
+      # Recent Docker Engines reject Watchtower's default API version (1.25)
+      - DOCKER_API_VERSION=1.44
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
