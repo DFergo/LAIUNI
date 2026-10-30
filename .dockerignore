@@ -1,0 +1,5 @@
+# Keep host build artefacts out of the image build context
+**/node_modules
+**/dist
+**/__pycache__
+.git
