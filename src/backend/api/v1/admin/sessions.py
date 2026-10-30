@@ -108,7 +108,13 @@ async def get_session(token: str, _: dict = Depends(require_admin)):
         "language": session.get("language", "en"),
         "created_at": session.get("created_at"),
         "last_activity": session.get("last_activity"),
+        "llm_usage": _llm_usage(token),
     }
+
+
+def _llm_usage(token: str) -> dict:
+    from src.services import llm_usage
+    return llm_usage.session_summary(token)
 
 
 @router.put("/{token}/flag")

@@ -64,6 +64,23 @@ def invalidate_branding_cache(frontend_id: str = ""):
         _branding_pushed.clear()
 
 
+_RAG_HEADER = "\n\n---\n[Reference excerpts retrieved automatically for this message — not written by the user]\n\n"
+
+
+def _append_to_last_user(messages: list[dict[str, Any]], text: str):
+    """Append ``text`` to the last user message (string or multimodal parts)."""
+    for msg in reversed(messages):
+        if msg["role"] != "user":
+            continue
+        content = msg["content"]
+        if isinstance(content, list):
+            msg["content"] = [*content, {"type": "text", "text": _RAG_HEADER.lstrip() + text}]
+        else:
+            msg["content"] = f"{content}{_RAG_HEADER}{text}"
+        return
+    messages.append({"role": "user", "content": text})
+
+
 async def _push_branding_if_needed(client: httpx.AsyncClient, url: str, fid: str):
     """Push branding config + translations to sidecar (once per session, or on change)."""
     if fid in _branding_pushed:
@@ -395,7 +412,11 @@ async def _safe_process(msg: dict[str, Any]):
             if unanalysed_images:
                 parts.append("\nImages uploaded (stored but not analyzed): " + ", ".join(e["filename"] for e in unanalysed_images))
             evidence_context = "\n".join(parts)
-            llm_messages.insert(-1, {"role": "system", "content": evidence_context})
+            # Right after the system prompt: it only changes when a file is
+            # uploaded, so the prefix (system + evidence + history) stays
+            # byte-identical between turns and providers can cache it.
+            pos = 1 if llm_messages and llm_messages[0]["role"] == "system" else 0
+            llm_messages.insert(pos, {"role": "system", "content": evidence_context})
 
         # Inject RAG context — retrieve relevant document chunks for this message
         rag_chunks = get_relevant_chunks(content, frontend_id=frontend_id)
@@ -420,8 +441,10 @@ async def _safe_process(msg: dict[str, Any]):
                 "Cite the source if you reference specific provisions.\n\n"
                 + "\n\n---\n\n".join(all_chunks)
             )
-            # Insert RAG context as a system message before the last user message
-            llm_messages.insert(-1, {"role": "system", "content": rag_context})
+            # Per-turn RAG goes at the tail (appended to this turn's user
+            # message, request only — not stored), never into the middle of the
+            # prompt, so everything before this turn stays a cacheable prefix.
+            _append_to_last_user(llm_messages, rag_context)
             logger.debug(f"Injected {len(all_chunks)} RAG chunks ({len(session_rag_chunks)} from evidence) for {session_token}")
 
         # Compress context if approaching limit (ADR-009)
@@ -441,7 +464,7 @@ async def _safe_process(msg: dict[str, Any]):
         from src.services.llm_provider import build_fallback_chain
         chain = build_fallback_chain(settings, "inference")
         if len(chain) > 1:
-            inference_stream = llm.stream_chat_with_fallback(llm_messages, chain)
+            inference_stream = llm.stream_chat_with_fallback(llm_messages, chain, session=session_token)
         else:
             inference_stream = llm.stream_chat(
                 messages=llm_messages,
@@ -450,6 +473,9 @@ async def _safe_process(msg: dict[str, Any]):
                 temperature=settings.get("inference_temperature"),
                 max_tokens=settings.get("inference_max_tokens"),
                 num_ctx=settings.get("inference_num_ctx"),
+                reasoning=settings.get("inference_reasoning"),
+                session=session_token,
+                slot="inference",
             )
         try:
             async for token in inference_stream:
@@ -578,6 +604,7 @@ async def _finalize_session(
             async for token in llm.stream_chat_with_fallback(
                 messages=llm_messages,
                 slot_configs=chain,
+                session=session_token,
             ):
                 raw_response += token
 
@@ -802,6 +829,7 @@ async def _generate_document(
     async for token in llm.stream_chat_with_fallback(
         messages=llm_messages,
         slot_configs=chain,
+        session=session_token,
     ):
         raw_response += token
 

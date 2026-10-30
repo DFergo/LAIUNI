@@ -84,10 +84,13 @@ def _get_inference_budget(settings: dict[str, Any]) -> dict[str, int]:
     then every `compression_step_size` tokens after that.
     Example: first=20000, step=15000 → compress at 20k, 35k, 50k, 65k...
     """
-    num_ctx = settings.get("inference_num_ctx", 32768)
-    max_tokens = settings.get("inference_max_tokens", 2048)
-    first_threshold = settings.get("compression_first_threshold", 20000)
-    step_size = settings.get("compression_step_size", 15000)
+    # Blank params are None (provider default) — never do arithmetic on them.
+    # num_ctx: the slot's value, else the window the provider declares for the
+    # model (cached by llm_provider, Sprint 37), else 32768.
+    num_ctx = settings.get("inference_num_ctx") or settings.get("_provider_context_length") or 32768
+    max_tokens = settings.get("inference_max_tokens") or 2048
+    first_threshold = settings.get("compression_first_threshold") or 20000
+    step_size = settings.get("compression_step_size") or 15000
 
     available = num_ctx - max_tokens
 
@@ -105,8 +108,8 @@ def _get_summariser_budget(settings: dict[str, Any]) -> int:
 
     = summariser context window - compression prompt - response margin
     """
-    summariser_ctx = settings.get("summariser_num_ctx", 8192)
-    summariser_max_tokens = settings.get("summariser_max_tokens", 1024)
+    summariser_ctx = settings.get("summariser_num_ctx") or 8192
+    summariser_max_tokens = settings.get("summariser_max_tokens") or 1024
     prompt_overhead = 600  # compression prompt ~500 tokens + formatting
     return summariser_ctx - summariser_max_tokens - prompt_overhead
 
@@ -124,32 +127,6 @@ def _get_current_threshold(session_token: str, settings: dict[str, Any]) -> int:
     if compression_count == 0:
         return budget["first_threshold"]
     return budget["first_threshold"] + (compression_count * budget["step_size"])
-
-
-def _needs_inference_compression(
-    messages: list[dict[str, str]],
-    settings: dict[str, Any],
-    session_token: str = "",
-) -> bool:
-    """Check if inference context needs compression (progressive thresholds)."""
-    if not settings.get("summariser_enabled", False):
-        return False
-
-    budget = _get_inference_budget(settings)
-    current_tokens = estimate_messages_tokens(messages)
-    threshold = _get_current_threshold(session_token, settings)
-
-    # Safety: never exceed the model's context window
-    hard_limit = budget["available"]
-    if threshold > hard_limit:
-        threshold = hard_limit
-
-    logger.info(
-        f"Inference context: {current_tokens} tokens, "
-        f"next compression at: {threshold:,} tokens"
-    )
-
-    return current_tokens > threshold
 
 
 def _needs_incremental_update(
@@ -197,6 +174,12 @@ async def compress_if_needed(
     """
     if not settings.get("summariser_enabled", False):
         return messages
+    if not settings.get("inference_num_ctx"):
+        from src.services.llm_provider import llm
+        provider_ctx = await llm.context_length(settings.get("inference_connection") or "",
+                                                settings.get("inference_model") or "")
+        if provider_ctx:
+            settings = {**settings, "_provider_context_length": provider_ctx}
 
     # Separate system messages from conversation
     system_messages = []
@@ -214,68 +197,72 @@ async def compress_if_needed(
     if session_token and _needs_incremental_update(session_token, conversation, settings):
         await _update_running_summary(session_token, conversation, settings)
 
-    # Phase 2: Check if inference needs compression NOW
-    if not _needs_inference_compression(messages, settings, session_token):
+    # Phase 2: decide what to send.
+    #
+    # Prompt-cache friendly (Sprint 37): a compression takes a *snapshot*
+    # ({summary, up_to}). Every following turn sends the same
+    #     system messages + frozen summary + conversation[up_to:]
+    # so the prefix stays byte-identical until the next compression, which
+    # happens at the next progressive threshold (measured on the full history)
+    # or if that view would no longer fit the model's context window. Background
+    # updates of the running summary never change the snapshot.
+    state = _session_summaries.setdefault(session_token, {}) if session_token else {}
+    budget = _get_inference_budget(settings)
+    hard_limit = budget["available"]
+    full_tokens = estimate_messages_tokens(messages)
+    threshold = min(_get_current_threshold(session_token, settings), hard_limit)
+    logger.info(f"Inference context: {full_tokens} tokens, next compression at: {threshold:,} tokens")
+
+    active = state.get("active")
+    need_new = full_tokens > threshold
+    if active and not need_new:
+        view = _build_view(system_messages, active, conversation)
+        if estimate_messages_tokens(view) <= hard_limit:
+            return view
+        need_new = True
+    if not need_new:
         return messages
 
-    # Get the running summary
-    session_state = _session_summaries.get(session_token, {})
-    summary = session_state.get("summary", "")
-
+    # New snapshot: bring the running summary up to everything but the most
+    # recent messages, then freeze it.
+    await _update_running_summary(session_token, conversation, settings)
+    summary = state.get("summary", "")
     if not summary:
-        # No running summary yet — create one now from old messages
-        to_compress = conversation[:-_DEFAULT_PRESERVE_RECENT]
-        if not to_compress:
-            return messages
-        summary = await _compress_messages(to_compress, None, settings)
-        if not summary:
-            logger.warning("Compression returned empty, keeping original messages")
-            return messages
-        _session_summaries[session_token] = {
-            "summary": summary,
-            "compressed_up_to": len(conversation) - _DEFAULT_PRESERVE_RECENT,
-            "compression_count": 1,
-        }
-        _persist_summary(session_token)
-
-    compressed_up_to = session_state.get("compressed_up_to", 0)
-    to_keep = conversation[compressed_up_to:]
-
-    # If to_keep is still too many messages, keep only the most recent
-    if len(to_keep) > _DEFAULT_PRESERVE_RECENT:
-        to_keep = conversation[-_DEFAULT_PRESERVE_RECENT:]
-
-    before_tokens = estimate_messages_tokens(messages)
-
-    # Rebuild: system + summary + recent messages
-    result = list(system_messages)
-    result.append({
-        "role": "system",
-        "content": (
-            "The following is a summary of the earlier part of this conversation. "
-            "All names, dates, facts, and case details are preserved exactly as discussed. "
-            "Continue the conversation naturally, referencing this context as needed.\n\n"
-            + summary
-        ),
-    })
-    result.extend(to_keep)
-
-    after_tokens = estimate_messages_tokens(result)
-
-    # Increment compression count for progressive thresholds
-    current_state = _session_summaries.get(session_token, {})
-    current_state["compression_count"] = current_state.get("compression_count", 0) + 1
-    _session_summaries[session_token] = current_state
+        logger.warning("Compression returned empty, keeping original messages")
+        return messages
+    up_to = min(state.get("compressed_up_to", 0), max(0, len(conversation) - _DEFAULT_PRESERVE_RECENT))
+    state["active"] = {"summary": summary, "up_to": up_to}
+    state["compression_count"] = state.get("compression_count", 0) + 1
     _persist_summary(session_token)
 
+    result = _build_view(system_messages, state["active"], conversation)
     logger.info(
-        f"Context compressed for {session_token}: "
-        f"{before_tokens} → {after_tokens} tokens "
-        f"({len(conversation)} msgs → summary + {len(to_keep)} recent) "
-        f"[compression #{current_state['compression_count']}]"
+        f"Context compressed for {session_token}: {full_tokens} → {estimate_messages_tokens(result)} tokens "
+        f"({len(conversation)} msgs → summary + {len(conversation) - up_to} recent) "
+        f"[compression #{state['compression_count']}]"
     )
-
     return result
+
+
+_SUMMARY_PREFIX = (
+    "The following is a summary of the earlier part of this conversation. "
+    "All names, dates, facts, and case details are preserved exactly as discussed. "
+    "Continue the conversation naturally, referencing this context as needed.\n\n"
+)
+
+
+def _build_view(
+    system_messages: list[dict[str, Any]],
+    active: dict[str, Any],
+    conversation: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """System messages + frozen summary + every message after the snapshot point."""
+    up_to = min(int(active.get("up_to", 0)), max(0, len(conversation) - 1))
+    return [
+        *system_messages,
+        {"role": "system", "content": _SUMMARY_PREFIX + active["summary"]},
+        *conversation[up_to:],
+    ]
 
 
 async def _update_running_summary(
@@ -320,7 +307,7 @@ async def _update_running_summary(
             msg_tokens = estimate_tokens(msg.get("content", "")) + 4
             if chunk_tokens + msg_tokens + previous_tokens > summariser_budget and chunk:
                 # Compress this chunk
-                summary = await _compress_messages(chunk, summary, settings)
+                summary = await _compress_messages(chunk, summary, settings, session_token)
                 if summary:
                     previous_tokens = estimate_tokens(summary)
                 chunk = []
@@ -330,10 +317,10 @@ async def _update_running_summary(
 
         # Compress remaining chunk
         if chunk:
-            summary = await _compress_messages(chunk, summary, settings)
+            summary = await _compress_messages(chunk, summary, settings, session_token)
     else:
         # Fits in one pass
-        summary = await _compress_messages(to_compress, previous_summary, settings)
+        summary = await _compress_messages(to_compress, previous_summary, settings, session_token)
 
     if summary:
         before_tokens = estimate_tokens(previous_summary) if previous_summary else 0
@@ -343,10 +330,10 @@ async def _update_running_summary(
             f"{len(to_compress)} new messages compressed, "
             f"summary {before_tokens} → {after_tokens} tokens"
         )
-        _session_summaries[session_token] = {
-            "summary": summary,
-            "compressed_up_to": new_compressed_up_to,
-        }
+        # update in place: keep compression_count and the active snapshot
+        _session_summaries.setdefault(session_token, {}).update(
+            summary=summary, compressed_up_to=new_compressed_up_to,
+        )
         _persist_summary(session_token)
 
 
@@ -354,6 +341,7 @@ async def _compress_messages(
     messages: list[dict[str, str]],
     previous_summary: str | None,
     settings: dict[str, Any],
+    session_token: str | None = None,
 ) -> str:
     """Call the LLM to compress messages into a summary.
 
@@ -393,7 +381,7 @@ async def _compress_messages(
     )
 
     try:
-        response = await llm.chat_with_fallback(llm_messages, chain)
+        response = await llm.chat_with_fallback(llm_messages, chain, session=session_token)
 
         # Strip <think> blocks if present (Qwen3)
         if "<think>" in response:

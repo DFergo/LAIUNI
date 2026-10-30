@@ -79,7 +79,7 @@ def _extract_text(file_path: Path) -> str | None:
     return None
 
 
-async def summarise_document(text: str, filename: str, settings: dict[str, Any]) -> str:
+async def summarise_document(text: str, filename: str, settings: dict[str, Any], session: str | None = None) -> str:
     """Generate a concise summary of a document using the summariser LLM.
 
     Sprint 17: uses fallback cascade (summariser → reporter → inference).
@@ -111,6 +111,7 @@ async def summarise_document(text: str, filename: str, settings: dict[str, Any])
     async for token in llm.stream_chat_with_fallback(
         messages=messages,
         slot_configs=chain,
+        session=session,
     ):
         response += token
         if "<think>" in response and not in_think:
@@ -134,6 +135,7 @@ async def describe_image(
     filename: str,
     mime_type: str,
     settings: dict[str, Any],
+    session: str | None = None,
 ) -> str:
     """Describe an image using the inference LLM (vision-capable model required).
 
@@ -183,6 +185,9 @@ async def describe_image(
         temperature=settings.get("inference_temperature"),
         max_tokens=settings.get("inference_max_tokens"),
         num_ctx=settings.get("inference_num_ctx"),
+        reasoning=settings.get("inference_reasoning"),
+        session=session,
+        slot="inference",
     ):
         response += token
         if "<think>" in response and not in_think:
@@ -326,7 +331,7 @@ async def process_upload(
         if settings.get("multimodal_enabled"):
             mime_type = _IMAGE_MIME.get(ext, "image/jpeg")
             try:
-                summary = await describe_image(file_bytes, filename, mime_type, settings)
+                summary = await describe_image(file_bytes, filename, mime_type, settings, session=token)
                 # Persist the description alongside the image and index it for session RAG
                 summary_path = evidence_dir / f"{filename}.summary.md"
                 summary_path.write_text(summary)
@@ -359,7 +364,7 @@ async def process_upload(
     # but is NOT added to RAG or evidence_context, so it does not influence the
     # model until a successful re-upload overwrites it.
     try:
-        summary = await summarise_document(text, filename, settings)
+        summary = await summarise_document(text, filename, settings, session=token)
     except Exception as e:
         logger.error(f"Summarisation failed for {filename} ({token}): {e}")
         raise

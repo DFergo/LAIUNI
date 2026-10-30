@@ -30,6 +30,7 @@ from typing import Any, AsyncIterator
 
 import httpx
 
+from src.services import llm_capabilities as caps
 from src.services.connection_registry import connections
 
 logger = logging.getLogger("backend.llm")
@@ -98,6 +99,18 @@ def _content_text(content: Any) -> str:
     return "".join(parts)
 
 
+def _openai_usage(u: dict[str, Any]) -> dict[str, int]:
+    """Normalise an OpenAI-style ``usage`` object (Mistral, OpenRouter, OpenAI, vLLM)."""
+    details = u.get("prompt_tokens_details") or {}
+    comp = u.get("completion_tokens_details") or {}
+    return {
+        "prompt_tokens": int(u.get("prompt_tokens") or 0),
+        "cached_tokens": int(details.get("cached_tokens") or 0),
+        "completion_tokens": int(u.get("completion_tokens") or 0),
+        "reasoning_tokens": int(comp.get("reasoning_tokens") or 0),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Embedding-model detection (used to filter the embedding slot's dropdown)
 # ---------------------------------------------------------------------------
@@ -164,34 +177,61 @@ class OpenAIAdapter:
             return [m for m in models if _looks_like_embedding_model(m)]
 
     async def stream(
-        self, conn, model, messages, temperature, max_tokens, num_ctx
+        self, conn, model, messages, temperature, max_tokens, num_ctx,
+        reasoning=None, cache_key=None, usage=None,
     ) -> AsyncIterator[str]:
+        # num_ctx is not a request field here (only the compression budget).
         body: dict[str, Any] = {"model": model, "messages": messages, "stream": True}
-        if temperature is not None:
-            body["temperature"] = temperature
-        if max_tokens is not None:
-            body["max_tokens"] = max_tokens
+        body.update(caps.openai_body_extras(conn, model, temperature, max_tokens, reasoning, cache_key))
         url = f"{conn['base_url'].rstrip('/')}/chat/completions"
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-            async with client.stream("POST", url, json=body, headers=self._headers(conn)) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    payload = line[6:]
-                    if payload.strip() == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(payload)
-                        choices = chunk.get("choices") or [{}]
-                        token = _content_text((choices[0].get("delta") or {}).get("content"))
-                    except (ValueError, KeyError, IndexError, AttributeError):
-                        continue
-                    if token:
-                        yield token
+            for attempt in (1, 2):
+                async with client.stream("POST", url, json=body, headers=self._headers(conn)) as resp:
+                    if resp.status_code in (400, 422) and attempt == 1:
+                        text = (await resp.aread()).decode(errors="replace")
+                        dropped = caps.rejected_optional_fields(text, body)
+                        if dropped:
+                            logger.warning(f"{conn.get('id')}/{model} rejected {dropped}; retrying without them")
+                            for f in dropped:
+                                body.pop(f, None)
+                            continue
+                        raise httpx.HTTPStatusError(f"{resp.status_code} from {url}: {text[:300]}",
+                                                    request=resp.request, response=resp)
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        payload = line[6:]
+                        if payload.strip() == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(payload)
+                            if usage is not None and chunk.get("usage"):
+                                usage.update(_openai_usage(chunk["usage"]))
+                            choices = chunk.get("choices") or [{}]
+                            token = _content_text((choices[0].get("delta") or {}).get("content"))
+                        except (ValueError, KeyError, IndexError, AttributeError):
+                            continue
+                        if token:
+                            yield token
+                    return
 
     async def warmup(self, conn, model):
         return  # no-op — only ollama benefits from warmup
+
+    async def model_info(self, conn, model) -> dict[str, Any]:
+        """Metadata the provider declares for a model: context window (OpenRouter
+        ``context_length``, Mistral/LM Studio ``max_context_length``) and, on
+        OpenRouter, ``supported_parameters``."""
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{conn['base_url'].rstrip('/')}/models", headers=self._headers(conn))
+            resp.raise_for_status()
+            for m in resp.json().get("data", []):
+                if m.get("id") == model:
+                    val = m.get("context_length") or m.get("max_context_length")
+                    return {"context_length": int(val) if val else None,
+                            "supported_parameters": m.get("supported_parameters")}
+        return {}
 
 
 class AnthropicAdapter:
@@ -218,7 +258,8 @@ class AnthropicAdapter:
 
     def _convert_messages(self, messages) -> tuple[str, list[dict[str, Any]]]:
         """Hoist system messages to a top-level string; convert the rest to
-        Anthropic content blocks."""
+        Anthropic content blocks (always a block list, so cache_control can be
+        attached)."""
         system_parts: list[str] = []
         converted: list[dict[str, Any]] = []
         for msg in messages:
@@ -239,11 +280,12 @@ class AnthropicAdapter:
                         "data": img["data"],
                     },
                 })
-            converted.append({"role": msg["role"], "content": blocks or text})
+            converted.append({"role": msg["role"], "content": blocks or [{"type": "text", "text": text}]})
         return "\n\n".join(p for p in system_parts if p), converted
 
     async def stream(
-        self, conn, model, messages, temperature, max_tokens, num_ctx
+        self, conn, model, messages, temperature, max_tokens, num_ctx,
+        reasoning=None, cache_key=None, usage=None,
     ) -> AsyncIterator[str]:
         system, msgs = self._convert_messages(messages)
         body: dict[str, Any] = {
@@ -253,10 +295,19 @@ class AnthropicAdapter:
             # max_tokens is required by the API — force-fill when blank (decision 3)
             "max_tokens": max_tokens if max_tokens is not None else _ANTHROPIC_DEFAULT_MAX_TOKENS,
         }
+        # Prompt caching: breakpoints on the system prompt and on the
+        # last-but-one message, so the stable prefix is cached turn after turn.
         if system:
-            body["system"] = system
-        if temperature is not None:
-            body["temperature"] = temperature
+            body["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+        if len(msgs) >= 2 and msgs[-2]["content"]:
+            msgs[-2]["content"][-1]["cache_control"] = {"type": "ephemeral"}
+        extras, _ = caps.reasoning_mapping("anthropic", model, reasoning)
+        if extras:
+            body.update(extras)
+            budget = extras["thinking"]["budget_tokens"]
+            body["max_tokens"] = max(body["max_tokens"], budget + 1024)
+        elif temperature is not None:
+            body["temperature"] = temperature  # not allowed together with thinking
         url = f"{conn['base_url'].rstrip('/')}/v1/messages"
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
             async with client.stream("POST", url, json=body, headers=self._headers(conn)) as resp:
@@ -268,15 +319,32 @@ class AnthropicAdapter:
                         event = json.loads(line[6:])
                     except ValueError:
                         continue
-                    if event.get("type") == "content_block_delta":
+                    etype = event.get("type")
+                    if etype == "content_block_delta":
                         delta = event.get("delta", {})
                         if delta.get("type") == "text_delta" and delta.get("text"):
                             yield delta["text"]
-                    elif event.get("type") == "message_stop":
+                    elif etype == "message_start" and usage is not None:
+                        u = (event.get("message") or {}).get("usage") or {}
+                        cached = int(u.get("cache_read_input_tokens") or 0)
+                        usage.update({
+                            # Anthropic reports uncached input separately; prompt = all input
+                            "prompt_tokens": int(u.get("input_tokens") or 0) + cached
+                                             + int(u.get("cache_creation_input_tokens") or 0),
+                            "cached_tokens": cached,
+                        })
+                    elif etype == "message_delta" and usage is not None:
+                        out = (event.get("usage") or {}).get("output_tokens")
+                        if out is not None:
+                            usage["completion_tokens"] = int(out)
+                    elif etype == "message_stop":
                         break
 
     async def warmup(self, conn, model):
         return
+
+    async def model_info(self, conn, model) -> dict[str, Any]:
+        return {}  # context window not exposed by the Anthropic models API
 
 
 class OllamaAdapter:
@@ -331,7 +399,8 @@ class OllamaAdapter:
         return out
 
     async def stream(
-        self, conn, model, messages, temperature, max_tokens, num_ctx
+        self, conn, model, messages, temperature, max_tokens, num_ctx,
+        reasoning=None, cache_key=None, usage=None,
     ) -> AsyncIterator[str]:
         options: dict[str, Any] = {}
         if num_ctx is not None:
@@ -347,6 +416,7 @@ class OllamaAdapter:
         }
         if options:
             body["options"] = options
+        body.update(caps.reasoning_mapping("ollama", model, reasoning)[0])
         url = f"{conn['base_url'].rstrip('/')}/api/chat"
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
             async with client.stream("POST", url, json=body, headers=self._headers(conn)) as resp:
@@ -362,7 +432,25 @@ class OllamaAdapter:
                     if token:
                         yield token
                     if chunk.get("done"):
+                        if usage is not None:
+                            # Ollama reports no cache figure; prompt_eval_count
+                            # only counts the tokens it had to evaluate.
+                            usage.update({
+                                "prompt_tokens": int(chunk.get("prompt_eval_count") or 0),
+                                "completion_tokens": int(chunk.get("eval_count") or 0),
+                            })
                         break
+
+    async def model_info(self, conn, model) -> dict[str, Any]:
+        """Trained context length from /api/show (``<arch>.context_length``)."""
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(f"{conn['base_url'].rstrip('/')}/api/show",
+                                     json={"model": model}, headers=self._headers(conn))
+            resp.raise_for_status()
+            for key, val in (resp.json().get("model_info") or {}).items():
+                if key.endswith(".context_length") and val:
+                    return {"context_length": int(val)}
+        return {}
 
     async def warmup(self, conn, model):
         """Pre-load an Ollama model into VRAM with a minimal request."""
@@ -383,6 +471,15 @@ _ADAPTERS: dict[str, Any] = {
     "anthropic": AnthropicAdapter(),
     "ollama": OllamaAdapter(),
 }
+
+
+def _cache_key(session: str | None) -> str | None:
+    """Provider prompt-cache key for a session: a hash, never the session token
+    (the token is a recovery credential and must not leave the backend)."""
+    if not session:
+        return None
+    import hashlib
+    return hashlib.sha256(f"hrdd-cache:{session}".encode()).hexdigest()[:32]
 
 
 def _adapter_for(conn: dict[str, Any]):
@@ -414,6 +511,7 @@ def slot_settings(settings: dict[str, Any], slot: str) -> dict[str, Any]:
         "temperature": settings.get(f"{slot}_temperature"),
         "max_tokens": settings.get(f"{slot}_max_tokens"),
         "num_ctx": settings.get(f"{slot}_num_ctx"),
+        "reasoning": settings.get(f"{slot}_reasoning"),
         "_slot_name": slot,
     }
 
@@ -461,6 +559,7 @@ class LLMProvider:
 
     def __init__(self):
         self._slot_failures: dict[str, list[float]] = {}
+        self._model_info: dict[str, dict[str, Any]] = {}
         # Track which fallback was last used, for email notifications
         self.last_fallback_event: dict[str, Any] | None = None
 
@@ -557,11 +656,16 @@ class LLMProvider:
         temperature: float | None = None,
         max_tokens: int | None = None,
         num_ctx: int | None = None,
+        reasoning: str | None = None,
+        session: str | None = None,
+        slot: str = "inference",
     ) -> AsyncIterator[str]:
         """Stream chat completion tokens from a specific (connection, model).
 
         Resolves the connection record from the registry and delegates to its
         protocol adapter. Parameters are optional — omitted when ``None``.
+        ``session``/``slot`` attribute the token and cache usage (llm_usage) and
+        derive the provider cache key (a hash, never the session token itself).
         """
         conn = connections.get(connection_id) if connection_id else None
         if conn is None:
@@ -575,11 +679,16 @@ class LLMProvider:
         logger.info(f"Using connection {connection_id} ({conn['type']}) model {model}")
 
         tokens_yielded = 0
+        usage: dict[str, int] = {}
         async for token in _adapter_for(conn).stream(
-            conn, model, messages, temperature, max_tokens, num_ctx
+            conn, model, messages, temperature, max_tokens, num_ctx,
+            reasoning=reasoning, cache_key=_cache_key(session), usage=usage,
         ):
             tokens_yielded += 1
             yield token
+
+        from src.services import llm_usage
+        llm_usage.record(session, slot, connection_id, model, usage)
 
         if tokens_yielded == 0:
             logger.warning(
@@ -595,15 +704,37 @@ class LLMProvider:
         temperature: float | None = None,
         max_tokens: int | None = None,
         num_ctx: int | None = None,
+        reasoning: str | None = None,
+        session: str | None = None,
+        slot: str = "inference",
     ) -> str:
         """Non-streaming chat completion. Returns full response."""
         full_response = ""
         async for token in self.stream_chat(
             messages, connection_id=connection_id, model=model,
             temperature=temperature, max_tokens=max_tokens, num_ctx=num_ctx,
+            reasoning=reasoning, session=session, slot=slot,
         ):
             full_response += token
         return full_response
+
+    async def model_info(self, connection_id: str, model: str) -> dict[str, Any]:
+        """Provider-declared model metadata ({context_length, supported_parameters}).
+        Never raises; cached per (connection, model) for the process lifetime."""
+        conn = connections.get(connection_id)
+        if conn is None or not model:
+            return {}
+        key = f"{connection_id}:{model}"
+        if key not in self._model_info:
+            try:
+                self._model_info[key] = await _adapter_for(conn).model_info(conn, model)
+            except Exception as e:
+                logger.debug(f"model_info({connection_id}, {model}) unavailable: {e}")
+                self._model_info[key] = {}
+        return self._model_info[key]
+
+    async def context_length(self, connection_id: str, model: str) -> int | None:
+        return (await self.model_info(connection_id, model)).get("context_length")
 
     async def warmup(self, connection_id: str, model: str):
         """Warm up a model on its connection (ollama only does real work)."""
@@ -618,6 +749,7 @@ class LLMProvider:
         self,
         messages: list[dict[str, Any]],
         slot_configs: list[dict[str, Any]],
+        session: str | None = None,
     ) -> AsyncIterator[str]:
         """Stream tokens, trying each slot config in order until one succeeds.
 
@@ -645,6 +777,9 @@ class LLMProvider:
                     temperature=cfg.get("temperature"),
                     max_tokens=cfg.get("max_tokens"),
                     num_ctx=cfg.get("num_ctx"),
+                    reasoning=cfg.get("reasoning"),
+                    session=session,
+                    slot=slot_name,
                 ):
                     tokens_yielded += 1
                     yield token
@@ -728,10 +863,11 @@ class LLMProvider:
         self,
         messages: list[dict[str, Any]],
         slot_configs: list[dict[str, Any]],
+        session: str | None = None,
     ) -> str:
         """Non-streaming chat with fallback cascade. Returns full response."""
         full_response = ""
-        async for token in self.stream_chat_with_fallback(messages, slot_configs):
+        async for token in self.stream_chat_with_fallback(messages, slot_configs, session=session):
             full_response += token
         return full_response
 

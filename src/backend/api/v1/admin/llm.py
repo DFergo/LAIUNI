@@ -40,11 +40,13 @@ _DEFAULTS: dict[str, Any] = {
     "inference_temperature": None,
     "inference_max_tokens": None,
     "inference_num_ctx": None,
+    "inference_reasoning": None,  # None = provider default; off|low|medium|high
     "reporter_connection": "lmstudio-default",
     "reporter_model": config.lm_studio_model,
     "reporter_temperature": None,
     "reporter_max_tokens": None,
     "reporter_num_ctx": None,
+    "reporter_reasoning": None,  # None = provider default; off|low|medium|high
     "use_reporter_for_user_summary": False,
     "multimodal_enabled": False,
     "summariser_enabled": False,
@@ -53,11 +55,13 @@ _DEFAULTS: dict[str, Any] = {
     "summariser_temperature": None,
     "summariser_max_tokens": None,
     "summariser_num_ctx": None,
+    "summariser_reasoning": None,  # None = provider default; off|low|medium|high
     "translation_connection": "lmstudio-default",
     "translation_model": config.lm_studio_model,
     "translation_temperature": None,
     "translation_max_tokens": None,
     "translation_num_ctx": None,
+    "translation_reasoning": None,  # None = provider default; off|low|medium|high
     "translation_glossary_enabled": False,
     # Embedding slot (RAG). None → local sentence-transformers fallback (CPU,
     # baked into the image, unchanged default behaviour). Set both to route
@@ -78,6 +82,7 @@ _DEFAULTS: dict[str, Any] = {
     "inference_fallback_temperature": None,
     "inference_fallback_max_tokens": None,
     "inference_fallback_num_ctx": None,
+    "inference_fallback_reasoning": None,  # None = provider default; off|low|medium|high
 }
 
 
@@ -200,17 +205,28 @@ def _has_ollama_slot(settings: dict[str, Any]) -> bool:
     return False
 
 
+def _check_reasoning(updates: dict[str, Any]):
+    from src.services.llm_capabilities import REASONING_LEVELS
+    for key, val in updates.items():
+        if key.endswith("_reasoning") and val not in (None, "", *REASONING_LEVELS):
+            raise HTTPException(status_code=400, detail=f"{key} must be one of: default, {', '.join(REASONING_LEVELS)}")
+        if key.endswith("_reasoning") and val == "":
+            updates[key] = None
+
+
 class LLMSettingsRequest(BaseModel):
     inference_connection: str | None = None
     inference_model: str | None = None
     inference_temperature: float | None = None
     inference_max_tokens: int | None = None
     inference_num_ctx: int | None = None
+    inference_reasoning: str | None = None
     reporter_connection: str | None = None
     reporter_model: str | None = None
     reporter_temperature: float | None = None
     reporter_max_tokens: int | None = None
     reporter_num_ctx: int | None = None
+    reporter_reasoning: str | None = None
     use_reporter_for_user_summary: bool | None = None
     multimodal_enabled: bool | None = None
     summariser_enabled: bool | None = None
@@ -219,11 +235,13 @@ class LLMSettingsRequest(BaseModel):
     summariser_temperature: float | None = None
     summariser_max_tokens: int | None = None
     summariser_num_ctx: int | None = None
+    summariser_reasoning: str | None = None
     translation_connection: str | None = None
     translation_model: str | None = None
     translation_temperature: float | None = None
     translation_max_tokens: int | None = None
     translation_num_ctx: int | None = None
+    translation_reasoning: str | None = None
     translation_glossary_enabled: bool | None = None
     embedding_connection: str | None = None
     embedding_model: str | None = None
@@ -238,6 +256,7 @@ class LLMSettingsRequest(BaseModel):
     inference_fallback_temperature: float | None = None
     inference_fallback_max_tokens: int | None = None
     inference_fallback_num_ctx: int | None = None
+    inference_fallback_reasoning: str | None = None
 
 
 class ConnectionRequest(BaseModel):
@@ -248,6 +267,9 @@ class ConnectionRequest(BaseModel):
     prefix_id: str | None = None
     model_ids: list[str] | None = None
     enable: bool | None = None
+    provider: str | None = None          # "" = infer from base_url
+    prompt_cache_key: bool | None = None
+    routing: dict[str, Any] | None = None
 
 
 # --- Connections registry ---
@@ -350,6 +372,7 @@ async def update_settings(req: LLMSettingsRequest, _: dict = Depends(require_adm
     """
     current = _load_settings()
     updates = req.model_dump(exclude_unset=True)
+    _check_reasoning(updates)
     current.update(updates)
     _save_settings(current)
     logger.info(f"LLM settings updated: {list(updates.keys())}")
@@ -358,6 +381,44 @@ async def update_settings(req: LLMSettingsRequest, _: dict = Depends(require_adm
         asyncio.create_task(_warmup_ollama_slots(current))
 
     return current
+
+
+class CapabilitiesRequest(BaseModel):
+    connection: str
+    model: str = ""
+    temperature: float | None = None
+    max_tokens: int | None = None
+    num_ctx: int | None = None
+    reasoning: str | None = None
+
+
+@router.post("/capabilities")
+async def slot_capabilities(req: CapabilitiesRequest, _: dict = Depends(require_admin)):
+    """Which of a slot's controls are sent, renamed or ignored on this
+    connection + model (Sprint 37) — so the admin never shows a silent no-op.
+    Takes the values being edited (not only the saved ones)."""
+    from src.services import llm_capabilities
+    conn = connections.get(req.connection)
+    if not conn:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    info = await llm.model_info(req.connection, req.model) if req.model else {}
+    out = llm_capabilities.describe(conn, req.model, req.model_dump(), info.get("supported_parameters"))
+    out["context_length"] = info.get("context_length")
+    return out
+
+
+@router.get("/usage")
+async def llm_usage_summary(_: dict = Depends(require_admin)):
+    """Token and prompt-cache usage per slot/connection/model since the last reset."""
+    from src.services import llm_usage
+    return {"rows": llm_usage.global_summary()}
+
+
+@router.post("/usage/reset")
+async def llm_usage_reset(_: dict = Depends(require_admin)):
+    from src.services import llm_usage
+    llm_usage.reset_global()
+    return {"rows": []}
 
 
 @router.post("/embedding/reindex")

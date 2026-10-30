@@ -5,7 +5,9 @@ import {
   listConnections, addConnection, updateConnection, deleteConnection, getConnectionModels,
   getEmbeddingHealth, reindexEmbedding,
   getTranslationPrompt, updateTranslationPrompt,
+  getSlotCapabilities, getLLMUsage, resetLLMUsage,
   type LLMHealth, type LLMSettings, type LLMConnection, type ConnectionType, type Frontend,
+  type SlotCapabilities, type ControlStatus, type ReasoningLevel, type LLMUsageRow,
 } from './api'
 import ModelCombobox from './ModelCombobox'
 
@@ -23,21 +25,24 @@ const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm foc
 // independently of every other card.
 const INFERENCE_KEYS: (keyof LLMSettings)[] = [
   'inference_connection', 'inference_model', 'inference_temperature', 'inference_max_tokens', 'inference_num_ctx',
+  'inference_reasoning',
   'multimodal_enabled', 'max_concurrent_sessions',
   'inference_fallback_enabled', 'inference_fallback_connection', 'inference_fallback_model',
   'inference_fallback_temperature', 'inference_fallback_max_tokens', 'inference_fallback_num_ctx',
+  'inference_fallback_reasoning',
 ]
 const REPORTER_KEYS: (keyof LLMSettings)[] = [
   'reporter_connection', 'reporter_model', 'reporter_temperature', 'reporter_max_tokens', 'reporter_num_ctx',
+  'reporter_reasoning',
   'use_reporter_for_user_summary',
 ]
 const COMPRESSION_KEYS: (keyof LLMSettings)[] = [
   'summariser_enabled', 'summariser_connection', 'summariser_model', 'summariser_temperature',
-  'summariser_max_tokens', 'summariser_num_ctx', 'compression_first_threshold', 'compression_step_size',
+  'summariser_max_tokens', 'summariser_num_ctx', 'summariser_reasoning', 'compression_first_threshold', 'compression_step_size',
 ]
 const TRANSLATION_KEYS: (keyof LLMSettings)[] = [
   'translation_connection', 'translation_model', 'translation_temperature', 'translation_max_tokens',
-  'translation_num_ctx', 'translation_glossary_enabled',
+  'translation_num_ctx', 'translation_reasoning', 'translation_glossary_enabled',
 ]
 const EMBEDDING_KEYS: (keyof LLMSettings)[] = ['embedding_connection', 'embedding_model']
 
@@ -104,6 +109,7 @@ function SlotConfig({
   const tempKey = `${slot}_temperature` as keyof LLMSettings
   const maxKey = `${slot}_max_tokens` as keyof LLMSettings
   const ctxKey = `${slot}_num_ctx` as keyof LLMSettings
+  const reasonKey = `${slot}_reasoning` as keyof LLMSettings
 
   const eff = (key: keyof LLMSettings): unknown =>
     isOverride ? (override![key] ?? settings[key]) : settings[key]
@@ -120,6 +126,28 @@ function SlotConfig({
   const isAnthropic = conn?.type === 'anthropic'
   const isOllama = conn?.type === 'ollama'
 
+  // Sprint 37: ask the backend which controls apply to this connection + model,
+  // with the values being edited, so no setting is a silent no-op.
+  const [caps, setCaps] = useState<SlotCapabilities | null>(null)
+  const capsInput = JSON.stringify({
+    connection: connId, model: currentModel,
+    temperature: (eff(tempKey) as number | null) ?? null, max_tokens: (eff(maxKey) as number | null) ?? null,
+    num_ctx: (eff(ctxKey) as number | null) ?? null, reasoning: (eff(reasonKey) as ReasoningLevel | null) ?? null,
+  })
+  useEffect(() => {
+    if (!connId) { setCaps(null); return }
+    const t = setTimeout(() => {
+      getSlotCapabilities(JSON.parse(capsInput)).then(setCaps).catch(() => setCaps(null))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [capsInput, connId])
+
+  const statusLine = (st?: ControlStatus) => {
+    if (!st || (st.status === 'sent' && !st.note) || st.status === 'not sent (default)') return null
+    const color = st.status === 'ignored' ? 'text-amber-600' : 'text-gray-500'
+    return <p className={`text-xs mt-1 ${color}`}>{st.status === 'ignored' ? 'Ignored: ' : ''}{st.note}</p>
+  }
+
   const resetLink = (key: keyof LLMSettings, globalLabel: string) =>
     isOverride ? (
       has(key)
@@ -127,7 +155,7 @@ function SlotConfig({
         : <span className="ml-2 text-xs text-gray-400">(global: {globalLabel})</span>
     ) : null
 
-  const numField = (key: keyof LLMSettings, label: string, help: string) => {
+  const numField = (key: keyof LLMSettings, label: string, help: string, status?: ControlStatus, placeholder?: string) => {
     const raw = isOverride ? override![key] : settings[key]
     const globalVal = settings[key]
     return (
@@ -139,11 +167,12 @@ function SlotConfig({
         <input
           type="number"
           value={raw == null ? '' : (raw as number)}
-          placeholder={isOverride ? String(globalVal ?? 'default') : 'provider default'}
+          placeholder={isOverride ? String(globalVal ?? 'default') : (placeholder ?? 'provider default')}
           onChange={e => onSet(key, e.target.value === '' ? null : Number(e.target.value))}
           className={inputCls}
         />
         <p className="text-xs text-gray-400 mt-1">{help}</p>
+        {statusLine(status)}
       </div>
     )
   }
@@ -188,10 +217,39 @@ function SlotConfig({
           />
         </div>
       </div>
-      <div className={`grid ${isOllama ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
-        {numField(tempKey, 'Temperature', '0 = deterministic, ~0.7 = balanced, >1 = creative.')}
-        {numField(maxKey, 'Max Tokens', maxTokensHelp)}
-        {isOllama && numField(ctxKey, 'Context Window (num_ctx)', 'Ollama only. Blank = model default.')}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {numField(tempKey, 'Temperature', '0 = deterministic, ~0.7 = balanced, >1 = creative.', caps?.controls.temperature)}
+        {numField(maxKey, 'Max Tokens', maxTokensHelp, caps?.controls.max_tokens)}
+        {numField(
+          ctxKey,
+          isOllama ? 'Context Window (num_ctx)' : 'Context window (for compression)',
+          isOllama
+            ? 'Sent to Ollama. Blank = model default.'
+            : 'Not sent to the provider: only the budget for context compression. Blank = what the provider declares.',
+          undefined,
+          caps?.context_length ? `provider: ${caps.context_length.toLocaleString()}` : undefined,
+        )}
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Reasoning{resetLink(reasonKey, String(settings[reasonKey] ?? 'default'))}
+          </label>
+          <select
+            value={(eff(reasonKey) as string | null) ?? ''}
+            onChange={e => onSet(reasonKey, e.target.value || null)}
+            className={inputCls}
+          >
+            <option value="">Provider default</option>
+            {(['off', 'low', 'medium', 'high'] as ReasoningLevel[]).map(lv => (
+              <option key={lv} value={lv} disabled={!!caps && !(caps.controls.reasoning.options ?? []).includes(lv)}>
+                {lv}{caps && !(caps.controls.reasoning.options ?? []).includes(lv) ? ' (not available)' : ''}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-400 mt-1">
+            {caps ? `${caps.provider_label}.` : ''} Reasoning tokens are billed and count against Max Tokens.
+          </p>
+          {statusLine(caps?.controls.reasoning)}
+        </div>
       </div>
     </div>
   )
@@ -411,6 +469,32 @@ function ConnForm({
           onChange={e => set('model_ids', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
           placeholder="blank = auto-discover all models" className={inputCls} />
       </div>
+      {draft.type === 'openai' && (
+        <details className="text-sm" open={!!(draft.provider || draft.prompt_cache_key || Object.keys(draft.routing || {}).length)}>
+          <summary className="cursor-pointer text-xs text-gray-500 select-none">Provider options (optional)</summary>
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Provider profile</label>
+              <select value={draft.provider || ''} onChange={e => set('provider', e.target.value)} className={inputCls}>
+                <option value="">Auto (from the address)</option>
+                <option value="mistral">Mistral API</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="openai">OpenAI</option>
+                <option value="openai_compatible">Other OpenAI-compatible (LM Studio, vLLM…)</option>
+              </select>
+              <p className="text-xs text-gray-400 mt-1">Decides which request fields are sent and how reasoning is controlled.</p>
+            </div>
+            <div>
+              <label className="flex items-center gap-2 text-xs text-gray-600 mt-5">
+                <input type="checkbox" checked={!!draft.prompt_cache_key} onChange={e => set('prompt_cache_key', e.target.checked)} />
+                Send a per-session prompt cache key
+              </label>
+              <p className="text-xs text-gray-400 mt-1">A hash of the session, never the session token. For providers that use it to keep a session on one cache.</p>
+            </div>
+          </div>
+          <RoutingField value={draft.routing || {}} onChange={v => set('routing', v)} />
+        </details>
+      )}
       <div className="flex items-center gap-3">
         <label className="flex items-center gap-2 cursor-pointer">
           <div className={`relative w-10 h-5 rounded-full transition-colors ${draft.enable ? 'bg-uni-blue' : 'bg-gray-300'}`}
@@ -431,9 +515,91 @@ function ConnForm({
   )
 }
 
+// OpenRouter `provider` routing object, edited as JSON (applied on blur when valid).
+function RoutingField({ value, onChange }: { value: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
+  const [text, setText] = useState(Object.keys(value).length ? JSON.stringify(value) : '')
+  const [bad, setBad] = useState(false)
+  const apply = () => {
+    if (!text.trim()) { setBad(false); onChange({}); return }
+    try {
+      const parsed = JSON.parse(text)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) { setBad(false); onChange(parsed) } else setBad(true)
+    } catch { setBad(true) }
+  }
+  return (
+    <div className="mt-3">
+      <label className="block text-xs font-medium text-gray-600 mb-1">OpenRouter routing (JSON)</label>
+      <input value={text} onChange={e => setText(e.target.value)} onBlur={apply} spellCheck={false}
+        placeholder='{"order": ["alibaba"], "allow_fallbacks": false}' className={`${inputCls} font-mono`} />
+      <p className={`text-xs mt-1 ${bad ? 'text-uni-red' : 'text-gray-400'}`}>
+        {bad ? 'Not a valid JSON object — not applied.'
+          : 'Sent as OpenRouter\u2019s "provider" object. Pinning a session to one endpoint lets its prompt cache hit; without it OpenRouter may send each turn to a different provider.'}
+      </p>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Main tab
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Token and prompt-cache usage (Sprint 37)
+// ---------------------------------------------------------------------------
+
+function UsageCard() {
+  const [rows, setRows] = useState<LLMUsageRow[] | null>(null)
+  const load = () => getLLMUsage().then(r => setRows(r.rows)).catch(() => setRows([]))
+  useEffect(() => { load() }, [])
+  const fmt = (n: number) => n.toLocaleString()
+  return (
+    <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-lg font-semibold text-gray-800">Usage and prompt cache</h3>
+        <div className="flex gap-2">
+          <button onClick={load} className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50">Refresh</button>
+          <button onClick={() => { if (confirm('Reset the usage counters?')) resetLLMUsage().then(r => setRows(r.rows)) }}
+            className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50">Reset</button>
+        </div>
+      </div>
+      <p className="text-xs text-gray-400 mb-4">
+        Cache hit rate = cached prompt tokens / prompt tokens, as reported by the provider. Cached input is much cheaper on
+        providers that cache automatically (Mistral, OpenRouter routes to Alibaba/Mistral, OpenAI, Anthropic). "—" means
+        the provider reports no usage (or no cache figure, e.g. Ollama).
+      </p>
+      {!rows ? <p className="text-sm text-gray-400">Loading…</p> : rows.length === 0 ? (
+        <p className="text-sm text-gray-400">No calls recorded yet.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-gray-500 border-b border-gray-200">
+                <th className="py-1 pr-3">Slot</th><th className="py-1 pr-3">Connection / model</th>
+                <th className="py-1 pr-3 text-right">Calls</th><th className="py-1 pr-3 text-right">Prompt</th>
+                <th className="py-1 pr-3 text-right">Cached</th><th className="py-1 pr-3 text-right">Hit rate</th>
+                <th className="py-1 pr-3 text-right">Completion</th><th className="py-1 text-right">Reasoning</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={`${r.slot}|${r.connection}|${r.model}`} className="border-b border-gray-100">
+                  <td className="py-1 pr-3">{r.slot}</td>
+                  <td className="py-1 pr-3 font-mono">{r.connection} / {r.model}</td>
+                  <td className="py-1 pr-3 text-right">{fmt(r.calls)}</td>
+                  <td className="py-1 pr-3 text-right">{r.calls_with_usage ? fmt(r.prompt_tokens) : '—'}</td>
+                  <td className="py-1 pr-3 text-right">{r.calls_with_usage ? fmt(r.cached_tokens) : '—'}</td>
+                  <td className="py-1 pr-3 text-right font-medium">{r.hit_rate == null ? '—' : `${(r.hit_rate * 100).toFixed(1)} %`}</td>
+                  <td className="py-1 pr-3 text-right">{r.calls_with_usage ? fmt(r.completion_tokens) : '—'}</td>
+                  <td className="py-1 text-right">{r.calls_with_usage ? fmt(r.reasoning_tokens) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function LLMTab() {
   const [health, setHealth] = useState<LLMHealth | null>(null)
@@ -842,6 +1008,8 @@ export default function LLMTab() {
             {success && <span className="text-sm text-green-600">{success}</span>}
             {error && <span className="text-sm text-uni-red">{error}</span>}
           </div>
+
+          <UsageCard />
 
           {/* Per-Frontend LLM overrides */}
           {frontends.length > 0 && (

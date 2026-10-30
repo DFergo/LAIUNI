@@ -137,6 +137,25 @@ If a model fails three times within a minute, its badge shows **Down** and it is
 
 The panel shows the status of each connection and slot. Fix anything that is not healthy before testing.
 
+**What each provider supports.** Every slot shows, under each control, whether it is sent, adjusted or ignored for the chosen connection and model, so no setting is a silent no-op. In short:
+
+| | Temperature, Max Tokens | Context window (`num_ctx`) | Reasoning control | Prompt cache |
+|---|---|---|---|---|
+| **Mistral API** | sent | not sent (compression budget only) | `mistral-large-4`: low/medium/high, cannot be switched off; `mistral-small`/`-medium`: off/high | automatic; best effort for short prompts |
+| **OpenRouter** | sent (some models ignore them: the panel says which, from OpenRouter's model list) | not sent | off/low/medium/high where the model supports it | depends on the provider OpenRouter routes to (e.g. Alibaba, Mistral: yes) |
+| **OpenAI** | sent; reasoning models (o-series, gpt-5) take no temperature | not sent | low/medium/high on reasoning models | automatic |
+| **Anthropic** | sent; Max Tokens is required (4096 if blank); no temperature while thinking | not sent | low/medium/high = thinking budget; off is the default | cache breakpoints set automatically |
+| **LM Studio, vLLM** | sent | not sent | on/off (`enable_thinking`) | server-side, if enabled |
+| **Ollama** | sent | sent | on/off (`think`) | not reported |
+
+Notes:
+
+- **Reasoning tokens are billed and count against Max Tokens.** With reasoning on and a small Max Tokens, a model can spend the whole budget thinking and return an empty answer. Leave Max Tokens blank or generous on reasoning models, or switch reasoning off where the provider allows it.
+- **Context window.** For every provider except Ollama it is not a request parameter: it only sets when long conversations are compressed. Leave it blank to use the window the provider declares for the model (shown as a hint).
+- **Usage and prompt cache.** The **Usage and prompt cache** card shows prompt, cached, completion and reasoning tokens per slot and model, with the cache hit rate. Each chat turn sends the per-turn knowledge-base excerpts last, after the stable part of the prompt, so everything before them can be cached; those excerpts are new on every turn and are never cached.
+- **Provider options per connection** (optional, *Provider options* in the connection editor, OpenAI-compatible connections): *Provider profile* forces the profile when it cannot be inferred from the address; *Send a per-session prompt cache key* sends a per-session cache key (a hash, never the session token) to providers that use it; *OpenRouter routing* is OpenRouter's `provider` object, e.g. `{"order": ["alibaba"], "allow_fallbacks": false}`, to keep a session on one endpoint so its cache can hit.
+- If a provider rejects an optional field (reasoning setting, cache key, usage request), the request is retried once without it and the backend logs which field was dropped.
+
 ### 4.5 Email (optional but needed for some profiles)
 
 **Admin → SMTP** configures outgoing email. It is used for the verification codes of profiles that require authentication, for summaries sent to authorised users, and for administrator notifications.
