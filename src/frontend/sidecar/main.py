@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 
-from sidecar.backend_auth import BackendSignatureMiddleware
+from sidecar.backend_auth import BackendSignatureMiddleware, surface_mode
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("sidecar")
@@ -310,7 +310,8 @@ async def dequeue_messages():
         evidence_delete_requests = list(_evidence_delete_queue)
         _evidence_delete_queue.clear()
 
-    result: dict[str, Any] = {"messages": valid}
+    # surface_auth lets the backend show the frontend's real auth mode in the admin
+    result: dict[str, Any] = {"messages": valid, "surface_auth": surface_mode()}
     if recovery_requests:
         result["recovery_requests"] = recovery_requests
         logger.info(f"Recovery requests: {recovery_requests}")

@@ -1,5 +1,14 @@
 # HRDD Helper — Changelog
 
+## Sprint 36 — Address-only frontend registration and access modes (branch `feat/simple-frontend-registration`)
+
+- **Installation secret.** New backend env var `HRDD_FRONTEND_SECRET` (≥ 32 chars): every frontend registered in **Signed** mode without its own secret signs with it. Give the same value to the frontends as `HRDD_BACKEND_SECRET` and registering a frontend needs only its backend-port URL. A per-frontend secret (Security panel) still overrides it.
+- **Access modes per frontend** (`auth_mode` in the registry): **signed** (installation or own secret), **unsigned** — "trusted network", a supported option: the backend calls `/backend/v1/*` without a signature and the frontend accepts it when started with `BACKEND_SURFACE_AUTH=trusted-network` (the older `ALLOW_UNSIGNED_BACKEND_SURFACE=true` still works as an alias), and **legacy** (old frontend image, old routes). Entries registered before this keep their behaviour: no secret → legacy, own secret → signed — so setting `HRDD_FRONTEND_SECRET` changes nothing for frontends already deployed.
+- **Visible warnings.** Admin badges per mode (*signed*, *trusted network · unsigned*, *legacy*); the frontend reports its own mode on every poll and the admin flags a signed registration whose frontend accepts unsigned requests. Trusted-network frontends log a warning at startup and hourly; the backend logs once per unsigned/legacy frontend. The Add Frontend form states whether the installation secret is set.
+- **Clearer registration errors:** signed mode without any secret (400 before contacting the frontend), signature rejected, frontend requires signing, or a URL that is not a backend port.
+- **Docs:** `deploy/README.md` — access modes and what each one gives up. Compose files: `HRDD_FRONTEND_SECRET` on the backend; `BACKEND_SURFACE_AUTH` on the frontends, `HRDD_BACKEND_SECRET` now optional there (not needed in trusted-network; signed mode with no secret still rejects everything).
+- **Tests:** sidecar 22, backend 22 (+ 7 existing), Docker e2e for both modes.
+
 ## Maintenance — Searchable model field (Admin → LLM)
 
 - The model picker of every LLM slot and of the embeddings slot is now a **single search field** (`ModelCombobox.tsx`) instead of a dropdown with an "Enter manually" option plus a second text box. Typing filters the connection's model list (its allow-list when one is configured, otherwise everything the endpoint reports); with an allow-list, a model the endpoint offers outside it can still be picked by typing its exact ID; any other exact ID can be committed with "use exact ID", with a warning that the connection doesn't offer it. Keyboard: ↑/↓, Enter, Esc. The value is committed on pick/Enter/blur, never per keystroke.

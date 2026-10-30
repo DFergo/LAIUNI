@@ -12,6 +12,7 @@ import unittest
 
 _TMP = tempfile.TemporaryDirectory()
 os.environ["HRDD_DATA_DIR"] = _TMP.name
+os.environ.pop("HRDD_FRONTEND_SECRET", None)
 
 import httpx  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
@@ -21,6 +22,24 @@ from src.services import frontend_registry as reg  # noqa: E402
 from src.api.v1.admin import frontends as fe  # noqa: E402
 
 SECRET = "k" * 48
+GLOBAL = "g" * 48
+
+
+class _GlobalSecret:
+    """Context manager: set/unset HRDD_FRONTEND_SECRET for one test."""
+
+    def __init__(self, value: str | None):
+        self.value = value
+
+    def __enter__(self):
+        self.saved = os.environ.pop("HRDD_FRONTEND_SECRET", None)
+        if self.value is not None:
+            os.environ["HRDD_FRONTEND_SECRET"] = self.value
+
+    def __exit__(self, *a):
+        os.environ.pop("HRDD_FRONTEND_SECRET", None)
+        if self.saved is not None:
+            os.environ["HRDD_FRONTEND_SECRET"] = self.saved
 
 
 def _run(coro):
@@ -51,7 +70,7 @@ class SignTest(unittest.TestCase):
 class RegistryAuthTest(unittest.TestCase):
     def setUp(self):
         reg.registry._frontends = {}
-        frontend_client._warned_unsigned.clear()
+        frontend_client._warned.clear()
 
     def tearDown(self):
         reg.registry._frontends = {}
@@ -125,14 +144,87 @@ class RegistryAuthTest(unittest.TestCase):
         self.assertNotIn("X-HRDD-Signature", cap.requests[0].headers)
 
 
+class ModeTest(unittest.TestCase):
+    """Global secret fallback, trusted-network (unsigned) and legacy modes."""
+
+    def setUp(self):
+        reg.registry._frontends = {}
+        frontend_client._warned.clear()
+
+    def tearDown(self):
+        reg.registry._frontends = {}
+
+    def _send(self, url: str, method: str = "GET", **kw) -> httpx.Request:
+        cap = _Capture()
+
+        async def go():
+            async with httpx.AsyncClient(transport=httpx.MockTransport(cap), auth=frontend_client._RegistryAuth()) as c:
+                await c.request(method, url, **kw)
+        _run(go())
+        return cap.requests[0]
+
+    def test_signed_uses_global_secret_when_no_own(self):
+        f = reg.registry.register("http://fe:8080", "A")
+        reg.registry.update(f["id"], auth_mode="signed")
+        with _GlobalSecret(GLOBAL):
+            req = self._send("http://fe:8080/internal/queue")
+        self.assertEqual(req.url.path, "/backend/v1/queue")
+        expected = frontend_client.sign(GLOBAL, req.headers["X-HRDD-Timestamp"], req.headers["X-HRDD-Nonce"],
+                                        "GET", "/backend/v1/queue", b"")
+        self.assertEqual(req.headers["X-HRDD-Signature"], expected)
+
+    def test_own_secret_wins_over_global(self):
+        f = reg.registry.register("http://fe:8080", "A")
+        reg.registry.update(f["id"], auth_mode="signed", signing_secret=SECRET)
+        with _GlobalSecret(GLOBAL):
+            req = self._send("http://fe:8080/internal/queue")
+        expected = frontend_client.sign(SECRET, req.headers["X-HRDD-Timestamp"], req.headers["X-HRDD-Nonce"],
+                                        "GET", "/backend/v1/queue", b"")
+        self.assertEqual(req.headers["X-HRDD-Signature"], expected)
+
+    def test_signed_without_any_secret_fails_closed(self):
+        f = reg.registry.register("http://fe:8080", "A")
+        reg.registry.update(f["id"], auth_mode="signed")
+        with _GlobalSecret(None):
+            with self.assertRaises(frontend_client.MissingSigningSecret):
+                self._send("http://fe:8080/internal/queue")
+
+    def test_short_global_secret_ignored(self):
+        with _GlobalSecret("short"):
+            self.assertEqual(frontend_client.global_secret(), "")
+
+    def test_unsigned_mode_rewrites_without_signature(self):
+        f = reg.registry.register("http://fe:8080", "A")
+        reg.registry.update(f["id"], auth_mode="unsigned", extra_headers={"X-Extra": "1"})
+        with _GlobalSecret(GLOBAL):
+            req = self._send("http://fe:8080/internal/stream/T-1/chunk", "POST", json={"event": "done", "data": ""})
+        self.assertEqual(req.url.path, "/backend/v1/stream/T-1/chunk")
+        self.assertNotIn("X-HRDD-Signature", req.headers)
+        self.assertEqual(req.headers["X-Extra"], "1")
+
+    def test_existing_entries_keep_their_behaviour_with_global_secret(self):
+        # Registered before modes existed: no secret -> legacy (old image keeps working
+        # even after HRDD_FRONTEND_SECRET is added); own secret -> signed.
+        reg.registry.register("http://old:8090", "old")
+        f = reg.registry.register("http://new:8080", "new")
+        reg.registry.update(f["id"], signing_secret=SECRET)
+        with _GlobalSecret(GLOBAL):
+            old = self._send("http://old:8090/internal/queue")
+            new = self._send("http://new:8080/internal/queue")
+        self.assertEqual(old.url.path, "/internal/queue")
+        self.assertNotIn("X-HRDD-Signature", old.headers)
+        self.assertEqual(new.url.path, "/backend/v1/queue")
+        self.assertIn("X-HRDD-Signature", new.headers)
+
+
 class AdminCredentialsTest(unittest.TestCase):
     def setUp(self):
         reg.registry._frontends = {}
         self._orig_probe = fe._probe
         self.probed: list[tuple] = []
 
-        async def fake_probe(url, secret, headers):
-            self.probed.append((url, secret, headers))
+        async def fake_probe(url, entry):
+            self.probed.append((url, dict(entry)))
         fe._probe = fake_probe
 
     def tearDown(self):
@@ -148,7 +240,9 @@ class AdminCredentialsTest(unittest.TestCase):
         self.assertEqual(view["extra_header_names"], ["CF-Access-Client-Id", "CF-Access-Client-Secret"])
         self.assertNotIn("signing_secret", view)
         self.assertNotIn("extra_headers", view)
-        self.assertEqual(self.probed[0][1], SECRET)  # probe used the secret
+        self.assertEqual(self.probed[0][1]["signing_secret"], SECRET)  # probe used the secret
+        self.assertEqual(view["auth_mode"], "signed")
+        self.assertEqual(view["signing_source"], "own")
         stored = reg.registry.get(view["id"])
         self.assertEqual(stored["signing_secret"], SECRET)
         listed = _run(fe.list_frontends(_={}))["frontends"][0]
@@ -162,9 +256,52 @@ class AdminCredentialsTest(unittest.TestCase):
     def test_legacy_entry_gets_secret_later(self):
         fid = reg.registry.register("http://10.0.0.30:8090", "legacy")["id"]
         self.assertFalse(fe._public_view(reg.registry.get(fid))["signing_enabled"])
-        res = _run(fe.update_frontend(fid, fe.UpdateRequest(url="http://10.0.0.30:8081", signing_secret=SECRET), verify=True, _={}))
+        self.assertEqual(fe._public_view(reg.registry.get(fid))["auth_mode"], "legacy")
+        res = _run(fe.update_frontend(fid, fe.UpdateRequest(url="http://10.0.0.30:8081", auth_mode="signed", signing_secret=SECRET), verify=True, _={}))
         self.assertTrue(res["frontend"]["signing_enabled"])
-        self.assertEqual(self.probed[-1], ("http://10.0.0.30:8081", SECRET, None))
+        url, entry = self.probed[-1]
+        self.assertEqual(url, "http://10.0.0.30:8081")
+        self.assertEqual((entry["auth_mode"], entry["signing_secret"]), ("signed", SECRET))
+
+    def test_register_address_only_with_installation_secret(self):
+        with _GlobalSecret(GLOBAL):
+            res = _run(fe.register_frontend(fe.RegisterRequest(url="http://hrdd-frontend:8080"), _={}))
+            listed = _run(fe.list_frontends(_={}))
+        view = res["frontend"]
+        self.assertEqual((view["auth_mode"], view["signing_source"], view["signing_enabled"]), ("signed", "global", True))
+        self.assertTrue(listed["global_secret_configured"])
+
+    def test_register_signed_without_any_secret_rejected(self):
+        with _GlobalSecret(None):
+            with self.assertRaises(HTTPException) as ctx:
+                _run(fe.register_frontend(fe.RegisterRequest(url="http://a:8080"), _={}))
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(self.probed, [])
+
+    def test_register_trusted_network(self):
+        with _GlobalSecret(None):
+            res = _run(fe.register_frontend(fe.RegisterRequest(url="http://a:8080", auth_mode="unsigned"), _={}))
+        self.assertEqual(res["frontend"]["auth_mode"], "unsigned")
+        self.assertFalse(res["frontend"]["signing_enabled"])
+
+    def test_bad_mode_rejected(self):
+        with self.assertRaises(HTTPException) as ctx:
+            _run(fe.register_frontend(fe.RegisterRequest(url="http://a:8080", auth_mode="open"), _={}))
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_removing_own_secret_keeps_signed_mode(self):
+        # Entry from before modes existed (secret, no auth_mode): removing the own secret
+        # must fall back to the installation secret, not silently switch to legacy.
+        fid = reg.registry.register("http://a:8080", "A")["id"]
+        reg.registry.update(fid, signing_secret=SECRET)
+        with _GlobalSecret(GLOBAL):
+            res = _run(fe.update_frontend(fid, fe.UpdateRequest(signing_secret=""), verify=True, _={}))
+        self.assertEqual((res["frontend"]["auth_mode"], res["frontend"]["signing_source"]), ("signed", "global"))
+
+    def test_reconciler_url_edit_does_not_touch_mode(self):
+        fid = reg.registry.register("http://a:8080", "A")["id"]
+        _run(fe.update_frontend(fid, fe.UpdateRequest(url="http://b:8080"), verify=False, _={}))
+        self.assertNotIn("auth_mode", reg.registry.get(fid))
 
     def test_name_only_update_does_not_probe(self):
         fid = reg.registry.register("http://a:8081", "old")["id"]

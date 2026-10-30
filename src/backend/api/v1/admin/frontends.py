@@ -18,10 +18,12 @@ router = APIRouter(prefix="/admin/frontends", tags=["admin-frontends"])
 
 
 class RegisterRequest(BaseModel):
-    url: str
+    url: str  # the frontend's BACKEND port URL
     name: str = ""
-    # Backend-surface credentials. URL = the frontend's backend port.
-    signing_secret: str = ""
+    # "signed" (default: own secret, else the installation secret HRDD_FRONTEND_SECRET),
+    # "unsigned" (trusted network) or "legacy" (old frontend image).
+    auth_mode: str = frontend_client.MODE_SIGNED
+    signing_secret: str = ""   # optional per-frontend secret; blank = installation secret
     extra_headers: dict[str, str] = {}
 
 
@@ -29,13 +31,15 @@ class UpdateRequest(BaseModel):
     enabled: bool | None = None
     name: str | None = None
     url: str | None = None
-    # None = unchanged; "" = remove (back to legacy unsigned transition mode)
+    auth_mode: str | None = None
+    # None = unchanged; "" = remove the per-frontend secret (falls back to the installation secret)
     signing_secret: str | None = None
     # None = unchanged; {} = remove. Values are write-only (never returned).
     extra_headers: dict[str, str] | None = None
 
 
-MIN_SECRET_LENGTH = 32
+MIN_SECRET_LENGTH = frontend_client.MIN_SECRET_LENGTH
+_CRED_FIELDS = {"auth_mode", "signing_secret", "extra_headers"}
 
 
 def _public_view(fe: dict | None) -> dict | None:
@@ -43,9 +47,18 @@ def _public_view(fe: dict | None) -> dict | None:
     if fe is None:
         return None
     out = {k: v for k, v in fe.items() if k not in ("signing_secret", "extra_headers")}
-    out["signing_enabled"] = bool(fe.get("signing_secret"))
+    mode = frontend_client.auth_mode(fe)
+    _, source = frontend_client.effective_secret(fe)
+    out["auth_mode"] = mode
+    out["signing_source"] = source if mode == frontend_client.MODE_SIGNED else ""
+    out["signing_enabled"] = mode == frontend_client.MODE_SIGNED and bool(source)
     out["extra_header_names"] = sorted((fe.get("extra_headers") or {}).keys())
     return out
+
+
+def _check_mode(mode: str):
+    if mode not in frontend_client.AUTH_MODES:
+        raise HTTPException(status_code=400, detail=f"auth_mode must be one of {', '.join(frontend_client.AUTH_MODES)}")
 
 
 def _check_secret(secret: str):
@@ -53,23 +66,46 @@ def _check_secret(secret: str):
         raise HTTPException(status_code=400, detail=f"Signing secret must be at least {MIN_SECRET_LENGTH} characters")
 
 
-async def _probe(url: str, secret: str | None, extra_headers: dict[str, str] | None):
-    """Reachability + credential check against the frontend (GET config)."""
+def _check_signable(entry: dict):
+    if frontend_client.auth_mode(entry) == frontend_client.MODE_SIGNED and not frontend_client.effective_secret(entry)[0]:
+        raise HTTPException(
+            status_code=400,
+            detail="Signed mode needs a secret: set HRDD_FRONTEND_SECRET on the backend (installation secret) "
+                   "or enter a secret for this frontend.",
+        )
+
+
+async def _probe(url: str, entry: dict):
+    """Reachability + auth check against the frontend (GET config), with the entry's final mode."""
+    mode = frontend_client.auth_mode(entry)
     try:
-        async with frontend_client.ProbeClient(secret, extra_headers) as client:
+        async with frontend_client.ProbeClient(entry) as client:
             resp = await client.get(f"{url}/internal/config")
             resp.raise_for_status()
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 401:
-            raise HTTPException(status_code=400, detail=f"Frontend at {url} rejected the signature — check the signing secret and clock sync")
-        raise HTTPException(status_code=400, detail=f"Cannot reach frontend at {url}: {str(e)}")
+        code = e.response.status_code
+        if code == 401 and mode == frontend_client.MODE_SIGNED:
+            detail = (f"Frontend at {url} rejected the signature — check that its HRDD_BACKEND_SECRET matches "
+                      f"this frontend's secret (or HRDD_FRONTEND_SECRET here) and that both clocks are in sync")
+        elif code == 401:
+            detail = (f"Frontend at {url} requires signed requests — choose 'Signed', or start the frontend "
+                      f"with BACKEND_SURFACE_AUTH=trusted-network")
+        elif code == 404 and mode != frontend_client.MODE_LEGACY:
+            detail = (f"No backend surface at {url} — use the frontend's backend port (container port 8080), "
+                      f"not the public one; a frontend on the old image needs mode 'Legacy'")
+        else:
+            detail = f"Cannot reach frontend at {url}: {str(e)}"
+        raise HTTPException(status_code=400, detail=detail)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Cannot reach frontend at {url}: {str(e)}")
 
 
 @router.get("")
 async def list_frontends(_: dict = Depends(require_admin)):
-    return {"frontends": [_public_view(f) for f in registry.list_all()]}
+    return {
+        "frontends": [_public_view(f) for f in registry.list_all()],
+        "global_secret_configured": bool(frontend_client.global_secret()),
+    }
 
 
 @router.post("")
@@ -78,14 +114,16 @@ async def register_frontend(req: RegisterRequest, _: dict = Depends(require_admi
     via GET /internal/config); the frontend starts unconfigured (Sprint 21)."""
     url = req.url.rstrip("/")
     secret = req.signing_secret.strip()
+    _check_mode(req.auth_mode)
     _check_secret(secret)
+    entry = {"auth_mode": req.auth_mode, "signing_secret": secret, "extra_headers": req.extra_headers}
+    _check_signable(entry)
 
-    # Verify the frontend is reachable — and, with a secret, that it accepts our signature
-    await _probe(url, secret or None, req.extra_headers or None)
+    # Verify the frontend is reachable and accepts this mode before saving anything
+    await _probe(url, entry)
 
     frontend = registry.register(url, req.name)
-    if secret or req.extra_headers:
-        frontend = registry.update(frontend["id"], signing_secret=secret, extra_headers=req.extra_headers)
+    frontend = registry.update(frontend["id"], **entry)
     registry.set_status(frontend["id"], "online")
 
     # New frontends default to the global prompt set (Sprint 32); decouple from
@@ -178,9 +216,16 @@ async def update_frontend(
 
     current = registry.get(frontend_id)
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    if "auth_mode" in updates:
+        _check_mode(updates["auth_mode"])
     if "signing_secret" in updates:
         updates["signing_secret"] = updates["signing_secret"].strip()
         _check_secret(updates["signing_secret"])
+    if _CRED_FIELDS & updates.keys():
+        # Pin the mode explicitly: entries from before modes existed derive it from
+        # their secret, and removing that secret must not silently switch to legacy.
+        updates.setdefault("auth_mode", frontend_client.auth_mode(current))
+        _check_signable({**current, **updates})
 
     if "url" in updates:
         url = updates["url"].rstrip("/")  # normalise like register()
@@ -191,14 +236,12 @@ async def update_frontend(
             if f["id"] != frontend_id and f["url"] == url:
                 raise HTTPException(status_code=409, detail=f"URL already registered to frontend {f['id']}")
 
-    # Verify reachability (and the signature, if any) with the credentials that
-    # will be in effect after the update. Any http(s) host is accepted — IP,
-    # hostname, .local, Tailscale MagicDNS; the check decides, not the format.
-    if verify and ({"url", "signing_secret", "extra_headers"} & updates.keys()):
-        url = updates.get("url", current["url"])
-        secret = updates.get("signing_secret", current.get("signing_secret", ""))
-        headers = updates.get("extra_headers", current.get("extra_headers") or {})
-        await _probe(url, secret or None, headers or None)
+    # Verify reachability and auth with the URL + mode + credentials that will be
+    # in effect after the update. Any http(s) host is accepted — IP, hostname,
+    # .local, Tailscale MagicDNS; the check decides, not the format.
+    if verify and (({"url"} | _CRED_FIELDS) & updates.keys()):
+        final = {**current, **updates}
+        await _probe(final["url"], final)
 
     frontend = registry.update(frontend_id, **updates)
     return {"frontend": _public_view(frontend)}

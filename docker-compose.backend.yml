@@ -15,6 +15,10 @@ services:
       #   - /Users/you/hrdd-data:/app/data
     environment:
       - DEPLOYMENT_JSON_PATH=/app/config/deployment_backend.json
+      # Installation-wide signing secret (≥ 32 chars, e.g. `openssl rand -hex 32`): used for
+      # every signed frontend without its own secret. Same value as HRDD_BACKEND_SECRET on
+      # those frontends. Optional — without it, signed frontends need their own secret.
+      - HRDD_FRONTEND_SECRET=${HRDD_FRONTEND_SECRET:-}
 
 volumes:
   hrdd-data:

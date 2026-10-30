@@ -15,6 +15,14 @@ Replay protection: timestamps outside ±120 s are rejected, nonces are cached
 until they fall out of the window, and requests signed before this process
 started are rejected — so a request captured before a restart cannot be
 replayed after it, even though the in-memory nonce cache is lost.
+
+Modes (BACKEND_SURFACE_AUTH):
+  signed           (default) every request must be signed; no secret → reject all.
+  trusted-network  no signature check. Supported for deployments where only the
+                   backend can reach port 8080 (same host internal network, closed
+                   LAN segment). Anyone who can reach that port gets full access to
+                   the backend surface. Logged at startup and hourly while in use.
+ALLOW_UNSIGNED_BACKEND_SURFACE=true is the older name for trusted-network.
 """
 
 import hashlib
@@ -49,6 +57,24 @@ def sign(secret: str, ts: str, nonce: str, method: str, path_qs: str, body: byte
     return f"{SIGNATURE_VERSION}={mac.hexdigest()}"
 
 
+MODE_SIGNED = "signed"
+MODE_TRUSTED = "trusted-network"
+TRUSTED_WARN_INTERVAL = 3600
+
+
+def surface_mode() -> str:
+    """Effective backend-surface auth mode from the environment."""
+    mode = os.environ.get("BACKEND_SURFACE_AUTH", "").strip().lower()
+    if mode in (MODE_SIGNED, MODE_TRUSTED):
+        return mode
+    if mode:
+        logger.error(f"Unknown BACKEND_SURFACE_AUTH={mode!r} — using '{MODE_SIGNED}'")
+        return MODE_SIGNED
+    if os.environ.get("ALLOW_UNSIGNED_BACKEND_SURFACE", "false").lower() == "true":
+        return MODE_TRUSTED
+    return MODE_SIGNED
+
+
 def _load_secrets() -> list[str]:
     out = []
     for var in ("HRDD_BACKEND_SECRET", "HRDD_BACKEND_SECRET_PREVIOUS"):
@@ -72,14 +98,12 @@ class BackendSignatureMiddleware:
     def __init__(self, app):
         self.app = app
         self.secrets = _load_secrets()
-        self.allow_unsigned = os.environ.get("ALLOW_UNSIGNED_BACKEND_SURFACE", "false").lower() == "true"
+        self.allow_unsigned = surface_mode() == MODE_TRUSTED
         self.started_at = int(time.time())
         self._nonces: dict[str, float] = {}
+        self._last_trusted_warn = 0.0
         if self.allow_unsigned:
-            logger.warning(
-                "ALLOW_UNSIGNED_BACKEND_SURFACE=true — the backend surface accepts UNSIGNED "
-                "requests. Development only; never use this on a reachable deployment."
-            )
+            self._warn_trusted()
         elif not self.secrets:
             logger.error(
                 "HRDD_BACKEND_SECRET is not set — every request to the backend surface "
@@ -103,7 +127,10 @@ class BackendSignatureMiddleware:
                 await _send_status(send, 413, "Payload too large")
                 return
 
-        if not self.allow_unsigned:
+        if self.allow_unsigned:
+            if time.time() - self._last_trusted_warn > TRUSTED_WARN_INTERVAL:
+                self._warn_trusted()
+        else:
             reason = self._verify(scope, body)
             if reason:
                 logger.warning(f"Rejected backend-surface request {scope['method']} {scope['path']} from {_client_ip(scope)}: {reason}")
@@ -120,6 +147,13 @@ class BackendSignatureMiddleware:
             return await receive()
 
         await self.app(scope, replay, send)
+
+    def _warn_trusted(self):
+        self._last_trusted_warn = time.time()
+        logger.warning(
+            "BACKEND_SURFACE_AUTH=trusted-network — the backend surface (port 8080) accepts "
+            "UNSIGNED requests. Only safe if nothing but the HRDD backend can reach that port."
+        )
 
     def _verify(self, scope, body: bytes) -> str | None:
         """Return None if valid, else a short reason for the log (never sent to the client)."""

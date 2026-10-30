@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, retranslateBranding, uploadFrontendLogo, deleteFrontendLogo, fetchLogoVariant, listDeletedFrontends, restoreFrontend, exportGlobalConfig, importGlobalConfig, type Frontend, type BrandingConfig } from './api'
-import FrontendSecurityPanel, { CredentialFields, SigningBadge, parseHeaders } from './FrontendSecurityPanel'
+import FrontendSecurityPanel, { AccessFields, SigningBadge, draftToCredentials, type AccessDraft } from './FrontendSecurityPanel'
 import FrontendConfigPanel from './FrontendConfigPanel'
 import { DEFAULT_DISCLAIMER_MD, DEFAULT_INSTRUCTIONS_MD } from './brandingDefaults'
 
@@ -8,8 +8,9 @@ export default function FrontendsTab() {
   const [frontends, setFrontends] = useState<Frontend[]>([])
   const [newUrl, setNewUrl] = useState('')
   const [newName, setNewName] = useState('')
-  const [newSecret, setNewSecret] = useState('')
-  const [newHeaders, setNewHeaders] = useState('')
+  const emptyAccess: AccessDraft = { mode: 'signed', secret: '', headers: '' }
+  const [newAccess, setNewAccess] = useState<AccessDraft>(emptyAccess)
+  const [globalSecret, setGlobalSecret] = useState(false)
   const [securityOpen, setSecurityOpen] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -18,8 +19,9 @@ export default function FrontendsTab() {
 
   const refresh = async () => {
     try {
-      const { frontends: list } = await listFrontends()
+      const { frontends: list, global_secret_configured } = await listFrontends()
       setFrontends(list)
+      setGlobalSecret(!!global_secret_configured)
       try {
         const { frontends: del } = await listDeletedFrontends()
         setDeleted(del)
@@ -60,14 +62,10 @@ export default function FrontendsTab() {
     setError('')
     setLoading(true)
     try {
-      await registerFrontend(newUrl, newName, {
-        signing_secret: newSecret.trim(),
-        extra_headers: parseHeaders(newHeaders),
-      })
+      await registerFrontend(newUrl, newName, draftToCredentials(newAccess))
       setNewUrl('')
       setNewName('')
-      setNewSecret('')
-      setNewHeaders('')
+      setNewAccess(emptyAccess)
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed')
@@ -233,7 +231,12 @@ export default function FrontendsTab() {
     <div className="space-y-6">
       {/* Register form */}
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Add Frontend</h3>
+        <h3 className="text-lg font-semibold text-gray-800 mb-1">Add Frontend</h3>
+        <p className={`text-xs mb-4 ${globalSecret ? 'text-gray-500' : 'text-amber-700'}`}>
+          {globalSecret
+            ? 'Installation secret is set (HRDD_FRONTEND_SECRET): for a signed frontend, the address is enough.'
+            : 'No installation secret (HRDD_FRONTEND_SECRET) on this backend: signed frontends need their own secret.'}
+        </p>
         <form onSubmit={handleRegister} className="space-y-3">
         <div className="flex gap-3 items-end">
           <div className="flex-1">
@@ -265,7 +268,7 @@ export default function FrontendsTab() {
             {loading ? '...' : 'Register'}
           </button>
         </div>
-        <CredentialFields secret={newSecret} setSecret={setNewSecret} headers={newHeaders} setHeaders={setNewHeaders} />
+        <AccessFields draft={newAccess} setDraft={setNewAccess} globalSecret={globalSecret} />
         </form>
         {error && <p className="text-uni-red text-sm mt-2">{error}</p>}
       </div>
@@ -359,7 +362,7 @@ export default function FrontendsTab() {
                 </div>
 
                 {/* Backend-surface credentials */}
-                {securityOpen === f.id && <FrontendSecurityPanel f={f} onSaved={refresh} />}
+                {securityOpen === f.id && <FrontendSecurityPanel f={f} globalSecret={globalSecret} onSaved={refresh} />}
 
                 {/* Per-frontend config panel */}
                 {configOpen === f.id && <FrontendConfigPanel frontendId={f.id} />}

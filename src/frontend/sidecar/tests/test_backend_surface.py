@@ -14,6 +14,7 @@ PREVIOUS = "p" * 40
 os.environ["HRDD_BACKEND_SECRET"] = SECRET
 os.environ["HRDD_BACKEND_SECRET_PREVIOUS"] = PREVIOUS
 os.environ.pop("ALLOW_UNSIGNED_BACKEND_SURFACE", None)
+os.environ.pop("BACKEND_SURFACE_AUTH", None)
 
 from fastapi import FastAPI, Form  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -62,6 +63,7 @@ class BackendSurfaceTest(unittest.TestCase):
         r = self.client.get("/backend/v1/queue", headers=signed_headers("GET", "/backend/v1/queue"))
         self.assertEqual(r.status_code, 200)
         self.assertIn("messages", r.json())
+        self.assertEqual(r.json()["surface_auth"], "signed")  # reported to the backend admin
 
     def test_signed_with_query_ok(self):
         h = signed_headers("GET", "/backend/v1/config?probe=1")
@@ -153,7 +155,7 @@ class ModeTest(unittest.TestCase):
     """Middleware configuration edge cases, on a minimal app."""
 
     def _client(self, **env):
-        saved = {k: os.environ.get(k) for k in ("HRDD_BACKEND_SECRET", "HRDD_BACKEND_SECRET_PREVIOUS", "ALLOW_UNSIGNED_BACKEND_SURFACE")}
+        saved = {k: os.environ.get(k) for k in ("HRDD_BACKEND_SECRET", "HRDD_BACKEND_SECRET_PREVIOUS", "ALLOW_UNSIGNED_BACKEND_SURFACE", "BACKEND_SURFACE_AUTH")}
         try:
             for k in saved:
                 os.environ.pop(k, None)
@@ -189,6 +191,35 @@ class ModeTest(unittest.TestCase):
         r = c.post("/backend/v1/echo", data={"x": "ok"})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json(), {"x": "ok"})
+
+    def test_trusted_network_mode(self):
+        c = self._client(BACKEND_SURFACE_AUTH="trusted-network")
+        r = c.post("/backend/v1/echo", data={"x": "ok"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {"x": "ok"})
+
+    def test_trusted_network_does_not_need_a_secret(self):
+        c = self._client(BACKEND_SURFACE_AUTH="trusted-network", HRDD_BACKEND_SECRET="")
+        self.assertEqual(c.post("/backend/v1/echo").status_code, 200)
+
+    def test_unknown_mode_falls_back_to_signed(self):
+        c = self._client(BACKEND_SURFACE_AUTH="yolo", HRDD_BACKEND_SECRET=SECRET)
+        self.assertEqual(c.post("/backend/v1/echo").status_code, 401)
+
+    def test_surface_mode_reporting(self):
+        for env, expected in (({}, "signed"), ({"BACKEND_SURFACE_AUTH": "trusted-network"}, "trusted-network"),
+                              ({"ALLOW_UNSIGNED_BACKEND_SURFACE": "true"}, "trusted-network"),
+                              ({"BACKEND_SURFACE_AUTH": "signed", "ALLOW_UNSIGNED_BACKEND_SURFACE": "true"}, "signed")):
+            saved = {k: os.environ.pop(k, None) for k in ("BACKEND_SURFACE_AUTH", "ALLOW_UNSIGNED_BACKEND_SURFACE")}
+            try:
+                os.environ.update(env)
+                self.assertEqual(backend_auth.surface_mode(), expected, env)
+            finally:
+                for k in ("BACKEND_SURFACE_AUTH", "ALLOW_UNSIGNED_BACKEND_SURFACE"):
+                    os.environ.pop(k, None)
+                for k, v in saved.items():
+                    if v is not None:
+                        os.environ[k] = v
 
 
 if __name__ == "__main__":

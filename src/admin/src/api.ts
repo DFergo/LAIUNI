@@ -84,17 +84,23 @@ export interface Frontend {
   status: string
   last_seen: string | null
   created_at: string
-  // Backend-surface credentials — the values themselves are write-only.
+  // Backend-surface access — secret values are write-only.
+  auth_mode?: FrontendAuthMode
+  signing_source?: 'own' | 'global' | ''
   signing_enabled?: boolean
   extra_header_names?: string[]
+  surface_auth?: 'signed' | 'trusted-network'  // what the frontend itself reports on poll
 }
 
+export type FrontendAuthMode = 'signed' | 'unsigned' | 'legacy'
+
 export interface FrontendCredentials {
+  auth_mode?: FrontendAuthMode
   signing_secret?: string
   extra_headers?: Record<string, string>
 }
 
-export async function listFrontends(): Promise<{ frontends: Frontend[] }> {
+export async function listFrontends(): Promise<{ frontends: Frontend[]; global_secret_configured?: boolean }> {
   return request('/admin/frontends');
 }
 

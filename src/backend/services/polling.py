@@ -109,6 +109,7 @@ async def poll_frontends():
                 data = resp.json()
                 messages = data.get("messages", [])
                 registry.set_status(fid, "online")
+                registry.set_surface_auth(fid, data.get("surface_auth"))
 
                 # Push branding config if exists (survives sidecar restarts)
                 await _push_branding_if_needed(client, url, fid)

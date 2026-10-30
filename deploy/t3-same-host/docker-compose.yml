@@ -27,6 +27,7 @@ services:
       - hrdd-data:/app/data
     environment:
       - DEPLOYMENT_JSON_PATH=/app/config/deployment_backend.json
+      - HRDD_FRONTEND_SECRET=${HRDD_BACKEND_SECRET:?set HRDD_BACKEND_SECRET (≥32 chars) — shared by backend and frontend}
     networks: [egress, backchannel]
     security_opt:
       - no-new-privileges:true
@@ -39,7 +40,8 @@ services:
     volumes:
       - hrdd-frontend-data:/app/data
     environment:
-      - HRDD_BACKEND_SECRET=${HRDD_BACKEND_SECRET:?set HRDD_BACKEND_SECRET (≥32 chars)}
+      - BACKEND_SURFACE_AUTH=${BACKEND_SURFACE_AUTH:-signed}
+      - HRDD_BACKEND_SECRET=${HRDD_BACKEND_SECRET:-}
       - HRDD_BACKEND_SECRET_PREVIOUS=${HRDD_BACKEND_SECRET_PREVIOUS:-}
     networks: [public, backchannel]
     security_opt:

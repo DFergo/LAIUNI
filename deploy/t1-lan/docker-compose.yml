@@ -19,7 +19,8 @@ services:
     volumes:
       - hrdd-frontend-data:/app/data
     environment:
-      - HRDD_BACKEND_SECRET=${HRDD_BACKEND_SECRET:?set HRDD_BACKEND_SECRET (≥32 chars)}
+      - BACKEND_SURFACE_AUTH=${BACKEND_SURFACE_AUTH:-signed}
+      - HRDD_BACKEND_SECRET=${HRDD_BACKEND_SECRET:-}
       - HRDD_BACKEND_SECRET_PREVIOUS=${HRDD_BACKEND_SECRET_PREVIOUS:-}
     security_opt:
       - no-new-privileges:true
