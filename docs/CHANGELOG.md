@@ -1,5 +1,14 @@
 # HRDD Helper — Changelog
 
+## Sprint 35 — Flexible frontend deployment (pilot, branch `feat/flexible-deploy`)
+
+- **Two surfaces, two ports.** The frontend container now serves the SPA and browser routes on port `80` (unchanged `/internal/*`) and the backend-facing routes on port `8080` under `/backend/v1/*` (queue, uploads, config/branding/logo push, recovery data, auth results, response chunks). Separate FastAPI apps (`sidecar/main.py`: `app` / `backend_app`, run together by `sidecar/serve.py` so they share state) behind two Nginx listeners; neither listener proxies the other prefix (`/backend/` → 404 on the public port).
+- **Signed backend requests.** Every request on the backend surface carries an HMAC-SHA256 signature over method, path + query, timestamp, nonce and body hash (`sidecar/backend_auth.py`, `services/frontend_client.py`), with a ±120 s window, a nonce cache and rejection of requests signed before the process started. Per-frontend secret via `HRDD_BACKEND_SECRET` (+ `HRDD_BACKEND_SECRET_PREVIOUS` for rotation); missing/short secret → the backend surface rejects everything. `ALLOW_UNSIGNED_BACKEND_SURFACE=true` exists for development only. Clocks must be NTP-synced.
+- **Frontend registry credentials.** Each registered frontend can hold a signing secret and optional extra headers (e.g. Cloudflare Access service-token headers); both write-only in the API. Admin → Frontends: credentials on register, a **Security** panel per frontend (backend-port URL + secret + headers in one verified save), **signed/unsigned** badge. Frontends registered before this keep working unsigned (transition mode, logged).
+- **Topologies.** `deploy/` adds compose examples for T1 (frontend on the backend's LAN), T2 (VPS behind a cloudflared tunnel, backend port on a separate Access-protected hostname, no inbound ports) and T3 (same host, internal Docker network shared only by backend and frontend). `docker-compose.frontend.yml` gains `FRONTEND_BACKEND_PORT` and `BACKEND_BIND` (default `127.0.0.1`).
+- **Images.** New `frontend-image.yml` publishes `ghcr.io/dfergo/laiuni-frontend` for amd64 + arm64 (React built once on the build platform). Both image workflows tag `latest` only from `main`; the pilot branch publishes `pilot` + `sha-<commit>`.
+- **Tests:** `src/frontend/sidecar/tests/test_backend_surface.py`, `src/backend/tests/test_frontend_signing.py` (shared signature vector).
+
 ## Sprint 33 — Logo upload + header colour mode
 
 - **Upload a logo image** per frontend (PNG/WEBP/JPG, ≤ 2 MB) instead of only a URL. `POST /admin/frontends/{fid}/branding/logo` normalises it with Pillow (RGBA, downscaled to ≤ 240 px height) into a colour variant; when the image has real transparency it also builds a whitened variant for the blue header. `DELETE` reverts to the URL/bundled default; a processed image overrides the Logo URL. New dep: `Pillow>=10.0`.
