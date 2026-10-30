@@ -1,0 +1,61 @@
+# T3 — backend and frontend on the same machine, isolated containers.
+#
+# Networks:
+#   backchannel  (internal: no route out) — ONLY backend + this frontend. The backend
+#                reaches the frontend's backend surface at http://hrdd-frontend:8080.
+#                The frontend has no route to the backend (pull-inverse: it never needs one).
+#   egress       — backend's outbound access (LLM, SMTP).
+#   public       — frontend's public port, published on 127.0.0.1 for a local cloudflared.
+# The frontend's backend port is NOT published on the host.
+# Register in the backend: URL http://hrdd-frontend:8080 + the signing secret.
+# One backchannel network per frontend, so frontends can't see each other.
+#
+# Residual risk: on the backchannel the frontend container can open TCP to the
+# backend's port 8000 (admin API, protected by admin login). Docker networks don't
+# filter per port; keep the admin password strong or move frontends to another host.
+#
+#   cp .env.example .env   # fill in
+#   docker compose up -d
+
+services:
+  hrdd-backend:
+    image: ghcr.io/dfergo/laiuni-backend:${BACKEND_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${BACKEND_ADMIN_PORT:-8000}:8000"
+    volumes:
+      - hrdd-data:/app/data
+    environment:
+      - DEPLOYMENT_JSON_PATH=/app/config/deployment_backend.json
+    networks: [egress, backchannel]
+    security_opt:
+      - no-new-privileges:true
+
+  hrdd-frontend:
+    image: ghcr.io/dfergo/laiuni-frontend:${FRONTEND_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:?set FRONTEND_PORT}:80"
+    volumes:
+      - hrdd-frontend-data:/app/data
+    environment:
+      - HRDD_BACKEND_SECRET=${HRDD_BACKEND_SECRET:?set HRDD_BACKEND_SECRET (≥32 chars)}
+      - HRDD_BACKEND_SECRET_PREVIOUS=${HRDD_BACKEND_SECRET_PREVIOUS:-}
+    networks: [public, backchannel]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, NET_BIND_SERVICE, DAC_OVERRIDE]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+
+networks:
+  egress:
+  public:
+  backchannel:
+    internal: true
+
+volumes:
+  hrdd-data:
+  hrdd-frontend-data:

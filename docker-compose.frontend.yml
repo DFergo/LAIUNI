@@ -4,16 +4,28 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-    # FRONTEND_PORT is REQUIRED — deploy fails clearly if it is not set.
-    # Deploy one instance per campaign, each with its own port and volume.
+    # Two ports (container side fixed, host side configurable):
+    #   80   public surface  — SPA + browser routes. Map this in the tunnel / give it to users.
+    #   8080 backend surface — signed requests from the HRDD backend only.
+    # Deploy one instance per campaign, each with its own ports, volume and secret.
+    # Other topologies (frontend on a VPS, frontend on the backend host): see deploy/.
     ports:
+      # FRONTEND_PORT is REQUIRED — deploy fails clearly if it is not set.
       - "${FRONTEND_PORT:?FRONTEND_PORT is required — set the host port for this frontend}:80"
+      # Backend surface: bound to BACKEND_BIND only (default 127.0.0.1 = not reachable
+      # from other machines). For a backend on another LAN machine set BACKEND_BIND to
+      # this host's LAN IP. Never 0.0.0.0 on a machine with a public interface.
+      - "${BACKEND_BIND:-127.0.0.1}:${FRONTEND_BACKEND_PORT:?FRONTEND_BACKEND_PORT is required — host port for the backend surface}:8080"
     volumes:
       # Sidecar state (pushed branding + config). Named volume by default;
       # bind-mount alternative: - /Users/you/hrdd-frontend-a:/app/data
       - hrdd-frontend-data:/app/data
     environment:
       - DEPLOYMENT_JSON_PATH=/app/config/deployment_frontend.json
+      # Shared with the backend (Admin → Frontends → Security). ≥ 32 characters.
+      # Rotation: put the old value in HRDD_BACKEND_SECRET_PREVIOUS while switching.
+      - HRDD_BACKEND_SECRET=${HRDD_BACKEND_SECRET:?HRDD_BACKEND_SECRET is required — generate it in Admin → Frontends}
+      - HRDD_BACKEND_SECRET_PREVIOUS=${HRDD_BACKEND_SECRET_PREVIOUS:-}
 
 volumes:
   hrdd-frontend-data:
