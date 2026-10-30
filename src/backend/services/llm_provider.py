@@ -67,6 +67,37 @@ def _split_multimodal(content: Any) -> tuple[str, list[dict[str, str]]]:
     return "\n".join(text_parts), images
 
 
+def _content_text(content: Any) -> str:
+    """Visible text of a response ``content`` field, string or block list.
+
+    OpenAI-compatible providers usually send a string. Reasoning models on the
+    Mistral API send a list of blocks instead, e.g.
+    ``[{"type": "thinking", "thinking": [...]}, {"type": "text", "text": "..."}]``
+    (both in ``message.content`` and in streaming ``delta.content``). Only
+    ``text`` blocks are user-visible; ``thinking`` blocks are dropped (logged at
+    debug level). Anything else unexpected yields "".
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        content = [content]
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict):
+            kind = block.get("type")
+            if kind == "text" and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+            elif kind == "thinking":
+                logger.debug("Dropped a thinking block from the model response")
+    return "".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Embedding-model detection (used to filter the embedding slot's dropdown)
 # ---------------------------------------------------------------------------
@@ -152,11 +183,12 @@ class OpenAIAdapter:
                         break
                     try:
                         chunk = json.loads(payload)
-                        token = chunk.get("choices", [{}])[0].get("delta", {}).get("content")
-                        if token:
-                            yield token
-                    except (ValueError, KeyError, IndexError):
+                        choices = chunk.get("choices") or [{}]
+                        token = _content_text((choices[0].get("delta") or {}).get("content"))
+                    except (ValueError, KeyError, IndexError, AttributeError):
                         continue
+                    if token:
+                        yield token
 
     async def warmup(self, conn, model):
         return  # no-op — only ollama benefits from warmup

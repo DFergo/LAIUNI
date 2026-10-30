@@ -1,5 +1,9 @@
 # HRDD Helper — Changelog
 
+## Sprint 37 — LLM provider compatibility and prompt caching (in progress)
+
+- **Block-format responses (fix).** OpenAI-compatible providers that return `content` as a list of blocks (Mistral API with reasoning models such as `mistral-large-4`: `thinking` + `text` blocks) are now normalised in the stream: only `text` blocks reach the user, `thinking` blocks are dropped. Previously the raw list was passed on, which broke the chat stream. Tests with provider fixtures in `src/backend/tests/test_llm_provider.py`.
+
 ## Documentation — New installation guide
 
 - **`docs/INSTALL.md` rewritten** for the current architecture: published images, the two-port frontend, the T1/T2/T3 topologies (`deploy/`), access modes (installation secret, own secret, trusted network) and what each one gives up, the five LLM slots including embeddings and reindexing, Cloudflare Tunnel + Access, backups, secret rotation, troubleshooting, and a ports/variables appendix. Still-valid parts of the old guide (Portainer, Ollama concurrency/keep-alive/warm-up, slot fallbacks, admin notifications) are folded in. Corrections over earlier notes: the backend health check is `GET /health`; "Preparing..." means the message is waiting for the backend (plain HTTP works); backups copy the volume through the running container (Compose prefixes volume names).
