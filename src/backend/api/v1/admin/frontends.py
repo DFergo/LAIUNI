@@ -160,10 +160,34 @@ async def get_frontend_config(frontend_id: str, _: dict = Depends(require_admin)
 async def update_frontend_config(frontend_id: str, config: dict, _: dict = Depends(require_admin)):
     if not registry.get(frontend_id):
         raise HTTPException(status_code=404, detail="Frontend not found")
-    from src.services.frontend_registry import save_config
+    from src.services.frontend_registry import save_config, load_config
+    previous_languages = set(load_config(frontend_id).get("languages") or [])
     save_config(frontend_id, config)
     await _push_config_to_sidecar(frontend_id)
+    if set(config.get("languages") or []) != previous_languages:
+        _translate_missing_branding(frontend_id)
     return {"frontend_id": frontend_id, "config": config}
+
+
+def _translate_missing_branding(frontend_id: str):
+    """The frontend's languages changed: translate its custom branding into any
+    newly enabled language (fill-missing only — existing translations are kept)."""
+    path = _branding_path(frontend_id)
+    if not path.exists():
+        return
+    data = json.loads(path.read_text())
+    if not _has_custom_branding_text(data):
+        return
+    from src.services.branding_translator import translate_branding
+
+    async def _safe_translate():
+        try:
+            await translate_branding(frontend_id, data)
+            await _push_branding_to_sidecar(frontend_id)
+        except Exception as e:
+            logger.error(f"Branding translation after a language change failed for {frontend_id}: {e}")
+
+    asyncio.create_task(_safe_translate())
 
 
 async def _push_config_to_sidecar(frontend_id: str):

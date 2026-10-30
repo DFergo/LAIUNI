@@ -222,5 +222,49 @@ class ModeTest(unittest.TestCase):
                         os.environ[k] = v
 
 
+
+class StreamCleanupTest(unittest.TestCase):
+    """A finished stream must not be dropped while a browser already listens
+    for the next message on the same session (it opens its stream first)."""
+
+    def setUp(self):
+        import sidecar.main as m
+        self.m = m
+        m._streams.clear()
+        m._stream_listeners.clear()
+
+    def test_listened_stream_survives_cleanup(self):
+        import asyncio
+        m = self.m
+
+        async def scenario():
+            q = await m._get_or_create_stream("S-1")
+            await q.put({"event": "done", "data": "turn 1"})
+            await q.get()                                  # turn 1 consumer read "done" and left
+            m._stream_listeners["S-1"] = 1                 # turn 2 consumer already listening
+            dropped = await m._drop_stream_if_idle("S-1", q)
+            return dropped, m._streams.get("S-1") is q
+        self.assertEqual(asyncio.run(scenario()), (False, True))
+
+    def test_idle_stream_is_dropped(self):
+        import asyncio
+        m = self.m
+
+        async def scenario():
+            q = await m._get_or_create_stream("S-2")
+            return await m._drop_stream_if_idle("S-2", q), "S-2" in m._streams
+        self.assertEqual(asyncio.run(scenario()), (True, False))
+
+    def test_replaced_stream_is_not_dropped(self):
+        import asyncio
+        m = self.m
+
+        async def scenario():
+            old = await m._get_or_create_stream("S-3")
+            m._streams["S-3"] = asyncio.Queue()           # a newer stream took its place
+            return await m._drop_stream_if_idle("S-3", old), "S-3" in m._streams
+        self.assertEqual(asyncio.run(scenario()), (False, True))
+
+
 if __name__ == "__main__":
     unittest.main()

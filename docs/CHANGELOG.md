@@ -1,5 +1,10 @@
 # HRDD Helper — Changelog
 
+## Maintenance — Streaming race and branding languages
+
+- **Lost replies (fix).** The frontend dropped a finished response stream 5 seconds after it ended. If the user sent the next message within those 5 seconds (the browser opens its stream first), the stream it was listening to was dropped and the reply never arrived. The sidecar now counts open stream connections per session and only drops a finished stream when nobody is listening. Reproduced with real timings before the fix; tests in `sidecar/tests/test_backend_surface.py`.
+- **Branding translations only for the frontend's languages.** Custom disclaimer/instructions were translated into all 31 languages on every save. Now only into the frontend's configured languages (none selected = all, as elsewhere), English being the source. Enabling a language later in Configure translates just that language; translations for languages that are switched off are kept. Tests in `src/backend/tests/test_branding_translator.py`.
+
 ## Sprint 37 — LLM provider compatibility and prompt caching
 
 - **Capability profiles** (`services/llm_capabilities.py`): provider inferred from the connection address (Mistral, OpenRouter, OpenAI, other OpenAI-compatible) or forced per connection; per provider/model rules decide which fields are sent and how. Mistral never receives fields it rejects (`num_ctx`, `seed`, `reasoning`, …). If a provider still rejects an optional field we added, the request is retried once without it (logged).

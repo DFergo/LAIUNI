@@ -1,4 +1,5 @@
-"""Branding translator — uses LLM to translate custom branding text to all supported languages.
+"""Branding translator — uses LLM to translate custom branding text to the
+frontend's configured languages (all supported languages when none are set).
 
 Sprint 11: Background translation of disclaimer and instructions text for per-frontend branding.
 """
@@ -33,6 +34,17 @@ LANGUAGES = [
 
 # In-memory translation status per frontend
 _translation_status: dict[str, dict[str, Any]] = {}
+
+
+def target_languages(frontend_id: str) -> list[tuple[str, str]]:
+    """Languages to translate a frontend's branding into: the frontend's
+    configured languages (empty = all, as everywhere else), always including
+    English, which is the source text."""
+    from src.services.frontend_registry import load_config
+    selected = set(load_config(frontend_id).get("languages") or [])
+    if not selected:
+        return list(LANGUAGES)
+    return [(code, name) for code, name in LANGUAGES if code in selected or code == "en"]
 
 
 def get_translation_status(frontend_id: str) -> dict[str, Any]:
@@ -89,7 +101,7 @@ async def _translate_text(
 
 
 async def translate_branding(frontend_id: str, branding: dict[str, str], force: bool = False):
-    """Translate branding texts to all supported languages. Saves to disk.
+    """Translate branding texts to the frontend's configured languages. Saves to disk.
 
     Fill-missing (Sprint 20): existing non-empty translations are kept; only
     missing fields are (re)translated. ``force=True`` regenerates everything
@@ -125,14 +137,17 @@ async def translate_branding(frontend_id: str, branding: dict[str, str], force: 
         except Exception as e:
             logger.warning(f"Glossary load failed, translating without it: {e}")
 
-    # Start from existing translations so we can fill only what's missing
+    # Start from existing translations so we can fill only what's missing.
+    # Translations for languages no longer configured are kept (no cost; reused
+    # if the language is enabled again).
     existing = load_translations(frontend_id) or {}
-    translations: dict[str, dict[str, str]] = {code: dict(existing.get(code, {})) for code, _ in LANGUAGES}
+    translations: dict[str, dict[str, str]] = {code: dict(entry) for code, entry in existing.items()}
 
-    total = len(LANGUAGES)
+    targets = target_languages(frontend_id)
+    total = len(targets)
     _translation_status[frontend_id] = {"status": "translating", "progress": 0, "total": total}
 
-    for i, (code, name) in enumerate(LANGUAGES):
+    for i, (code, name) in enumerate(targets):
         entry = translations.setdefault(code, {})
         system_prompt = base_prompt + (_glossary_block(glossary_terms, code) if glossary_terms else "")
 

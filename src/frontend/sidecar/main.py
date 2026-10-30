@@ -51,6 +51,9 @@ _recovery_lock = asyncio.Lock()
 # token -> asyncio.Queue of SSE events
 _streams: dict[str, asyncio.Queue[dict[str, str]]] = {}
 _streams_lock = asyncio.Lock()
+# Open SSE connections per session: a finished stream is only dropped when
+# nobody is listening (see _drop_stream_if_idle).
+_stream_listeners: dict[str, int] = {}
 
 
 class SubmitMessageRequest(BaseModel):
@@ -402,14 +405,25 @@ async def push_chunk(session_token: str, chunk: ChunkRequest):
 
     # Clean up stream on terminal events
     if chunk.event in ("done", "error"):
-        # Give SSE consumer time to read, then clean up
+        # Give SSE consumer time to read, then clean up — unless a browser is
+        # already listening for the next message on this session (it opens its
+        # stream before sending; dropping the queue under it would lose the reply).
         async def _cleanup():
             await asyncio.sleep(5)
-            async with _streams_lock:
-                _streams.pop(session_token, None)
+            await _drop_stream_if_idle(session_token, q)
         asyncio.create_task(_cleanup())
 
     return {"status": "ok"}
+
+
+async def _drop_stream_if_idle(token: str, q: asyncio.Queue) -> bool:
+    """Drop a finished session stream if it is still the current one and no SSE
+    connection is listening to it. Returns True if it was dropped."""
+    async with _streams_lock:
+        if _streams.get(token) is q and not _stream_listeners.get(token):
+            _streams.pop(token, None)
+            return True
+        return False
 
 
 @app.get("/internal/stream/{session_token}")
@@ -418,6 +432,18 @@ async def stream_sse(session_token: str):
     q = await _get_or_create_stream(session_token)
 
     async def event_generator():
+        _stream_listeners[session_token] = _stream_listeners.get(session_token, 0) + 1
+        try:
+            async for chunk in _sse_events(q):
+                yield chunk
+        finally:
+            left = _stream_listeners.get(session_token, 1) - 1
+            if left > 0:
+                _stream_listeners[session_token] = left
+            else:
+                _stream_listeners.pop(session_token, None)
+
+    async def _sse_events(q):
         while True:
             try:
                 event = await asyncio.wait_for(q.get(), timeout=30.0)
