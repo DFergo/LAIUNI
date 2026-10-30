@@ -87,7 +87,7 @@ docker compose logs --tail 20
 Notes:
 
 - The admin panel listens on port `8000`. The example publishes it **only on `127.0.0.1`**: reach it from the same machine, or through a VPN, an SSH tunnel or a private network address. If you need a LAN address, bind to that specific address (for example `"192.168.1.10:8000:8000"`), never to every interface on an exposed host.
-- Image tags: `latest` follows the `main` branch; `sha-<commit>` pins an exact version; `pilot` is for test builds and should not be used in production.
+- Image tags: `latest` follows the `main` branch; `sha-<commit>` pins an exact version.
 - The published backend image is built for **`arm64`** only. On an `amd64` host, build from source instead: clone the repository and run `docker compose -f docker-compose.backend.yml up -d --build`.
 
 **With Portainer.** Portainer can deploy straight from the repository: *Stacks → Add stack → Repository*, URL `https://github.com/DFergo/LAIUNI`, branch `main`, compose path `docker-compose.backend.yml` (it builds from source). Add the environment variables in the stack form. To update: *Pull and redeploy*.
@@ -300,7 +300,7 @@ docker compose up -d
 
 To update automatically, add the label `com.centurylinklabs.watchtower.enable=true` to the service and run Watchtower with `--label-enable` on a nightly schedule, so only labelled containers are touched. With recent Docker Engines (checked on 29.4) the `containrrr/watchtower` image needs `DOCKER_API_VERSION` set to a supported API version such as `1.44`; otherwise it stops with "client version 1.25 is too old". The T2 example already does this.
 
-Use `latest` for production, or pin `sha-<commit>` and update on purpose. Test builds are tagged `pilot`.
+Use `latest`, or pin `sha-<commit>` and update on purpose.
 
 To roll back, set the previous `sha-<commit>` tag in the compose file and run `docker compose up -d`.
 
