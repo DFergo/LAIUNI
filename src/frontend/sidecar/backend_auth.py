@@ -106,8 +106,7 @@ class BackendSignatureMiddleware:
         if not self.allow_unsigned:
             reason = self._verify(scope, body)
             if reason:
-                client = scope.get("client") or ("?", 0)
-                logger.warning(f"Rejected backend-surface request {scope['method']} {scope['path']} from {client[0]}: {reason}")
+                logger.warning(f"Rejected backend-surface request {scope['method']} {scope['path']} from {_client_ip(scope)}: {reason}")
                 await _send_status(send, 401, "Unauthorized")
                 return
 
@@ -166,6 +165,14 @@ class BackendSignatureMiddleware:
         expired = [n for n, exp in self._nonces.items() if exp < now]
         for n in expired:
             del self._nonces[n]
+
+
+def _client_ip(scope) -> str:
+    """Real client IP for the log: Nginx sets X-Real-IP; fall back to the socket peer."""
+    for k, v in scope.get("headers", []):
+        if k == b"x-real-ip":
+            return v.decode("latin-1")
+    return (scope.get("client") or ("?", 0))[0]
 
 
 async def _send_status(send, status: int, detail: str):
