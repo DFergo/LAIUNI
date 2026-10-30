@@ -14,10 +14,20 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 
+from sidecar.backend_auth import BackendSignatureMiddleware
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("sidecar")
 
+# Two surfaces, two apps, two ports (served together by serve.py so they share
+# the in-memory state below):
+#   app          — public surface, browser routes under /internal/
+#   backend_app  — backend surface, routes under /backend/v1/, every request
+#                  signed (backend_auth.py). Never reachable on the public port.
 app = FastAPI(title="HRDD Frontend Sidecar", version="2.0.0")
+backend_app = FastAPI(title="HRDD Frontend Sidecar — backend surface", version="2.0.0",
+                      docs_url=None, redoc_url=None, openapi_url=None)
+backend_app.add_middleware(BackendSignatureMiddleware)
 
 # Load deployment config (generic — behaviour now comes from the pushed
 # frontend config, not this file; kept only for the `role` marker).
@@ -70,6 +80,7 @@ class RecoveryDataRequest(BaseModel):
 # --- Health & Config ---
 
 @app.get("/internal/health")
+@backend_app.get("/backend/v1/health")
 async def health():
     return {"status": "ok"}
 
@@ -107,7 +118,7 @@ if _FRONTEND_CONFIG_FILE.exists():
         pass
 
 
-@app.post("/internal/frontend-config")
+@backend_app.post("/backend/v1/frontend-config")
 async def update_frontend_config(data: dict[str, Any]):
     """Backend pushes this frontend's config object."""
     global _frontend_config
@@ -120,7 +131,7 @@ async def update_frontend_config(data: dict[str, Any]):
     return {"status": "ok"}
 
 
-@app.post("/internal/branding")
+@backend_app.post("/backend/v1/branding")
 async def update_branding(data: dict[str, Any]):
     """Backend pushes branding config + translations for this frontend."""
     global _branding, _branding_translations
@@ -170,7 +181,7 @@ async def get_branding_translation(lang_code: str):
     }
 
 
-@app.post("/internal/branding-logo")
+@backend_app.post("/backend/v1/branding-logo")
 async def update_branding_logo(
     mode: str = Form("white"),
     clear: str = Form(""),
@@ -216,6 +227,7 @@ async def get_branding_logo(variant: str):
 
 
 @app.get("/internal/config")
+@backend_app.get("/backend/v1/config")
 async def get_config():
     if _frontend_config.get("configured"):
         cfg = {
@@ -271,7 +283,7 @@ async def enqueue_message(msg: SubmitMessageRequest):
     return {"status": "queued", "message_id": msg.message_id}
 
 
-@app.get("/internal/queue")
+@backend_app.get("/backend/v1/queue")
 async def dequeue_messages():
     """Backend polls this endpoint to collect pending messages."""
     now = time.time()
@@ -348,7 +360,7 @@ async def get_recovery_status(token: str):
     return {"status": state["status"], "data": state.get("data")}
 
 
-@app.post("/internal/session/{token}/recovery-data")
+@backend_app.post("/backend/v1/session/{token}/recovery-data")
 async def push_recovery_data(token: str, req: RecoveryDataRequest):
     """Backend pushes recovery result (found/not_found/expired + session data)."""
     async with _recovery_lock:
@@ -381,7 +393,7 @@ async def _get_or_create_stream(token: str) -> asyncio.Queue[dict[str, str]]:
         return _streams[token]
 
 
-@app.post("/internal/stream/{session_token}/chunk")
+@backend_app.post("/backend/v1/stream/{session_token}/chunk")
 async def push_chunk(session_token: str, chunk: ChunkRequest):
     """Backend pushes response chunks (tokens) to the stream."""
     q = await _get_or_create_stream(session_token)
@@ -501,7 +513,7 @@ async def get_auth_status(session_token: str):
     return {"status": state["status"], "email": state.get("email", "")}
 
 
-@app.post("/internal/auth/{session_token}/result")
+@backend_app.post("/backend/v1/auth/{session_token}/result")
 async def push_auth_result(session_token: str, req: AuthResultRequest):
     """Backend pushes auth result (code_sent, verified, rejected, etc.)."""
     async with _auth_lock:
@@ -569,7 +581,7 @@ async def upload_file(session_token: str, file: UploadFile = File(...)):
     return {"status": "uploaded", "filename": file.filename, "size": len(content)}
 
 
-@app.get("/internal/upload/{session_token}/{filename}")
+@backend_app.get("/backend/v1/upload/{session_token}/{filename}")
 async def get_upload(session_token: str, filename: str):
     """Backend fetches the uploaded file."""
     file_path = _upload_dir / session_token / filename
@@ -578,7 +590,7 @@ async def get_upload(session_token: str, filename: str):
     return FileResponse(file_path)
 
 
-@app.delete("/internal/upload/{session_token}/{filename}")
+@backend_app.delete("/backend/v1/upload/{session_token}/{filename}")
 async def delete_upload(session_token: str, filename: str):
     """Backend confirms receipt — sidecar deletes temp file."""
     file_path = _upload_dir / session_token / filename
@@ -594,7 +606,7 @@ async def delete_upload(session_token: str, filename: str):
     return {"status": "deleted"}
 
 
-@app.get("/internal/uploads")
+@backend_app.get("/backend/v1/uploads")
 async def list_pending_uploads():
     """Backend polls for pending uploads (alongside message queue)."""
     async with _upload_queue_lock:

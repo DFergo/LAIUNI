@@ -24,6 +24,7 @@ from typing import Any
 import httpx
 
 from src.core.paths import PROMPTS_DIR
+from src.services import frontend_client
 from src.services.frontend_registry import registry
 from src.services.llm_provider import llm
 from src.services.prompt_assembler import assemble_system_prompt
@@ -95,7 +96,7 @@ async def poll_frontends():
     stalls behind chat processing or a slow email — which is what previously
     made auth-code requests time out.
     """
-    client = httpx.AsyncClient(timeout=10.0)
+    client = frontend_client.AsyncClient(timeout=10.0)
     try:
         enabled = registry.list_enabled()
 
@@ -182,13 +183,13 @@ async def _enqueue_uploads(client: httpx.AsyncClient, url: str, fid: str):
 
 async def _dispatch_auth(url: str, auth_req: dict[str, Any], fid: str):
     """Run an auth-code request in its own client so it never blocks detection."""
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with frontend_client.AsyncClient(timeout=15.0) as client:
         await _handle_auth_request(client, url, auth_req, fid)
 
 
 async def _dispatch_evidence_delete(url: str, fid: str, token: str, filename: str):
     """Run an evidence-delete in its own client so it never blocks detection."""
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with frontend_client.AsyncClient(timeout=10.0) as client:
         await _handle_evidence_delete(client, url, fid, token, filename)
 
 
@@ -264,7 +265,7 @@ async def _process_and_release(item: dict[str, Any]):
 async def _run_upload(item: dict[str, Any]):
     """Process an enqueued upload in its own client (Sprint 26)."""
     url = item.get("_frontend_url", "")
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with frontend_client.AsyncClient(timeout=30.0) as client:
         await _handle_upload(client, url, item)
 
 
@@ -277,7 +278,7 @@ async def _send_queue_positions():
     async with _processing_lock:
         items = [m for m in _processing_queue if m.get("_kind") == "chat"]
 
-    async with httpx.AsyncClient(timeout=5.0) as client:
+    async with frontend_client.AsyncClient(timeout=5.0) as client:
         for i, msg in enumerate(items):
             url = msg.get("_frontend_url", "")
             token = msg.get("session_token", "")
@@ -317,7 +318,7 @@ async def _safe_process(msg: dict[str, Any]):
             # answered the vague text and ignored the fresh file.
             content = f"[The user attached this turn: {', '.join(attachments)}]\n\n{content}"
 
-    client = httpx.AsyncClient(timeout=30.0)
+    client = frontend_client.AsyncClient(timeout=30.0)
     try:
         # If first message with survey, build system prompt and store it
         if survey:
@@ -826,7 +827,7 @@ def _mock_response(content: str) -> str:
 
 async def _handle_recovery(frontend_url: str, token: str):
     """Resolve a session recovery request and push data back to sidecar."""
-    client = httpx.AsyncClient(timeout=10.0)
+    client = frontend_client.AsyncClient(timeout=10.0)
     try:
         session = history.get_session(token)
         if not session:
