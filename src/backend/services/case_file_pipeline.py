@@ -41,15 +41,22 @@ FACT_CONCURRENCY = 3
 MAX_PROVISION_CHARS = 3000
 STRENGTHS = ("clear", "probable", "possible")
 
+KB_ONLY_RULE = (
+    "Say nothing about an instrument that is not among the provisions — its content, articles or ratification "
+    "status — and do not state the ratification status of any instrument unless a provision says it. If the "
+    "material lists relevant standards not in the knowledge base, name them only once, in section 13, in a single "
+    "line: 'Relevant standards not in the knowledge base (to verify): …' — names only."
+)
+
 WRITER_INSTRUCTION = (
     "Write the case file using exactly the sections and headings of the template, in the same order — do not add, "
     "rename or merge sections. Use the case analysis above to fill them: the primary violation type and dates in "
     "section 3; the classifications in section 4 under the heading of the matching instrument (ILO, OECD, any module "
     "section, CSDDD, UNGP), citing the provision ID (e.g. [P3]) and the article; codes of conduct and other instruments "
-    "where they fit best; standards marked as not in the knowledge base keep that mark; the chronology in section 5; "
-    "the information gaps in section 11 (critical evidence gaps) and section 13 (discrepancy notes); the strength of "
-    "each classification informs the case strength in section 13. Links flagged as unverified must not be presented "
-    "as established."
+    "where they fit best; the chronology in section 5; the information gaps in section 11 (critical evidence gaps) "
+    "and section 13 (discrepancy notes); the strength of each classification informs the case strength in section 13. "
+    "Links flagged as unverified must not be presented as established. "
+    + KB_ONLY_RULE
 )
 
 
@@ -69,6 +76,13 @@ def _json_from(text: str) -> dict[str, Any] | None:
 
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").lower()).strip(" .\"'“”")
+
+
+def _same_instrument(a: str, b: str) -> bool:
+    """One name contains the other as whole words ("ILO C1" is not "ILO C155")."""
+    a, b = _norm(a), _norm(b)
+    short, long = sorted((a, b), key=len)
+    return bool(short) and re.search(rf"(?<!\w){re.escape(short)}(?!\w)", long) is not None
 
 
 async def _ask(messages: list[dict[str, Any]], settings: dict[str, Any], session: str) -> str:
@@ -237,6 +251,7 @@ def writer_material(analysis: dict[str, Any], research: list[dict[str, Any]], ca
         out.append("## Chronology\n" + "\n".join(
             f"- {t.get('when') or 'date unknown'} — {t.get('event', '')} ({t.get('source', 'user')})" for t in timeline))
     cited: list[str] = []
+    outside: list[str] = []
     fact_blocks = []
     for r in research:
         f = r["fact"]
@@ -249,9 +264,10 @@ def writer_material(analysis: dict[str, Any], research: list[dict[str, Any]], ca
             lines.append(f"- [{link['provision']}] {link['instrument']} {link['article']} — {link['violation_type']} — "
                          f"strength: {link['strength']}{flag}. {link['reasoning']}")
         for n in r["not_in_knowledge_base"]:
-            if isinstance(n, dict):
-                lines.append(f"- (not in the knowledge base) {n.get('instrument', '')} {n.get('article', '')}. {n.get('reasoning', '')}")
-        if not r["links"] and not r["not_in_knowledge_base"]:
+            name = str(n.get("instrument", "")).strip() if isinstance(n, dict) else ""
+            if name:
+                outside.append(name)
+        if not r["links"]:
             lines.append("- No supporting provision found in the knowledge base.")
         if r["missing_information"]:
             lines.append("Missing to establish it more firmly: " + "; ".join(r["missing_information"]))
@@ -260,6 +276,12 @@ def writer_material(analysis: dict[str, Any], research: list[dict[str, Any]], ca
     gaps = [str(g) for g in analysis.get("gaps") or [] if str(g).strip()]
     if gaps:
         out.append("## Information gaps\n" + "\n".join(f"- {g}" for g in gaps))
+    cited_names = [_norm(link["instrument"]) for r in research for link in r["links"] if _norm(link["instrument"])]
+    outside = [n for n in dict.fromkeys(outside)
+               if not any(_same_instrument(n, c) for c in cited_names)]  # cited elsewhere in the case
+    if outside:
+        out.append("## Relevant standards not in the knowledge base (names only — not described, to verify)\n"
+                   + ", ".join(outside))
     if cited:
         out.append("## Provisions cited\n\n" + "\n\n".join(catalog.render(pid) for pid in dict.fromkeys(cited)))
     return "\n\n".join(out)

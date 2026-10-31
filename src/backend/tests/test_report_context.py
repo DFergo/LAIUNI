@@ -48,7 +48,7 @@ F1_FINAL = json.dumps({"classifications": [
 F2_FINAL = json.dumps({"classifications": [
     {"provision": "P99", "instrument": "ILO C29", "article": "Art. 2", "violation_type": "forced labour",
      "strength": "probable", "quote": "menace of any penalty", "reasoning": "threat"}],
-    "not_in_knowledge_base": [], "missing_information": []})
+    "not_in_knowledge_base": [{"instrument": "ILO C001"}, {"instrument": "ILO C1"}], "missing_information": []})
 OLD_FACTS = json.dumps({"context": "Germany", "facts": ["Unpaid overtime.", "Threats of non-renewal."]})
 
 
@@ -150,7 +150,10 @@ class CaseFileTest(unittest.TestCase):
         self.assertIn("three months ago — unpaid overtime starts", case_sys)
         self.assertIn("[P1] ILO C001 Art. 2 — excessive hours — strength: clear.", case_sys)       # verified quote
         self.assertIn("[P2] Code of conduct §4 — unpaid overtime — strength: possible — UNVERIFIED", case_sys)
-        self.assertIn("(not in the knowledge base) ILO C29", case_sys)  # unknown ID P99 moved out
+        self.assertIn("## Relevant standards not in the knowledge base (names only", case_sys)
+        self.assertNotIn("cited an unknown provision ID", case_sys)
+        self.assertIn("to verify)\nILO C1, ILO C29\n", case_sys)      # names only; C001 has a source so not listed       # no description of outside standards
+        self.assertIn("ratification status", docs[1]["messages"][-1]["content"])  # writer told to stay in the KB
         self.assertIn("## Information gaps", case_sys)
         self.assertIn("[P1] (source: ilo_c001.pdf)", case_sys)          # only cited provisions listed
         self.assertNotIn("ilo_c030.pdf", case_sys)                      # retrieved but not cited

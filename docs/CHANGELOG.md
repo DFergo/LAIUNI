@@ -1,5 +1,10 @@
 # HRDD Helper — Changelog
 
+## Maintenance — Case file states only what the knowledge base supports
+
+- The case file no longer describes standards that are not in the knowledge base (content, articles or ratification status), and does not state the ratification status of any instrument unless a provision says so. Relevant standards missing from the knowledge base are named once, in section 13: "Relevant standards not in the knowledge base (to verify): …". Standards already cited with a source elsewhere in the case are not repeated there.
+- Applies to the multi-step and the single-pass case file. If your installation already has `report_research.md` in its prompts, reset it to the default (Admin → Prompts) to get the updated wording; the rule itself is enforced in code.
+
 ## Sprint 40 — Prompt cache that works on Mistral; internal documents off the chat slot
 
 - **Knowledge-base excerpts stay in the chat context** (new setting *Keep knowledge-base excerpts in the conversation*, LLM → Inference, on by default). Each turn's excerpts are stored with the user message (`sessions/{token}/chat_context.json`) and resent byte-identical on later turns; excerpts already sent in the session are not repeated. Requests now only grow at the end. Measured: Mistral (`mistral-large-4`) caches reliably only when a request extends the previous one — with per-turn excerpts dropped the cache hit rate was 0–19 % whatever the layout or `prompt_cache_key`; with excerpts kept it is 62 % on turn 2, 77 % on turn 3, 83 % on turn 4 through the real chat path. Internal documents, the user summary and compression summaries never see the excerpts.

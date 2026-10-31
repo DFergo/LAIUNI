@@ -22,6 +22,8 @@ import logging
 import re
 from typing import Any
 
+from src.services import case_file_pipeline
+
 logger = logging.getLogger("backend.report_context")
 
 _PROVISIONS_PER_FACT = 4
@@ -140,9 +142,8 @@ CASE_FILE_INSTRUCTION = (
     "Keep exactly the sections and headings of the template, in the same order; do not add sections. "
     "Use the case data and the evidence above together with the conversation. When you classify the facts "
     "against international standards or codes of conduct, use the provisions under 'Applicable standards': "
-    "name the instrument and the article as they appear there and cite the provision ID (e.g. [P3]). If you "
-    "rely on a standard that is not among those provisions, mark it '(not in the knowledge base)'. If no "
-    "provision supports a fact, say so."
+    "name the instrument and the article as they appear there and cite the provision ID (e.g. [P3]). If no "
+    "provision supports a fact, say so. " + case_file_pipeline.KB_ONLY_RULE
 )
 
 

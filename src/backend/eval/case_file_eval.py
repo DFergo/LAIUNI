@@ -35,6 +35,8 @@ from src.core.paths import PROMPTS_DIR, SESSIONS_DIR  # noqa: E402
 
 CASES = Path(__file__).parent / "cases"
 VARIANTS = {"A": "conversation only", "B": "single-pass retrieval", "C": "multi-step"}
+if os.environ.get("EVAL_VARIANTS"):  # e.g. "BC" to skip a variant
+    VARIANTS = {k: v for k, v in VARIANTS.items() if k in os.environ["EVAL_VARIANTS"]}
 
 
 def _setup():
