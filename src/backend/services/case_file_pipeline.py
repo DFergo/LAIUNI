@@ -126,10 +126,12 @@ async def analyse(session_token: str, frontend_id: str, case_data: str, transcri
 
 # --------------------------------------------------------------------------- 2. research
 
-def _search(query: str, frontend_id: str, catalog: Catalog) -> list[str]:
+async def _search(query: str, frontend_id: str, catalog: Catalog) -> list[str]:
+    """Retrieval embeds the query (possibly over the network): run it in a thread
+    so the event loop — chat streaming, polling — is never blocked."""
     from src.services.rag_service import get_relevant_sources
-    return [catalog.add(src) for src in get_relevant_sources(query, top_k=PROVISIONS_PER_SEARCH,
-                                                             frontend_id=frontend_id or None)]
+    found = await asyncio.to_thread(get_relevant_sources, query, PROVISIONS_PER_SEARCH, frontend_id or None)
+    return [catalog.add(src) for src in found]
 
 
 async def research_fact(fact: dict[str, Any], context: str, session_token: str, frontend_id: str,
@@ -137,8 +139,8 @@ async def research_fact(fact: dict[str, Any], context: str, session_token: str, 
     from src.services.prompt_assembler import load_prompt
     from src.services.evidence_processor import get_session_rag_chunks
 
-    shown: list[str] = list(dict.fromkeys(_search(f"{fact['statement']}\n{context}", frontend_id, catalog)))
-    passages = get_session_rag_chunks(session_token, fact["statement"], top_k=EVIDENCE_PER_FACT)
+    shown: list[str] = list(dict.fromkeys(await _search(f"{fact['statement']}\n{context}", frontend_id, catalog)))
+    passages = await asyncio.to_thread(get_session_rag_chunks, session_token, fact["statement"], EVIDENCE_PER_FACT)
     instruction = load_prompt("report_research.md", frontend_id or None)
     searches: list[str] = []
     result: dict[str, Any] | None = None
@@ -162,14 +164,14 @@ async def research_fact(fact: dict[str, Any], context: str, session_token: str, 
             break
         queries = [str(q).strip() for q in (data.get("more_searches") or []) if str(q).strip()]
         if queries and not last and "classifications" not in data:
-            _run_searches(queries, context, frontend_id, catalog, shown, searches)
+            await _run_searches(queries, context, frontend_id, catalog, shown, searches)
             continue
         # Before accepting "not in the knowledge base", look those standards up
         # once by name: if that finds provisions not yet shown, re-ask.
         missing = [n for n in data.get("not_in_knowledge_base") or [] if isinstance(n, dict)]
         if missing and not searches and not last:
             queries = [f"{n.get('instrument', '')} {n.get('article', '')}".strip() for n in missing]
-            if _run_searches([q for q in queries if q], context, frontend_id, catalog, shown, searches):
+            if await _run_searches([q for q in queries if q], context, frontend_id, catalog, shown, searches):
                 note = ("The standards you listed as not in the knowledge base were searched for by name; any "
                         "provisions found have been added above. Classify again with them.")
                 continue
@@ -179,13 +181,13 @@ async def research_fact(fact: dict[str, Any], context: str, session_token: str, 
     return review(fact, result or {}, shown, catalog, searches)
 
 
-def _run_searches(queries: list[str], context: str, frontend_id: str, catalog: Catalog,
-                  shown: list[str], searches: list[str]) -> bool:
+async def _run_searches(queries: list[str], context: str, frontend_id: str, catalog: Catalog,
+                        shown: list[str], searches: list[str]) -> bool:
     """Run up to MAX_QUERIES_PER_ROUND searches; True if new provisions were found."""
     found = False
     for q in queries[:MAX_QUERIES_PER_ROUND]:
         searches.append(q)
-        for pid in _search(f"{q}\n{context}", frontend_id, catalog):
+        for pid in await _search(f"{q}\n{context}", frontend_id, catalog):
             if pid not in shown:
                 shown.append(pid)
                 found = True

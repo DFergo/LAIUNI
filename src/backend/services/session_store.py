@@ -40,6 +40,10 @@ class SessionStore:
     def __init__(self):
         self._cache: dict[str, dict[str, Any]] = {}
         self._loaded = False
+        # Chat context (Sprint 40): knowledge-base excerpts sent with each user
+        # message, kept so later turns resend them byte-identical (append-only
+        # prompt → provider cache hits). Never part of the conversation itself.
+        self._chat_ctx: dict[str, dict[str, Any]] = {}
 
     def _ensure_loaded(self):
         """Scan disk for existing sessions on first access."""
@@ -201,8 +205,13 @@ class SessionStore:
                 "last_activity": now,
             }
 
-    def get_llm_messages(self, token: str) -> list[dict[str, str]]:
-        """Get the full message list for LLM inference (system + history)."""
+    def get_llm_messages(self, token: str, with_chat_context: bool = False) -> list[dict[str, str]]:
+        """Get the full message list for LLM inference (system + history).
+
+        ``with_chat_context`` (chat turns only): each user message carries the
+        knowledge-base excerpts it was sent with, byte-identical, so the request
+        only ever grows at the end. Documents and summaries never set it.
+        """
         self._ensure_loaded()
         self._ensure_session(token)
         session = self._cache[token]
@@ -214,14 +223,56 @@ class SessionStore:
                 "content": session["system_prompt"],
             })
 
+        contexts = self._load_chat_context(token)["by_message"] if with_chat_context else {}
         # Strip timestamps for LLM (only role + content needed)
-        for msg in session["messages"]:
+        for i, msg in enumerate(session["messages"]):
+            extra = contexts.get(str(i), "")
+            content = msg["content"]
+            if extra:
+                content = ([*content, {"type": "text", "text": extra.lstrip()}]
+                           if isinstance(content, list) else f"{content}{extra}")
             messages.append({
                 "role": msg["role"],
-                "content": msg["content"],
+                "content": content,
             })
 
         return messages
+
+    # --- Chat context (Sprint 40) ---
+
+    def _chat_context_path(self, token: str) -> Path:
+        return _session_dir(token) / "chat_context.json"
+
+    def _load_chat_context(self, token: str) -> dict[str, Any]:
+        if token not in self._chat_ctx:
+            data: dict[str, Any] = {"by_message": {}, "sent": []}
+            path = self._chat_context_path(token)
+            if path.exists():
+                try:
+                    data = {**data, **json.loads(path.read_text())}
+                except (OSError, json.JSONDecodeError) as e:
+                    logger.warning(f"Unreadable chat context for {token}: {e}")
+            self._chat_ctx[token] = data
+        return self._chat_ctx[token]
+
+    def sent_chunk_hashes(self, token: str) -> set[str]:
+        """Hashes of the excerpts already sent in this session's chat."""
+        return set(self._load_chat_context(token)["sent"])
+
+    def set_last_user_context(self, token: str, text: str, chunk_hashes: list[str]):
+        """Attach ``text`` to the latest user message and remember the excerpts sent."""
+        self._ensure_loaded()
+        self._ensure_session(token)
+        msgs = self._cache[token]["messages"]
+        index = next((i for i in range(len(msgs) - 1, -1, -1) if msgs[i]["role"] == "user"), None)
+        if index is None or not text:
+            return
+        data = self._load_chat_context(token)
+        data["by_message"][str(index)] = text
+        data["sent"] = list(dict.fromkeys([*data["sent"], *chunk_hashes]))
+        path = self._chat_context_path(token)
+        if path.parent.exists():
+            _atomic_write_json(path, data)
 
     def get_session_config(self, token: str) -> dict[str, Any]:
         """Get session-specific config overrides."""

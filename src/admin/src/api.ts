@@ -234,6 +234,7 @@ export interface LLMSettings {
   reporter_reasoning?: ReasoningLevel | null
   use_reporter_for_user_summary: boolean
   multimodal_enabled: boolean
+  keep_rag_context?: boolean
   summariser_enabled: boolean
   summariser_connection: string
   summariser_model: string

@@ -22,6 +22,11 @@ logger = logging.getLogger("backend.context_compressor")
 # Using 3.5 as a safe average across multilingual content.
 _CHARS_PER_TOKEN = 3.5
 
+# Marks the knowledge-base excerpts attached to a user message in the chat
+# context (polling). Summaries strip everything from it on: the excerpts are
+# reference material, not part of the conversation.
+RAG_HEADER = "\n\n---\n[Reference excerpts retrieved automatically for this message — not written by the user]\n\n"
+
 # Default: preserve the last N messages (user + assistant) uncompressed
 _DEFAULT_PRESERVE_RECENT = 4  # 4 messages = 2 exchanges
 
@@ -402,6 +407,8 @@ def _format_conversation(messages: list[dict[str, str]]) -> str:
     for msg in messages:
         role = msg["role"].upper()
         content = msg["content"]
+        if isinstance(content, str):
+            content = content.split(RAG_HEADER, 1)[0]
         lines.append(f"[{role}]: {content}")
     return "\n\n".join(lines)
 

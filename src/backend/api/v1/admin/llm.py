@@ -49,6 +49,10 @@ _DEFAULTS: dict[str, Any] = {
     "reporter_reasoning": None,  # None = provider default; off|low|medium|high
     "use_reporter_for_user_summary": False,
     "multimodal_enabled": False,
+    # Sprint 40: keep each turn's knowledge-base excerpts in the chat context
+    # (append-only prompt → provider prompt-cache hits; the model keeps what it
+    # already used). Off = excerpts for the current turn only.
+    "keep_rag_context": True,
     "summariser_enabled": False,
     "summariser_connection": "ollama-default",
     "summariser_model": config.ollama_summariser_model,
@@ -229,6 +233,7 @@ class LLMSettingsRequest(BaseModel):
     reporter_reasoning: str | None = None
     use_reporter_for_user_summary: bool | None = None
     multimodal_enabled: bool | None = None
+    keep_rag_context: bool | None = None
     summariser_enabled: bool | None = None
     summariser_connection: str | None = None
     summariser_model: str | None = None

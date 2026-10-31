@@ -31,7 +31,7 @@ from src.services.rag_service import get_relevant_chunks
 from src.services.evidence_processor import get_chunks_for_files, get_session_rag_chunks, load_evidence_context, process_upload
 from src.services.session_store import store as history
 from src.services.context_compressor import get_session_summary, load_session_summary
-from src.services.context_compressor import compress_if_needed, estimate_messages_tokens
+from src.services.context_compressor import RAG_HEADER, compress_if_needed, estimate_messages_tokens
 from src.services.smtp_service import (
     is_email_authorized, generate_auth_code, verify_auth_code,
     send_auth_code, is_configured as smtp_configured,
@@ -63,19 +63,28 @@ def invalidate_branding_cache(frontend_id: str = ""):
         _branding_pushed.clear()
 
 
-_RAG_HEADER = "\n\n---\n[Reference excerpts retrieved automatically for this message — not written by the user]\n\n"
+def _rag_text(chunks: list[str]) -> str:
+    return ("The following excerpts from reference documents may be relevant "
+            "to the user's message. Use them to ground your response where applicable. "
+            "Cite the source if you reference specific provisions.\n\n"
+            + "\n\n---\n\n".join(chunks))
+
+
+def _chunk_hash(chunk: str) -> str:
+    import hashlib
+    return hashlib.sha1(chunk.strip().encode()).hexdigest()
 
 
 def _append_to_last_user(messages: list[dict[str, Any]], text: str):
-    """Append ``text`` to the last user message (string or multimodal parts)."""
+    """Append ``text`` (with RAG_HEADER) to the last user message (string or multimodal parts)."""
     for msg in reversed(messages):
         if msg["role"] != "user":
             continue
         content = msg["content"]
         if isinstance(content, list):
-            msg["content"] = [*content, {"type": "text", "text": _RAG_HEADER.lstrip() + text}]
+            msg["content"] = [*content, {"type": "text", "text": RAG_HEADER.lstrip() + text}]
         else:
-            msg["content"] = f"{content}{_RAG_HEADER}{text}"
+            msg["content"] = f"{content}{RAG_HEADER}{text}"
         return
     messages.append({"role": "user", "content": text})
 
@@ -390,8 +399,49 @@ async def _safe_process(msg: dict[str, Any]):
             )
             return
 
-        # Build messages for LLM (system + conversation history)
-        llm_messages = history.get_llm_messages(session_token)
+        settings = get_llm_settings(frontend_id)
+
+        # Knowledge-base excerpts for this message. Retrieval embeds the query
+        # (possibly over the network): run it in a thread so it never blocks
+        # other sessions' streaming and polling.
+        rag_chunks = await asyncio.to_thread(get_relevant_chunks, content, None, frontend_id)
+        # Also query session-specific evidence RAG
+        session_rag_chunks = await asyncio.to_thread(get_session_rag_chunks, session_token, content)
+        # Force-include every chunk from files attached THIS turn so the LLM
+        # can't miss them when semantic retrieval on a vague message fails.
+        # Dedup against the semantic pass — same string means same chunk.
+        if attachments:
+            forced = get_chunks_for_files(session_token, attachments)
+            existing = set(session_rag_chunks)
+            for c in forced:
+                if c not in existing:
+                    session_rag_chunks.append(c)
+                    existing.add(c)
+        all_chunks = list(dict.fromkeys(rag_chunks + session_rag_chunks))
+
+        # Sprint 40 (default): the excerpts stay in the conversation context —
+        # stored with this user message and resent byte-identical on later
+        # turns, so the request only grows at the end (providers such as
+        # Mistral only cache reliably when a request extends the previous one)
+        # and the model keeps the material it already used. Excerpts already
+        # sent in this session are not repeated.
+        keep = settings.get("keep_rag_context", True)
+        new_chunks: list[str] = []
+        if keep and all_chunks:
+            sent = history.sent_chunk_hashes(session_token)
+            new_chunks = [c for c in all_chunks if _chunk_hash(c) not in sent]
+            if new_chunks:
+                history.set_last_user_context(session_token, RAG_HEADER + _rag_text(new_chunks),
+                                              [_chunk_hash(c) for c in new_chunks])
+
+        # Build messages for LLM (system + conversation history [+ kept excerpts])
+        llm_messages = history.get_llm_messages(session_token, with_chat_context=keep)
+        if all_chunks and not keep:
+            # Excerpts for this turn only, at the tail (not stored).
+            _append_to_last_user(llm_messages, _rag_text(all_chunks))
+        if all_chunks:
+            logger.debug(f"RAG for {session_token}: {len(all_chunks)} chunks, {len(new_chunks)} new "
+                         f"({len(session_rag_chunks)} from evidence)")
 
         # Inject evidence context — summaries of uploaded documents (fixed context)
         evidence_entries = load_evidence_context(session_token)
@@ -417,37 +467,7 @@ async def _safe_process(msg: dict[str, Any]):
             pos = 1 if llm_messages and llm_messages[0]["role"] == "system" else 0
             llm_messages.insert(pos, {"role": "system", "content": evidence_context})
 
-        # Inject RAG context — retrieve relevant document chunks for this message
-        rag_chunks = get_relevant_chunks(content, frontend_id=frontend_id)
-        # Also query session-specific evidence RAG
-        session_rag_chunks = get_session_rag_chunks(session_token, content)
-        # Force-include every chunk from files attached THIS turn so the LLM
-        # can't miss them when semantic retrieval on a vague message fails.
-        # Dedup against the semantic pass — same string means same chunk.
-        if attachments:
-            forced = get_chunks_for_files(session_token, attachments)
-            existing = set(session_rag_chunks)
-            for c in forced:
-                if c not in existing:
-                    session_rag_chunks.append(c)
-                    existing.add(c)
-        all_chunks = rag_chunks + session_rag_chunks
-
-        if all_chunks:
-            rag_context = (
-                "The following excerpts from reference documents may be relevant "
-                "to the user's message. Use them to ground your response where applicable. "
-                "Cite the source if you reference specific provisions.\n\n"
-                + "\n\n---\n\n".join(all_chunks)
-            )
-            # Per-turn RAG goes at the tail (appended to this turn's user
-            # message, request only — not stored), never into the middle of the
-            # prompt, so everything before this turn stays a cacheable prefix.
-            _append_to_last_user(llm_messages, rag_context)
-            logger.debug(f"Injected {len(all_chunks)} RAG chunks ({len(session_rag_chunks)} from evidence) for {session_token}")
-
         # Compress context if approaching limit (ADR-009)
-        settings = get_llm_settings(frontend_id)
         context_tokens = estimate_messages_tokens(llm_messages)
         logger.info(f"[{session_token}] Context size: {context_tokens} tokens ({len(llm_messages)} messages)")
         llm_messages = await compress_if_needed(llm_messages, settings, session_token)
@@ -645,9 +665,11 @@ async def _finalize_session(
         )
         logger.info(f"Session {session_token} finalized — starting background documents")
 
-        # Background: generate internal documents (user doesn't see these)
+        # Background: generate internal documents (user doesn't see these). A real
+        # background task, outside this chat slot: the case file takes minutes and
+        # must not hold up other users' messages on this frontend.
         mode = session.get("survey", {}).get("type", "documentation") if session else "documentation"
-        await _generate_internal_documents(session_token, language, mode, settings, frontend_id)
+        _start_internal_documents(session_token, language, mode, settings, frontend_id)
 
     except Exception as e:
         logger.error(f"Finalization failed for {session_token}: {e}")
@@ -658,6 +680,24 @@ async def _finalize_session(
             )
         except Exception:
             pass
+
+
+# Internal documents run one at a time, in the background (never in a chat slot).
+_documents_lock = asyncio.Lock()
+_document_tasks: set[asyncio.Task] = set()
+
+
+def _start_internal_documents(session_token: str, language: str, mode: str,
+                              settings: dict[str, Any], frontend_id: str):
+    async def run():
+        async with _documents_lock:
+            try:
+                await _generate_internal_documents(session_token, language, mode, settings, frontend_id)
+            except Exception as e:
+                logger.error(f"Internal documents failed for {session_token}: {e}")
+    task = asyncio.create_task(run())
+    _document_tasks.add(task)               # keep a reference until it finishes
+    task.add_done_callback(_document_tasks.discard)
 
 
 async def _generate_internal_documents(

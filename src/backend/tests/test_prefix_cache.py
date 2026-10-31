@@ -74,7 +74,7 @@ class PrefixCacheTest(unittest.TestCase):
             "get_session_rag_chunks": polling.get_session_rag_chunks,
             "load_evidence_context": polling.load_evidence_context,
         }
-        polling.get_relevant_chunks = lambda q, frontend_id=None: [f"Excerpt retrieved for: {q[:40]}"]
+        polling.get_relevant_chunks = lambda q, top_k=None, frontend_id=None: [f"Excerpt retrieved for: {q[:40]}"]
         polling.get_session_rag_chunks = lambda token, q: []
         polling.load_evidence_context = lambda token: [
             {"type": "text", "filename": "payslip.pdf", "summary": "Payslip shows 60 hours, paid 40."}]
@@ -88,7 +88,8 @@ class PrefixCacheTest(unittest.TestCase):
     def _settings(self, **extra):
         s = llm_admin._load_settings()
         s.update({"inference_connection": "fake", "inference_model": "m", "inference_fallback_enabled": False,
-                  "summariser_connection": "fake", "summariser_model": "m", "summariser_enabled": False})
+                  "summariser_connection": "fake", "summariser_model": "m", "summariser_enabled": False,
+                  "keep_rag_context": True})
         s.update(extra)
         llm_admin._save_settings(s)
 
@@ -108,7 +109,9 @@ class PrefixCacheTest(unittest.TestCase):
             n += 1
         return n
 
-    def test_turn_n_plus_1_starts_with_turn_n(self):
+    def test_turn_n_plus_1_extends_turn_n(self):
+        """Default (excerpts kept): each request is the previous request plus the
+        new turn — the append-only shape providers cache reliably."""
         self._settings()
         token = "PREF-0001"
         for i, text in enumerate(["I work at the plant.", "They do not pay overtime.", "It started in May."]):
@@ -117,17 +120,41 @@ class PrefixCacheTest(unittest.TestCase):
         self.assertEqual(len(bodies), 3)
         for prev, nxt in zip(bodies, bodies[1:]):
             prev_msgs, next_msgs = prev["messages"], nxt["messages"]
-            # Everything except this turn's user message (which carries the RAG tail) is identical.
-            self.assertEqual(self._common_prefix(prev_msgs, next_msgs), len(prev_msgs) - 1)
-            # And byte-identical as serialised in the request body.
-            prefix = json.dumps(prev_msgs[:-1])[:-1]
-            self.assertTrue(json.dumps(next_msgs).startswith(prefix))
-        # Order: system prompt, evidence, then history; RAG only in the last user message.
+            self.assertEqual(self._common_prefix(prev_msgs, next_msgs), len(prev_msgs))
+            self.assertTrue(json.dumps(next_msgs).startswith(json.dumps(prev_msgs)[:-1]))
+        # Order: system prompt, evidence, then history; every user turn keeps its excerpts.
         last = bodies[-1]["messages"]
         self.assertEqual([m["role"] for m in last[:2]], ["system", "system"])
         self.assertIn("payslip.pdf", last[1]["content"])
-        self.assertIn("Reference excerpts", last[-1]["content"])
-        self.assertTrue(all("Reference excerpts" not in str(m["content"]) for m in last[:-1]))
+        users = [m["content"] for m in last if m["role"] == "user"]
+        self.assertEqual(len(users), 3)
+        self.assertTrue(all("Reference excerpts" in u for u in users))
+
+    def test_excerpts_already_sent_are_not_repeated(self):
+        self._settings()
+        polling.get_relevant_chunks = lambda q, top_k=None, frontend_id=None: ["ILO C001 Art. 2 (same chunk every turn)"]
+        token = "PREF-0003"
+        for i, text in enumerate(["First message.", "Second message.", "Third message."]):
+            self._turn(token, text, first=(i == 0))
+        users = [m["content"] for m in self.fake.inference_bodies[-1]["messages"] if m["role"] == "user"]
+        self.assertIn("ILO C001 Art. 2", users[0])
+        self.assertTrue(all("ILO C001 Art. 2" not in u for u in users[1:]))
+
+    def test_excerpts_never_reach_the_stored_conversation(self):
+        self._settings()
+        token = "PREF-0004"
+        self._turn(token, "Hello.", first=True)
+        stored = polling.history.get_llm_messages(token)            # documents/summaries use this
+        self.assertTrue(all("Reference excerpts" not in str(m["content"]) for m in stored))
+
+    def test_keep_off_sends_current_turn_excerpts_only(self):
+        self._settings(keep_rag_context=False)
+        token = "PREF-0005"
+        for i, text in enumerate(["I work at the plant.", "They do not pay overtime."]):
+            self._turn(token, text, first=(i == 0))
+        prev_msgs, next_msgs = (b["messages"] for b in self.fake.inference_bodies)
+        self.assertEqual(self._common_prefix(prev_msgs, next_msgs), len(prev_msgs) - 1)
+        self.assertTrue(all("Reference excerpts" not in str(m["content"]) for m in next_msgs[:-1]))
 
     def test_prefix_stable_after_compression(self):
         # Tiny thresholds so the 3rd turn compresses; the next turns must reuse the frozen summary.
@@ -141,8 +168,7 @@ class PrefixCacheTest(unittest.TestCase):
         with_summary = [b for b in bodies if any(SUMMARY in str(m["content"]) for m in b["messages"])]
         self.assertGreaterEqual(len(with_summary), 2, "compression should have happened and persisted")
         for prev, nxt in zip(with_summary, with_summary[1:]):
-            self.assertEqual(self._common_prefix(prev["messages"], nxt["messages"]), len(prev["messages"]) - 1)
-
+            self.assertEqual(self._common_prefix(prev["messages"], nxt["messages"]), len(prev["messages"]))
 
 if __name__ == "__main__":
     unittest.main()

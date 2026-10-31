@@ -26,7 +26,7 @@ const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm foc
 const INFERENCE_KEYS: (keyof LLMSettings)[] = [
   'inference_connection', 'inference_model', 'inference_temperature', 'inference_max_tokens', 'inference_num_ctx',
   'inference_reasoning',
-  'multimodal_enabled', 'max_concurrent_sessions',
+  'multimodal_enabled', 'keep_rag_context', 'max_concurrent_sessions',
   'inference_fallback_enabled', 'inference_fallback_connection', 'inference_fallback_model',
   'inference_fallback_temperature', 'inference_fallback_max_tokens', 'inference_fallback_num_ctx',
   'inference_fallback_reasoning',
@@ -807,6 +807,20 @@ export default function LLMTab() {
                     Only enable if the selected inference model supports vision (e.g. Gemma 3/4, Qwen2.5-VL, llava).
                     When on, every uploaded JPG/PNG is described by the inference model at upload time and added to the case evidence.
                     When off (default), images are stored without analysis.
+                  </p>
+                </div>
+              </label>
+            </div>
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <label className="flex items-start gap-3 cursor-pointer">
+                {toggle(settings.keep_rag_context ?? true, () => setField('keep_rag_context', !(settings.keep_rag_context ?? true)))}
+                <div>
+                  <span className="text-sm font-medium text-gray-700">Keep knowledge-base excerpts in the conversation</span>
+                  <p className="text-xs text-gray-400">
+                    On (default): the excerpts retrieved for each message stay in the chat context for the rest of the
+                    session (each one sent once), so the model keeps the material it already used and providers can reuse
+                    the prompt cache (much cheaper input). The context grows faster, so compression starts earlier in long
+                    sessions. Off: only the current message's excerpts are sent. Internal documents never include them.
                   </p>
                 </div>
               </label>

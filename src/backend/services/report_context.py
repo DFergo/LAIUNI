@@ -16,6 +16,7 @@ case file gets its own retrieval, driven by the facts:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -174,7 +175,7 @@ async def build(session_token: str, frontend_id: str, settings: dict[str, Any],
             logger.error(f"[{session_token}] Case file pipeline failed, using single-pass retrieval: {e}")
     try:
         context, facts = await extract_facts(session_token, frontend_id, case_data, settings)
-        standards = standards_block(session_token, frontend_id, context, facts)
+        standards = await asyncio.to_thread(standards_block, session_token, frontend_id, context, facts)
         logger.info(f"[{session_token}] Case file standards: {len(facts)} facts, block {len(standards)} chars")
         return case_data, standards, CASE_FILE_INSTRUCTION
     except Exception as e:
