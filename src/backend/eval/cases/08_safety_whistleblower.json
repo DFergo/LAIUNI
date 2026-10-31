@@ -1,0 +1,46 @@
+{
+ "survey": {
+  "role": "representative",
+  "type": "documentation",
+  "company": "Carolina Flexible Packaging Inc. (owned by a German packaging group)",
+  "countryRegion": "United States (North Carolina)",
+  "description": "Retaliation after reporting machine guarding problems"
+ },
+ "evidence": [
+  {
+   "type": "text",
+   "filename": "osha_complaint_receipt.pdf",
+   "summary": "Receipt of an OSHA complaint filed online on 3 June about missing machine guards on laminating line 2, complainant name withheld."
+  }
+ ],
+ "conversation": [
+  [
+   "user",
+   "I am a shop steward at a flexible packaging plant. The guards on laminating line 2 were removed to run faster. In April a worker lost two fingers."
+  ],
+  [
+   "assistant",
+   "I am very sorry. What happened after the accident?"
+  ],
+  [
+   "user",
+   "I raised it with the plant manager and nothing changed, so I filed an OSHA complaint on 3 June. I uploaded the receipt."
+  ],
+  [
+   "assistant",
+   "Has there been any reaction from the company?"
+  ],
+  [
+   "user",
+   "Two weeks later I was moved to the night shift and written up twice for small things I never got written up for before. Cameras were installed facing the break room where we have union meetings."
+  ],
+  [
+   "assistant",
+   "Has anyone else been affected?"
+  ],
+  [
+   "user",
+   "Two coworkers who signed a statement about the accident were told by a supervisor that 'people who talk to outsiders don't last here'. The company is owned by a German group that publishes a human rights policy."
+  ]
+ ]
+}

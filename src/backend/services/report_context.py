@@ -136,6 +136,7 @@ def standards_block(session_token: str, frontend_id: str, context: str, facts: l
 
 
 CASE_FILE_INSTRUCTION = (
+    "Keep exactly the sections and headings of the template, in the same order; do not add sections. "
     "Use the case data and the evidence above together with the conversation. When you classify the facts "
     "against international standards or codes of conduct, use the provisions under 'Applicable standards': "
     "name the instrument and the article as they appear there and cite the provision ID (e.g. [P3]). If you "
@@ -144,9 +145,15 @@ CASE_FILE_INSTRUCTION = (
 )
 
 
-async def build(session_token: str, frontend_id: str, settings: dict[str, Any], with_standards: bool) -> tuple[str, str]:
-    """(case data block, standards block or ""). Never raises: a failure only
-    drops the extra material, the document is still generated."""
+async def build(session_token: str, frontend_id: str, settings: dict[str, Any],
+                with_standards: bool, pipeline: bool = True) -> tuple[str, str, str]:
+    """(case data block, standards material or "", instruction for the case file).
+
+    With ``pipeline`` (default) the case file is prepared in steps
+    (case_file_pipeline: analysis → research per fact → review); if the
+    analysis fails, or with ``pipeline=False``, the single-pass retrieval
+    (facts → provisions) is used. Never raises: a failure only drops the extra
+    material, the document is still generated."""
     from src.services.session_store import store as history
     from src.services.evidence_processor import load_evidence_context
 
@@ -156,12 +163,20 @@ async def build(session_token: str, frontend_id: str, settings: dict[str, Any], 
     except Exception as e:
         logger.error(f"[{session_token}] Case data block failed: {e}")
     if not with_standards:
-        return case_data, ""
+        return case_data, "", ""
+    if pipeline:
+        try:
+            from src.services import case_file_pipeline
+            material = await case_file_pipeline.prepare(session_token, frontend_id, case_data, settings)
+            if material:
+                return case_data, material, case_file_pipeline.WRITER_INSTRUCTION
+        except Exception as e:
+            logger.error(f"[{session_token}] Case file pipeline failed, using single-pass retrieval: {e}")
     try:
         context, facts = await extract_facts(session_token, frontend_id, case_data, settings)
         standards = standards_block(session_token, frontend_id, context, facts)
         logger.info(f"[{session_token}] Case file standards: {len(facts)} facts, block {len(standards)} chars")
-        return case_data, standards
+        return case_data, standards, CASE_FILE_INSTRUCTION
     except Exception as e:
         logger.error(f"[{session_token}] Standards retrieval failed: {e}")
-        return case_data, ""
+        return case_data, "", ""

@@ -1,0 +1,40 @@
+{
+ "survey": {
+  "role": "worker",
+  "type": "documentation",
+  "company": "Güvenli Baskı A.Ş.",
+  "countryRegion": "Turkey (Istanbul)",
+  "description": "Pregnant workers' contracts not renewed"
+ },
+ "evidence": [],
+ "conversation": [
+  [
+   "user",
+   "I work in quality control at a security printing company that prints banknotes and passports. When I told my supervisor I was pregnant in April, my contract was not renewed in May."
+  ],
+  [
+   "assistant",
+   "I am sorry to hear that. Did they give you a reason?"
+  ],
+  [
+   "user",
+   "They said my performance was low, but I had a good evaluation in January. Two other women in my department also lost their contracts after they announced pregnancies, one in 2023 and one in February this year."
+  ],
+  [
+   "assistant",
+   "Is there anything else about how women are treated at the company?"
+  ],
+  [
+   "user",
+   "Women in quality control earn less than men doing the same inspection work. A male colleague with the same job and less experience told me his salary, it is about 20 percent more."
+  ],
+  [
+   "assistant",
+   "Do you have documents, such as the evaluation or the contract notice?"
+  ],
+  [
+   "user",
+   "I have the January evaluation at home and the email about the contract. I am afraid to make it official because the sector is small and I could be blacklisted."
+  ]
+ ]
+}

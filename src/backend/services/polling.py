@@ -676,7 +676,7 @@ async def _generate_internal_documents(
     # evidence for both; for the case file also the facts classified against the
     # knowledge base (its own retrieval, separate from the chat's).
     from src.services import report_context
-    case_data, standards = await report_context.build(
+    case_data, standards, case_instruction = await report_context.build(
         session_token, frontend_id, settings, with_standards=(mode != "training"),
     )
 
@@ -706,7 +706,7 @@ async def _generate_internal_documents(
                 session_token, "internal_case_file.md", language, settings, slot="reporter",
                 frontend_id=frontend_id,
                 case_material="\n\n".join(x for x in (case_data, standards) if x),
-                extra_instruction=report_context.CASE_FILE_INSTRUCTION if standards else "",
+                extra_instruction=case_instruction,
             )
             if report_content:
                 path = os.path.join(session_dir, "report.md")

@@ -1,0 +1,54 @@
+{
+ "survey": {
+  "role": "representative",
+  "type": "documentation",
+  "company": "PT Sinar Tissue Mill",
+  "countryRegion": "Indonesia (West Java)",
+  "description": "Chemical exposure in bleaching section, injuries not reported"
+ },
+ "evidence": [
+  {
+   "type": "image",
+   "filename": "bleaching_area.jpg",
+   "summary": "Photo of a bleaching area: open containers labelled sodium hypochlorite, two workers without masks or gloves, a hose on the wet floor."
+  }
+ ],
+ "conversation": [
+  [
+   "user",
+   "I am a worker representative at the tissue mill. In the bleaching section workers handle chlorine chemicals without proper masks. The company gives cloth masks only."
+  ],
+  [
+   "assistant",
+   "Thank you. Have workers been harmed?"
+  ],
+  [
+   "user",
+   "Yes. In July three workers had burns on their hands and one collapsed from the fumes and was taken to hospital. The company paid the hospital but did not report it as a work accident. They told him to say it happened at home."
+  ],
+  [
+   "assistant",
+   "That is serious. Has the company done anything about ventilation or equipment?"
+  ],
+  [
+   "user",
+   "The extraction fan has been broken since May. We asked the supervisor three times. The answer is there is no budget. I uploaded a photo of the area."
+  ],
+  [
+   "assistant",
+   "Thank you. Are workers able to stop work if they feel unsafe?"
+  ],
+  [
+   "user",
+   "No. One worker refused to go in when the fumes were strong and he lost two days of pay. Most of us are on daily contracts so we cannot refuse."
+  ],
+  [
+   "assistant",
+   "Do you know who the mill sells to?"
+  ],
+  [
+   "user",
+   "We produce for a big Swedish hygiene brand. Their auditors came last year but the company cleaned everything the week before and told us what to say."
+  ]
+ ]
+}

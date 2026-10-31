@@ -1,0 +1,55 @@
+{
+ "survey": {
+  "role": "organizer",
+  "type": "documentation",
+  "union": "Sindicato Nacional de Trabajadores de Artes Gráficas",
+  "company": "Impresora Delta S.A. de C.V. (subsidiary of Delta Print Group, Netherlands)",
+  "countryRegion": "Mexico (Querétaro)",
+  "description": "Organisers dismissed after the union requested recognition"
+ },
+ "evidence": [
+  {
+   "type": "text",
+   "filename": "carta_despido_ramirez.pdf",
+   "summary": "Dismissal letter dated 14 March to Luis Ramírez citing 'restructuring of the finishing department'. Signed by HR manager Patricia Solís. No severance amount stated."
+  }
+ ],
+ "conversation": [
+  [
+   "user",
+   "I am an organiser with the graphic arts union. At Impresora Delta in Querétaro, 180 workers signed membership cards in February and on 5 March we sent a letter asking for recognition and to start bargaining."
+  ],
+  [
+   "assistant",
+   "Thank you. How did the company respond to the request?"
+  ],
+  [
+   "user",
+   "No written answer. On 14 March they dismissed the four members of the organising committee, including Luis Ramírez, saying it was restructuring. Nobody else was dismissed and two new people were hired in finishing the next week."
+  ],
+  [
+   "assistant",
+   "Did anything else happen to the workers after that?"
+  ],
+  [
+   "user",
+   "The production manager held meetings on each shift saying the company 'already has a union' — it is a protection contract signed in 2019 with a union nobody has ever met. Workers were told to sign a paper withdrawing from our union."
+  ],
+  [
+   "assistant",
+   "Do you know whether the parent company in the Netherlands is aware?"
+  ],
+  [
+   "user",
+   "We emailed Delta Print Group's CSR department on 20 March with the details. They answered that it is a local matter. Their code of conduct says they respect freedom of association. They supply packaging for two big European food brands."
+  ],
+  [
+   "assistant",
+   "Have you filed any complaint with the authorities?"
+  ],
+  [
+   "user",
+   "We filed with the labour court in April for the dismissals. It is pending. We have not done anything internationally yet. That is why I am here."
+  ]
+ ]
+}

@@ -1,0 +1,40 @@
+{
+ "survey": {
+  "role": "organizer",
+  "type": "documentation",
+  "company": "Supplier of Shree Paper Recycling",
+  "countryRegion": "India (Gujarat)",
+  "description": "Children sorting waste paper at a supplier yard"
+ },
+ "evidence": [],
+ "conversation": [
+  [
+   "user",
+   "I organise waste pickers near Vapi. Shree Paper Recycling buys sorted waste paper from small yards. At one yard I have seen children, I think 11 to 14 years old, sorting paper every day after school hours and some during school hours."
+  ],
+  [
+   "assistant",
+   "Thank you. How many children and how often?"
+  ],
+  [
+   "user",
+   "Around eight children, every day. They work with cutting tools and lift heavy bales. One girl cut her hand badly last month."
+  ],
+  [
+   "assistant",
+   "Do you know whether the children are paid or related to the adult workers?"
+  ],
+  [
+   "user",
+   "They are children of the families who work there. The yard owner pays per kilo to the family. If the family does not reach the quota they lose the work."
+  ],
+  [
+   "assistant",
+   "Do you know where Shree Paper sells its recycled paper?"
+  ],
+  [
+   "user",
+   "Shree makes recycled board that goes to packaging companies, one of them supplies a big European furniture retailer. I have not spoken to Shree yet."
+  ]
+ ]
+}

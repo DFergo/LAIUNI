@@ -1,0 +1,54 @@
+{
+ "survey": {
+  "role": "worker",
+  "type": "documentation",
+  "company": "NordPack GmbH",
+  "countryRegion": "Germany (Saxony)",
+  "description": "Packaging plant, line workers made to stay after shifts without pay"
+ },
+ "evidence": [
+  {
+   "type": "text",
+   "filename": "payslip_august.pdf",
+   "summary": "Payslip for August: 160 contractual hours paid at the minimum wage; no overtime line. The worker's own notes on the back list 52-54 hours per week."
+  }
+ ],
+ "conversation": [
+  [
+   "user",
+   "I work on the folding line at NordPack in Leipzig. For three months the supervisor makes us stay two hours after every shift."
+  ],
+  [
+   "assistant",
+   "Thank you for explaining. Are those extra hours paid or recorded anywhere?"
+  ],
+  [
+   "user",
+   "No. They are not on the payslip. My payslip says 40 hours a week but we do around 52. I uploaded my August payslip."
+  ],
+  [
+   "assistant",
+   "Thank you, I can see it. What happens if someone refuses to stay?"
+  ],
+  [
+   "user",
+   "The supervisor, Mr. Krause, told us in a meeting in September that anyone who leaves on time will not get their contract renewed. Most of us are on temporary contracts, many are from Romania and Bulgaria through the agency WorkBridge."
+  ],
+  [
+   "assistant",
+   "That sounds very stressful. Is there anything else about the agency you want to mention?"
+  ],
+  [
+   "user",
+   "WorkBridge kept the passports of some Romanian colleagues 'for paperwork' when they arrived in June and has not returned them. They also take 350 euros a month from wages for a shared room."
+  ],
+  [
+   "assistant",
+   "Have you or your colleagues tried to raise this with anyone?"
+  ],
+  [
+   "user",
+   "We tried to talk to the works council in October and the plant manager said union people are troublemakers and that we should think about our contracts. Nobody has complained officially because people are afraid."
+  ]
+ ]
+}

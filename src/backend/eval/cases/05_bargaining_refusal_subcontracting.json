@@ -1,0 +1,55 @@
+{
+ "survey": {
+  "role": "officer",
+  "type": "documentation",
+  "union": "UNI Américas",
+  "company": "EmbalaBrasil Ltda.",
+  "countryRegion": "Brazil (São Paulo)",
+  "description": "Refusal to bargain and transfer of work to subcontractors"
+ },
+ "evidence": [
+  {
+   "type": "text",
+   "filename": "acordo_coletivo_2022.pdf",
+   "summary": "Collective agreement 2022-2024 between EmbalaBrasil and the packaging workers' union: wages, shift premium of 20%, union access to the plant, clause 18 requiring consultation before outsourcing core production."
+  }
+ ],
+ "conversation": [
+  [
+   "user",
+   "The collective agreement at EmbalaBrasil expired in June. The union sent the bargaining proposal in May and the company has refused to meet."
+  ],
+  [
+   "assistant",
+   "Thank you. Has the company explained why?"
+  ],
+  [
+   "user",
+   "They say economic conditions do not allow it. Meanwhile, since July they have moved the corrugated line to two subcontractors, PackService and Lima Embalagens, where workers are not covered by the agreement and earn about 30 percent less."
+  ],
+  [
+   "assistant",
+   "Did the company consult the union before moving the work?"
+  ],
+  [
+   "user",
+   "No. Clause 18 of the agreement says they must consult before outsourcing core production. I uploaded the agreement. 120 direct jobs were cut in August."
+  ],
+  [
+   "assistant",
+   "Has the union taken any action?"
+  ],
+  [
+   "user",
+   "There was a one-day strike on 2 September. After that the company stopped deducting union dues and banned union officials from entering the plant."
+  ],
+  [
+   "assistant",
+   "Who are the main customers?"
+  ],
+  [
+   "user",
+   "A multinational beverage company headquartered in the US and a French dairy group. The plant belongs to a Spanish packaging group."
+  ]
+ ]
+}

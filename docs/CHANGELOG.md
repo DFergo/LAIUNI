@@ -1,5 +1,16 @@
 # HRDD Helper — Changelog
 
+## Sprint 39 — Case file prepared in steps
+
+The case file is no longer prepared in a single pass over the whole conversation. Before the unchanged template (`internal_case_file.md`) is filled, `services/case_file_pipeline.py` runs:
+
+1. **Analysis** (`prompts/report_analysis.md`): context, parties, chronology (with dates or approximations and whether each event comes from the user, the evidence or is inferred), the distinct factual allegations with their supporting material, and the information gaps.
+2. **Research per fact** (`prompts/report_research.md`, in parallel): candidate provisions are retrieved from the global and campaign knowledge base (with source) and the user's documents; the model classifies the fact (instrument, article, violation type, strength clear/probable/possible, an exact supporting quote, reasoning) or asks for more searches (bounded rounds). Standards it lists as not in the knowledge base are first looked up by name and the fact is reclassified if they are found.
+3. **Review** (deterministic): a classification must cite a provision shown for that fact and its quote must appear in the provision's text; otherwise it is downgraded to "possible" and flagged as unverified, or moved to "not in the knowledge base".
+4. **Writing**: the template receives the analysis, the reviewed classifications and only the cited provisions, with the instruction to keep exactly its sections and headings and fill them with that material.
+
+The analysis and research are saved as `case_analysis.json` in the session folder. If the analysis fails, the single-pass retrieval of Sprint 38 is used. Searches are plain JSON requests, so it works on every provider. Comparison tool for test cases: `src/backend/eval/case_file_eval.py` with eight cases in `src/backend/eval/cases/`.
+
 ## Sprint 38 — Case file classified against the knowledge base
 
 The internal documents used to see only the conversation. Now:

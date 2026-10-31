@@ -1,0 +1,46 @@
+{
+ "survey": {
+  "role": "worker",
+  "type": "documentation",
+  "company": "Riverside Book Distribution Ltd",
+  "countryRegion": "United Kingdom (Northampton)",
+  "description": "Warehouse pickers treated as self-employed, deductions from pay"
+ },
+ "evidence": [
+  {
+   "type": "text",
+   "filename": "contractor_agreement.pdf",
+   "summary": "'Independent contractor agreement' between Riverside Book Distribution and the worker: no guaranteed hours, worker must use company scanner and wear company uniform, shifts allocated by the company app, £45 weekly 'equipment fee'."
+  }
+ ],
+ "conversation": [
+  [
+   "user",
+   "I pick orders in the Riverside warehouse that ships books for publishers. They say we are self-employed contractors, but we work fixed shifts set by them, wear their uniform and use their scanners."
+  ],
+  [
+   "assistant",
+   "Thank you. How are you paid?"
+  ],
+  [
+   "user",
+   "Per order picked. They take a £45 equipment fee every week for the scanner and uniform. If we are late they deduct a full hour. Some weeks after deductions I earn less than the minimum wage."
+  ],
+  [
+   "assistant",
+   "Do you get holiday pay or sick pay?"
+  ],
+  [
+   "user",
+   "No holiday pay and no sick pay. When I was ill for a week in March I lost the whole week and still paid the equipment fee."
+  ],
+  [
+   "assistant",
+   "Have you or colleagues raised this?"
+  ],
+  [
+   "user",
+   "A group of us asked for a meeting in May. After that the app gave us fewer shifts. My shifts went from five a week to two."
+  ]
+ ]
+}
