@@ -52,10 +52,13 @@ The admin shows the mode as a badge on each frontend (**signed**, **trusted netw
 | | Where the frontend runs | How the backend reaches port 8080 | Recommended mode | Example |
 |---|---|---|---|---|
 | **T1** | Another machine on the backend's LAN | `http://<LAN IP>:<FRONTEND_BACKEND_PORT>` (`BACKEND_BIND` = that LAN IP) | Signed (other LAN devices can reach the port) | [`t1-lan/`](t1-lan/) |
+| **T2 + Tailscale** | A VPS | `http://<VPS Tailscale IP>:<FRONTEND_BACKEND_PORT>` over Tailscale (port bound only to the Tailscale address); users through a Cloudflare Tunnel | Signed | [`t2-vps-tailscale/`](t2-vps-tailscale/) |
 | **T2** | A VPS (no VPN) | `https://<backend hostname>` on a cloudflared tunnel, Cloudflare Access with a service token (sent as extra headers) | Signed (own or installation secret) | [`t2-vps/`](t2-vps/) |
 | **T3** | Same machine as the backend, separate containers | `http://hrdd-frontend:8080` over an internal Docker network shared only by the two | Signed; trusted network is acceptable here | [`t3-same-host/`](t3-same-host/) |
 
-One backend can serve frontends in all three topologies and modes at once.
+The backend on its own (for T1/T2) is in [`backend/`](backend/) (`build-from-source.yml` for amd64 hosts: the published backend image is arm64).
+
+One backend can serve frontends in all these topologies and modes at once.
 
 ## Upgrading an existing frontend
 

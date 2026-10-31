@@ -1,5 +1,14 @@
 # HRDD Helper — Changelog
 
+## Sprint 41 — Installation and administration with an AI agent
+
+- **One prompt to start.** Paste into Claude Code (or another coding agent): *Read https://raw.githubusercontent.com/DFergo/LAIUNI/main/SETUP-AGENT.md and follow it to install HRDD Helper.* `SETUP-AGENT.md` checks the machine, downloads the app and connects its MCP server; from there the MCP drives the setup.
+- **MCP server `ops/hrdd_mcp.py`** — local (stdio), one Python file, standard library only. Tools: machine check (incl. local model servers), deployment folders with generated secrets, `docker compose`, admin account, the full admin API (with its live reference from the backend), uploads, status, frontend checks, end-to-end smoke test, unit tests. Prompts: `start`, `add-frontend`, `configure`, `diagnose`, `update`.
+- **Guides `ops/guides/`** — onboarding survey, topologies (recommended: backend and frontend on separate local machines, or backend local + frontend on a VPS), Docker and Tailscale, VPS (Infomaniak, Hetzner), a dedicated domain + Cloudflare Tunnel (with Cloudflare's own MCP plugin), AI models cloud or local (dated recommendations in `models.md`), local GPU embeddings, email, every admin area, troubleshooting, updates and backups. Provider-neutral: nothing is preconfigured for a provider.
+- **Safety in the server, not only in the guides:** changes return a plan unless `apply=true`; deleting, purging, resetting, importing and `compose down` also need `confirm_destructive`; conversation contents, reports and exports need `confirm_content`; secrets are generated into `.env` files (0600), referenced as `env:/path/.env#KEY`, and masked in every answer; the admin password is generated into a local file and never shown.
+- **New deployment folders:** `deploy/backend/` (backend alone, with `build-from-source.yml` for amd64 hosts) and `deploy/t2-vps-tailscale/` (frontend on a VPS: users through a Cloudflare Tunnel, backend port bound only to the VPS's Tailscale address).
+- Tests: `python3 -m unittest discover -s ops/tests` (13, against a fake backend/frontend). Checked end to end with the published images: T3 install, admin, Mistral connection, frontend registered and signed, configured, smoke test with a real reply.
+
 ## Maintenance — Case file states only what the knowledge base supports
 
 - The case file no longer describes standards that are not in the knowledge base (content, articles or ratification status), and does not state the ratification status of any instrument unless a provision says so. Relevant standards missing from the knowledge base are named once, in section 13: "Relevant standards not in the knowledge base (to verify): …". Standards already cited with a source elsewhere in the case are not repeated there.

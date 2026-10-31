@@ -1,0 +1,30 @@
+# Backend on its own (T1 and T2: the frontends run on other machines).
+#
+# The admin panel is published only on ADMIN_BIND (127.0.0.1 by default): reach it
+# from this machine, or set ADMIN_BIND to a private address (LAN or Tailscale IP),
+# never to every interface of an exposed host.
+# The published image is arm64 (Apple Silicon, ARM servers). On amd64 hosts use the
+# build override: docker compose -f docker-compose.yml -f build-from-source.yml up -d --build
+#
+#   cp .env.example .env   # fill in
+#   docker compose up -d
+
+services:
+  hrdd-backend:
+    image: ghcr.io/dfergo/laiuni-backend:${BACKEND_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "${ADMIN_BIND:-127.0.0.1}:${BACKEND_ADMIN_PORT:-8000}:8000"
+    volumes:
+      - hrdd-data:/app/data
+    environment:
+      - DEPLOYMENT_JSON_PATH=/app/config/deployment_backend.json
+      # Installation secret: same value as HRDD_BACKEND_SECRET on every frontend
+      - HRDD_FRONTEND_SECRET=${HRDD_FRONTEND_SECRET:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # models served on this machine (Linux)
+    mem_limit: 3g
+
+volumes:
+  hrdd-data:

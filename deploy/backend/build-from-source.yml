@@ -1,0 +1,9 @@
+# amd64 hosts: build the backend from this repository instead of pulling the arm64 image.
+#   docker compose -f docker-compose.yml -f build-from-source.yml up -d --build
+services:
+  hrdd-backend:
+    image: hrdd-backend:local
+    pull_policy: build
+    build:
+      context: ../..
+      dockerfile: Dockerfile.backend

@@ -1,5 +1,7 @@
 # HRDD Helper — Installation Guide
 
+> **Prefer to be guided?** An AI agent (e.g. Claude Code) can do the whole installation with you: see [Install it with an AI agent](../README.md#install-it-with-an-ai-agent). This manual is the complete reference behind it.
+
 ## 1. What you are installing
 
 HRDD Helper has two kinds of containers:
