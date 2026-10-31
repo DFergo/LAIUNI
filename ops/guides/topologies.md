@@ -27,7 +27,7 @@ The deployment folders are in `deploy/` of the repo; `deploy_prepare` copies one
 - No public access needed and two machines available → A.
 - Public access needed → B (A with a tunnel also works if the frontend machine can stay on and the office connection is reliable).
 - First time, wants to see it working → C, then move to A or B (frontends can be added later; the backend stays).
-- Backend machine: should stay on, with enough memory (≥ 8 GB; more with local models). Apple Silicon Macs work well (published backend image is arm64; on Intel/AMD the backend is built from source automatically — slower first start).
+- Backend machine: should stay on, with enough memory (≥ 8 GB; more with local models). Apple Silicon Macs and Intel/AMD PCs or servers both work (images for both).
 
 ## Ports (defaults)
 | What | Where | Default |

@@ -3,8 +3,8 @@
 # The admin panel is published only on ADMIN_BIND (127.0.0.1 by default): reach it
 # from this machine, or set ADMIN_BIND to a private address (LAN or Tailscale IP),
 # never to every interface of an exposed host.
-# The published image is arm64 (Apple Silicon, ARM servers). On amd64 hosts use the
-# build override: docker compose -f docker-compose.yml -f build-from-source.yml up -d --build
+# The published image is multi-arch (amd64, arm64). To build it from this repository
+# instead: docker compose -f docker-compose.yml -f build-from-source.yml up -d --build
 #
 #   cp .env.example .env   # fill in
 #   docker compose up -d

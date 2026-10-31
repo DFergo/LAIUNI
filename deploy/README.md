@@ -56,7 +56,7 @@ The admin shows the mode as a badge on each frontend (**signed**, **trusted netw
 | **T2** | A VPS (no VPN) | `https://<backend hostname>` on a cloudflared tunnel, Cloudflare Access with a service token (sent as extra headers) | Signed (own or installation secret) | [`t2-vps/`](t2-vps/) |
 | **T3** | Same machine as the backend, separate containers | `http://hrdd-frontend:8080` over an internal Docker network shared only by the two | Signed; trusted network is acceptable here | [`t3-same-host/`](t3-same-host/) |
 
-The backend on its own (for T1/T2) is in [`backend/`](backend/) (`build-from-source.yml` for amd64 hosts: the published backend image is arm64).
+The backend on its own (for T1/T2) is in [`backend/`](backend/) (`build-from-source.yml` only if you want to build it yourself).
 
 One backend can serve frontends in all these topologies and modes at once.
 

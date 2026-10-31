@@ -12,7 +12,7 @@ compose folder="~/hrdd/backend" action="logs"                          → wait 
 ```
 - For topology C use `t3-same-host` instead (backend + frontend in one folder, one shared secret `HRDD_BACKEND_SECRET`).
 - To reach the admin panel from other machines, set `ADMIN_BIND` to this machine's LAN or Tailscale IP (never `0.0.0.0` on an exposed host).
-- Intel/AMD machines: the backend is built from source (first start 5–15 minutes). Explain the wait.
+- The first start downloads the images (backend ≈ 1.7 GB): a few minutes on a normal connection.
 
 ## 2. Admin account and models
 ```

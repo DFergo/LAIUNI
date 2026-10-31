@@ -45,7 +45,7 @@ The model that answers the users can run on the backend machine, on another mach
 ## 3. Requirements
 
 - A recent Docker Engine with the Docker Compose v2 plugin (`docker compose`).
-- A Linux, macOS or Windows host. The **frontend** image is published for `amd64` and `arm64`; the **backend** image for `arm64` only (section 4.1).
+- A Linux, macOS or Windows host. Both images are published for `amd64` (Intel/AMD) and `arm64` (Apple Silicon, ARM servers).
 - **Clocks in sync (NTP) on every machine** when frontends use signed mode: signatures more than 2 minutes off are rejected.
 - Memory and disk (measured on a fresh installation; plan for your load):
   - Backend: about 0.6 GB of RAM idle, more while it runs the local embedding model, indexes documents or serves many users. The image is about 1.7 GB, plus your data.
@@ -90,7 +90,7 @@ Notes:
 
 - The admin panel listens on port `8000`. The example publishes it **only on `127.0.0.1`**: reach it from the same machine, or through a VPN, an SSH tunnel or a private network address. If you need a LAN address, bind to that specific address (for example `"192.168.1.10:8000:8000"`), never to every interface on an exposed host.
 - Image tags: `latest` follows the `main` branch; `sha-<commit>` pins an exact version.
-- The published backend image is built for **`arm64`** only. On an `amd64` host, build from source instead: clone the repository and run `docker compose -f docker-compose.backend.yml up -d --build`.
+- The published backend image is built for **`amd64`** and **`arm64`**; Docker picks the right one. To build it yourself instead: clone the repository and run `docker compose -f docker-compose.backend.yml up -d --build`.
 
 **With Portainer.** Portainer can deploy straight from the repository: *Stacks → Add stack → Repository*, URL `https://github.com/DFergo/LAIUNI`, branch `main`, compose path `docker-compose.backend.yml` (it builds from source). Add the environment variables in the stack form. To update: *Pull and redeploy*.
 

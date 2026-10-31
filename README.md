@@ -29,7 +29,7 @@ The agent downloads the app and connects its MCP server (`ops/hrdd_mcp.py`), whi
 
 ## Images
 
-- `ghcr.io/dfergo/laiuni-backend` (`arm64`)
+- `ghcr.io/dfergo/laiuni-backend` (`amd64`, `arm64`)
 - `ghcr.io/dfergo/laiuni-frontend` (`amd64`, `arm64`)
 
 Tags: `latest` (the `main` branch) and `sha-<commit>`.

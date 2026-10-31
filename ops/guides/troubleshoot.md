@@ -21,7 +21,7 @@ Read-only checks first, then explain, then propose a fix (and ask).
 | No login codes by email | SMTP not configured / failing; address not authorised | `POST /admin/smtp/test`; contacts (guide `frontends`). |
 | Tunnel site down (Cloudflare error 1033/502) | `cloudflared` not running or wrong service in the hostname | `compose ps` on the VPS; the hostname must point to `http://hrdd-frontend:80`. |
 | T2 frontend container does not start after reboot | Tailscale IP not up yet when Docker started | `docker compose up -d` again; ensure Tailscale starts at boot (`systemctl enable tailscaled`). |
-| Backend build fails on Intel/AMD | Build from source needs memory/disk | ≥ 8 GB RAM, ≥ 15 GB free disk; `compose logs`. |
+| Backend does not start / is killed | Not enough memory or disk | ≥ 8 GB RAM (the backend container is limited to 3 GB), ≥ 10 GB free disk; `compose logs`. |
 
 ## Never
 - Call `GET /backend/v1/queue` on a frontend by hand (it consumes users' messages).

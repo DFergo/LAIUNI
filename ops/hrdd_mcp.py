@@ -297,15 +297,14 @@ def check_machine() -> dict[str, Any]:
         if status == 200 and isinstance(data, dict):
             local_servers[name] = sorted(m.get("id") or m.get("name") for m in data.get(key) or [])
     disk = shutil.disk_usage(Path.home())
-    backend_image = arch in ("arm64", "aarch64")
     return {
         "os": f"{platform.system()} {platform.release()}", "arch": arch,
         "memory_gb": round(mem, 1) if mem else None, "gpu": gpu, "cpus": os.cpu_count(),
         "free_disk_gb": round(disk.free / 1024 ** 3, 1), "tools": tools,
         "docker_running": docker_running, "tailscale_ip": tailscale_ip,
         "local_model_servers_running": local_servers,
-        "backend_image": "published image fits (arm64)" if backend_image
-        else "no published backend image for this CPU: the backend is built from source (slower first start)",
+        "backend_image": "published image fits" if arch in ("arm64", "aarch64", "x86_64", "amd64")
+        else f"no published image for {arch}: build from source (deploy/backend/build-from-source.yml)",
         "local_models": ("enough memory for a 27–31B model (see guide 'models')" if mem and mem >= 32
                          else "chat models: use a cloud provider or another machine; embeddings can still run here"),
         "repo": str(REPO),
@@ -333,26 +332,18 @@ def deploy_prepare(topology: str, folder: str, values: dict[str, str] | None = N
     if unknown:
         raise ToolError(f"Not variables of {topology}: {', '.join(unknown)}. Its .env.example:\n{example}")
     env_text, generated = _fill_env(example, resolved)
-    arch = platform.machine().lower()
-    from_source = topology in ("backend", "t3-same-host") and arch not in ("arm64", "aarch64")
-    files = ["docker-compose.yml", ".env"] + (["build-from-source.yml"] if from_source else [])
+    files = ["docker-compose.yml", ".env"]
     if (dest / ".env").exists():
         raise ToolError(f"{dest}/.env already exists: this folder already has a deployment. Choose another folder, "
                         "or edit that .env (env_set).")
     if not apply:
         return _plan(f"create {dest} with {', '.join(files)}",
-                     {"env": _read_env_text(env_text), "secrets_generated": generated,
-                      "build_from_source": from_source})
+                     {"env": _read_env_text(env_text), "secrets_generated": generated})
     dest.mkdir(parents=True, exist_ok=True)
     shutil.copy(src / "docker-compose.yml", dest / "docker-compose.yml")
-    if from_source:
-        (dest / "build-from-source.yml").write_text(
-            "services:\n  hrdd-backend:\n    image: hrdd-backend:local\n    pull_policy: build\n"
-            f"    build:\n      context: {REPO}\n      dockerfile: Dockerfile.backend\n")
     _write_private(dest / ".env", env_text)
     st = _state()
-    st.setdefault("deployments", {})[str(dest)] = {"topology": topology, "build_from_source": from_source,
-                                                    "created": time.strftime("%Y-%m-%d %H:%M")}
+    st.setdefault("deployments", {})[str(dest)] = {"topology": topology, "created": time.strftime("%Y-%m-%d %H:%M")}
     _save_state(st)
     return {"created": str(dest), "files": files, "secrets_generated": generated,
             "env": _mask_env(dest / ".env")}

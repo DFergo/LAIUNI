@@ -1,4 +1,4 @@
-# amd64 hosts: build the backend from this repository instead of pulling the arm64 image.
+# Optional: build the backend from this repository instead of pulling the published image.
 #   docker compose -f docker-compose.yml -f build-from-source.yml up -d --build
 services:
   hrdd-backend:
