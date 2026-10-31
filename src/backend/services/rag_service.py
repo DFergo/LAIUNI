@@ -371,13 +371,22 @@ def get_relevant_chunks(query: str, top_k: int | None = None, frontend_id: str |
     Campaign RAG config controls whether global RAG is included (default: yes).
     Returns a list of text strings (chunks) sorted by relevance.
     """
+    return [s["text"] for s in get_relevant_sources(query, top_k, frontend_id)]
+
+
+def get_relevant_sources(query: str, top_k: int | None = None, frontend_id: str | None = None) -> list[dict[str, str]]:
+    """Same retrieval as get_relevant_chunks, keeping each chunk's source file.
+
+    Returns [{"text", "source", "scope"}] — scope is "global" or "campaign".
+    Used by the internal case file to cite the instrument a provision comes from.
+    """
     if not _initialized:
         initialize()
 
     if top_k is None:
         top_k = config.rag_similarity_top_k
 
-    chunks: list[str] = []
+    chunks: list[dict[str, str]] = []
 
     # Global RAG — check if we should include it
     include_global = True
@@ -389,7 +398,7 @@ def get_relevant_chunks(query: str, top_k: int | None = None, frontend_id: str |
         try:
             retriever = _index.as_retriever(similarity_top_k=top_k)
             nodes = retriever.retrieve(query)
-            chunks.extend(node.get_content() for node in nodes if node.get_content().strip())
+            chunks.extend(_node_source(n, "global") for n in nodes if n.get_content().strip())
         except Exception as e:
             logger.error(f"Global RAG retrieval failed: {e}")
 
@@ -397,8 +406,8 @@ def get_relevant_chunks(query: str, top_k: int | None = None, frontend_id: str |
     # materialised into the frontend's own documents (see activate_module_rag),
     # so they are indexed and retrieved here like any other campaign document.
     if frontend_id:
-        campaign_chunks = _get_campaign_chunks(frontend_id, query, top_k)
-        chunks.extend(campaign_chunks)
+        chunks.extend(_node_source(n, "campaign") for n in _get_campaign_nodes(frontend_id, query, top_k)
+                      if n.get_content().strip())
 
     if chunks:
         logger.debug(f"RAG retrieved {len(chunks)} chunks for query: {query[:80]}... (frontend={frontend_id})")
@@ -509,8 +518,13 @@ def _load_or_build_campaign_index(frontend_id: str):
         return None
 
 
-def _get_campaign_chunks(frontend_id: str, query: str, top_k: int) -> list[str]:
-    """Retrieve chunks from a campaign-specific index."""
+def _node_source(node, scope: str) -> dict[str, str]:
+    meta = getattr(node, "metadata", None) or {}
+    return {"text": node.get_content(), "source": meta.get("file_name") or "", "scope": scope}
+
+
+def _get_campaign_nodes(frontend_id: str, query: str, top_k: int) -> list:
+    """Retrieve nodes from a campaign-specific index."""
     with _campaign_lock:
         if frontend_id not in _campaign_indexes:
             _campaign_indexes[frontend_id] = _load_or_build_campaign_index(frontend_id)
@@ -522,8 +536,7 @@ def _get_campaign_chunks(frontend_id: str, query: str, top_k: int) -> list[str]:
 
     try:
         retriever = idx.as_retriever(similarity_top_k=top_k)
-        nodes = retriever.retrieve(query)
-        return [node.get_content() for node in nodes if node.get_content().strip()]
+        return list(retriever.retrieve(query))
     except Exception as e:
         logger.error(f"Campaign RAG retrieval failed for {frontend_id}: {e}")
         return []

@@ -23,7 +23,6 @@ from typing import Any
 
 import httpx
 
-from src.core.paths import PROMPTS_DIR
 from src.services import frontend_client
 from src.services.frontend_registry import registry
 from src.services.llm_provider import llm
@@ -561,25 +560,12 @@ async def _finalize_session(
         role = session.get("survey", {}).get("role", "worker") if session else "worker"
         prompt_file = f"session_summary_{role}.md"
 
-        # Try the global prompts dir first (custom), then built-in defaults
-        summary_prompt_path = str(PROMPTS_DIR / prompt_file)
-        if not os.path.exists(summary_prompt_path):
-            summary_prompt_path = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)), "prompts", prompt_file
-            )
-        # Fallback to generic if profile-specific doesn't exist
-        if not os.path.exists(summary_prompt_path):
-            summary_prompt_path = str(PROMPTS_DIR / "session_summary.md")
-            if not os.path.exists(summary_prompt_path):
-                summary_prompt_path = os.path.join(
-                    os.path.dirname(os.path.dirname(__file__)), "prompts", "session_summary.md"
-                )
-        try:
-            with open(summary_prompt_path) as f:
-                summary_instruction = f.read()
-        except OSError as e:
-            logger.error(f"Cannot read summary prompt {summary_prompt_path}: {e}")
-            summary_instruction = "Generate a brief summary of this session for the user."
+        # Same loader as the chat (per-frontend custom prompts, {{module_*}} slots);
+        # generic summary prompt if there is none for this role.
+        from src.services.prompt_assembler import load_prompt
+        summary_instruction = (load_prompt(prompt_file, frontend_id or None)
+                               or load_prompt("session_summary.md", frontend_id or None)
+                               or "Generate a brief summary of this session for the user.")
 
         # Build messages: full conversation + summary instruction
         llm_messages = history.get_llm_messages(session_token)
@@ -686,10 +672,19 @@ async def _generate_internal_documents(
     session_dir = f"/app/data/sessions/{session_token}"
     os.makedirs(session_dir, exist_ok=True)
 
+    # Case material for the internal documents (report_context): survey and
+    # evidence for both; for the case file also the facts classified against the
+    # knowledge base (its own retrieval, separate from the chat's).
+    from src.services import report_context
+    case_data, standards = await report_context.build(
+        session_token, frontend_id, settings, with_standards=(mode != "training"),
+    )
+
     # 1. Internal UNI summary (always generated) — uses reporter slot
     try:
         uni_summary = await _generate_document(
-            session_token, "session_summary_uni.md", language, settings, slot="reporter"
+            session_token, "session_summary_uni.md", language, settings, slot="reporter",
+            frontend_id=frontend_id, case_material=case_data,
         )
         if uni_summary:
             path = os.path.join(session_dir, "internal_summary.md")
@@ -708,7 +703,10 @@ async def _generate_internal_documents(
     else:
         try:
             report_content = await _generate_document(
-                session_token, "internal_case_file.md", language, settings, slot="reporter"
+                session_token, "internal_case_file.md", language, settings, slot="reporter",
+                frontend_id=frontend_id,
+                case_material="\n\n".join(x for x in (case_data, standards) if x),
+                extra_instruction=report_context.CASE_FILE_INSTRUCTION if standards else "",
             )
             if report_content:
                 path = os.path.join(session_dir, "report.md")
@@ -757,45 +755,40 @@ async def _generate_document(
     language: str,
     settings: dict[str, Any],
     slot: str = "inference",
+    frontend_id: str = "",
+    case_material: str = "",
+    extra_instruction: str = "",
 ) -> str | None:
     """Generate a document using a prompt file + full conversation. Returns text or None.
 
     `slot` selects which LLM to use: 'inference' (default, for chat/user-facing) or 'reporter'
     (dedicated to internal_summary and report). Falls back to inference if slot settings are empty.
+    The prompt is loaded like the chat's (per-frontend custom prompts, {{module_*}} slots).
+    `case_material` (survey, evidence, applicable standards — report_context) is added to the
+    system message; `extra_instruction` to the final request.
     """
-    import os
+    from src.services.prompt_assembler import load_prompt
 
-    # Load prompt
-    prompt_path = str(PROMPTS_DIR / prompt_file)
-    if not os.path.exists(prompt_path):
-        prompt_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "prompts", prompt_file
-        )
-    if not os.path.exists(prompt_path):
+    prompt_instruction = load_prompt(prompt_file, frontend_id or None)
+    if not prompt_instruction:
         logger.warning(f"Prompt file not found: {prompt_file}")
         return None
-
-    try:
-        with open(prompt_path) as f:
-            prompt_instruction = f.read()
-    except OSError as e:
-        logger.error(f"Cannot read prompt file {prompt_path}: {e}")
-        return None
+    system = f"{prompt_instruction}\n\n{case_material}" if case_material else prompt_instruction
 
     # Build messages: replace system prompt with document prompt + full conversation
     llm_messages = history.get_llm_messages(session_token)
 
     # Replace the system prompt with the document generation prompt
     if llm_messages and llm_messages[0]["role"] == "system":
-        llm_messages[0] = {"role": "system", "content": prompt_instruction}
+        llm_messages[0] = {"role": "system", "content": system}
     else:
-        llm_messages.insert(0, {"role": "system", "content": prompt_instruction})
+        llm_messages.insert(0, {"role": "system", "content": system})
 
     # Add language instruction as final user message
-    llm_messages.append({
-        "role": "user",
-        "content": f"Generate this document based on the conversation above. Write in: {language}.",
-    })
+    request = "Generate this document based on the conversation above."
+    if extra_instruction:
+        request += f" {extra_instruction}"
+    llm_messages.append({"role": "user", "content": f"{request} Write in: {language}."})
 
     # Non-streaming LLM call
     slot_cfg = _slot_settings(settings, slot)

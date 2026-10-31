@@ -139,6 +139,12 @@ def _load(name: str, frontend_id: str | None = None) -> str:
     return ""
 
 
+def load_prompt(name: str, frontend_id: str | None = None) -> str:
+    """Public loader for prompt files (documents, summaries): honours per-frontend
+    custom prompts and fills {{module_*}} slots, exactly as the chat does."""
+    return _load(name, frontend_id)
+
+
 def _resolve_case_prompt(role: str, mode: str) -> str:
     """Resolve the case prompt file name for a given role+mode combination.
 

@@ -1,5 +1,15 @@
 # HRDD Helper — Changelog
 
+## Sprint 38 — Case file classified against the knowledge base
+
+The internal documents used to see only the conversation. Now:
+
+- **Case data** for the UNI summary and the case file: the intake survey and the summaries of the documents and images the user uploaded (`services/report_context.py`).
+- **Applicable standards** for the case file, with its own retrieval (the chat uses the knowledge base to steer the conversation; the case file uses it to classify the facts): the reporter model first lists the factual allegations (`prompts/report_facts.md`, editable); each fact is searched in the global and campaign knowledge base and in the user's own documents; the case file receives the facts with their candidate provisions and source document (`[P1]`, `[P2]`…) and is asked to name instrument and article, cite the provision, and mark standards it uses that are not in the knowledge base. If fact extraction fails, the user's own messages are used as the facts; if retrieval fails, the document is generated without it.
+- **Fixes:** the internal documents and the user summary now load their prompt like the chat does — per-frontend custom prompts are honoured and `{{module_*}}` slots are filled (the FSC module's report sections previously never reached the case file).
+- `rag_service.get_relevant_sources()` returns each chunk with its source file; the chat's retrieval is unchanged.
+- Tests: `src/backend/tests/test_report_context.py` (real document path, fake provider). Checked live with `mistral-large-4` and the default knowledge base: 5 facts, 9 provisions from 6 documents, all cited in the case file.
+
 ## Maintenance — Streaming race and branding languages
 
 - **Lost replies (fix).** The frontend dropped a finished response stream 5 seconds after it ended. If the user sent the next message within those 5 seconds (the browser opens its stream first), the stream it was listening to was dropped and the reply never arrived. The sidecar now counts open stream connections per session and only drops a finished stream when nobody is listening. Reproduced with real timings before the fix; tests in `sidecar/tests/test_backend_surface.py`.
