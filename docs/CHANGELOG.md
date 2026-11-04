@@ -1,5 +1,12 @@
 # HRDD Helper — Changelog
 
+## Maintenance — Glossary and organizations: on/off and per frontend
+
+- **RAG → Glossary / Organizations Directory:** a *Use in sessions* switch for each list.
+- **RAG → Campaign Documents → (frontend):** for each list, *Global* (follow the global list), *Off*, or *Own list* — e.g. a campaign with two reference unions and a few languages gets only those. The own list starts as a copy of the global one; edit it with Download/Upload JSON. An own list applies even when the global one is off.
+- The branding translation's glossary follows the frontend's choice. Export/import carries the settings (`config/knowledge/settings.json`, `campaigns/{id}/knowledge.json`).
+- API: `/admin/knowledge/settings`, `/admin/knowledge/frontend/{id}`, `/admin/knowledge/frontend/{id}/{glossary|organizations}`.
+
 ## Sprint 41 — Installation and administration with an AI agent
 
 - **One prompt to start.** Paste into Claude Code (or another coding agent): *Read https://raw.githubusercontent.com/DFergo/LAIUNI/main/SETUP-AGENT.md and follow it to install HRDD Helper.* `SETUP-AGENT.md` checks the machine, downloads the app and connects its MCP server; from there the MCP drives the setup.

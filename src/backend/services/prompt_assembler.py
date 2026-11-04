@@ -198,20 +198,19 @@ def _render_context(survey: dict[str, Any] | None, language: str, frontend_id: s
     return template
 
 
-def _build_knowledge_section(survey: dict[str, Any] | None, language: str) -> str:
+def _build_knowledge_section(survey: dict[str, Any] | None, language: str, frontend_id: str | None = None) -> str:
     """Build knowledge base section from glossary and organizations JSONs.
 
     These are structured, curated data injected directly into context.
     The LLM uses them for deterministic term lookups and organization referrals.
     """
-    from src.api.v1.admin.knowledge import load_glossary, load_organizations
+    from src.api.v1.admin.knowledge import effective_glossary, effective_organizations
 
     parts: list[str] = []
 
     # Glossary — only inject for non-English sessions, compact format
     if language and language != "en":
-        glossary = load_glossary()
-        terms = glossary.get("terms", [])
+        terms = effective_glossary(frontend_id)
         if terms:
             lines = [f"## Terminology Reference ({language.upper()})", "",
                      "Use these exact translations. Do not paraphrase or use alternatives.", ""]
@@ -223,8 +222,7 @@ def _build_knowledge_section(survey: dict[str, Any] | None, language: str) -> st
                 parts.append("\n".join(lines))
 
     # Organizations directory
-    orgs = load_organizations()
-    org_list = orgs.get("organizations", [])
+    org_list = effective_organizations(frontend_id)
     if org_list:
         lines = ["## Organizations Reference",  "",
                  "When naming an organization, use the exact name from this list. "
@@ -286,7 +284,7 @@ def assemble_system_prompt(survey: dict[str, Any] | None, language: str = "en", 
             parts.append(context)
 
     # 5. Knowledge base (glossary + organizations) — injected directly, not via RAG
-    kb = _build_knowledge_section(survey, language)
+    kb = _build_knowledge_section(survey, language, frontend_id)
     if kb:
         parts.append(kb)
 

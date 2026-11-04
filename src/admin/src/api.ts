@@ -821,3 +821,40 @@ export async function updateOrganizations(organizations: Organization[]): Promis
     body: JSON.stringify({ organizations }),
   });
 }
+
+// Glossary / organizations: global on/off and per-frontend override
+export interface KnowledgeSettings {
+  glossary_enabled: boolean
+  organizations_enabled: boolean
+}
+
+export type KnowledgeMode = 'global' | 'off' | 'custom'
+
+export interface FrontendKnowledge {
+  glossary: { mode: KnowledgeMode; terms: GlossaryTerm[] }
+  organizations: { mode: KnowledgeMode; organizations: Organization[] }
+}
+
+export async function getKnowledgeSettings(): Promise<KnowledgeSettings> {
+  return request('/admin/knowledge/settings');
+}
+
+export async function updateKnowledgeSettings(data: Partial<KnowledgeSettings>): Promise<KnowledgeSettings> {
+  return request('/admin/knowledge/settings', { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export async function getFrontendKnowledge(frontendId: string): Promise<FrontendKnowledge> {
+  return request(`/admin/knowledge/frontend/${frontendId}`);
+}
+
+export async function updateFrontendKnowledge(
+  frontendId: string,
+  kind: 'glossary' | 'organizations',
+  mode: KnowledgeMode,
+  items?: GlossaryTerm[] | Organization[],
+): Promise<FrontendKnowledge> {
+  return request(`/admin/knowledge/frontend/${frontendId}/${kind}`, {
+    method: 'PUT',
+    body: JSON.stringify(items === undefined ? { mode } : { mode, items }),
+  });
+}

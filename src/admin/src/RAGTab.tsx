@@ -3,9 +3,10 @@ import {
   listRAGDocuments, uploadRAGDocument, deleteRAGDocument, reindexRAG, resetRAGDefaults,
   getGlossary, updateGlossary, getOrganizations, updateOrganizations,
   listFrontends, getCampaignRAGConfig, updateCampaignRAGConfig,
-  listModules, getFrontendModules,
-  type RAGDocument, type GlossaryTerm, type Organization, type Frontend, type ModuleInfo
+  listModules, getFrontendModules, getKnowledgeSettings, updateKnowledgeSettings,
+  type KnowledgeSettings, type RAGDocument, type GlossaryTerm, type Organization, type Frontend, type ModuleInfo
 } from './api'
+import CampaignKnowledgePanel from './CampaignKnowledgePanel'
 
 interface CampaignState {
   documents: RAGDocument[]
@@ -31,6 +32,7 @@ export default function RAGTab() {
   const orgsUploadRef = useRef<HTMLInputElement>(null)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
   const [orgsExpanded, setOrgsExpanded] = useState(false)
+  const [kbSettings, setKbSettings] = useState<KnowledgeSettings>({ glossary_enabled: true, organizations_enabled: true })
 
   // Sprint 8h: campaign state per frontend
   const [frontends, setFrontends] = useState<Frontend[]>([])
@@ -41,13 +43,15 @@ export default function RAGTab() {
 
   const refresh = async () => {
     try {
-      const [ragData, glossaryData, orgsData, feData, modulesData] = await Promise.all([
+      const [ragData, glossaryData, orgsData, feData, modulesData, kbData] = await Promise.all([
         listRAGDocuments(),
         getGlossary(),
         getOrganizations(),
         listFrontends(),
         listModules(),
+        getKnowledgeSettings(),
       ])
+      setKbSettings(kbData)
       setDocuments(ragData.documents)
       setGlossary(glossaryData.terms)
       setOrganizations(orgsData.organizations)
@@ -303,6 +307,31 @@ export default function RAGTab() {
     }
   }
 
+  const flash = (msg: string) => {
+    setError('')
+    setSuccess(msg)
+    setTimeout(() => setSuccess(''), 3000)
+  }
+
+  const toggleKnowledge = async (key: keyof KnowledgeSettings) => {
+    try {
+      const result = await updateKnowledgeSettings({ [key]: !kbSettings[key] })
+      setKbSettings(result)
+      flash(`${key === 'glossary_enabled' ? 'Glossary' : 'Organizations directory'} ${result[key] ? 'used' : 'not used'} in sessions`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    }
+  }
+
+  const knowledgeToggle = (key: keyof KnowledgeSettings) => (
+    <label className="flex items-center gap-2 cursor-pointer mr-2" onClick={() => toggleKnowledge(key)}>
+      <span className="text-xs text-gray-500">Use in sessions</span>
+      <div className={`relative w-8 h-4 rounded-full transition-colors ${kbSettings[key] ? 'bg-uni-blue' : 'bg-gray-300'}`}>
+        <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${kbSettings[key] ? 'translate-x-4' : 'translate-x-0.5'}`} />
+      </div>
+    </label>
+  )
+
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -397,7 +426,7 @@ export default function RAGTab() {
         <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
           <h3 className="text-lg font-semibold text-gray-800 mb-1">Campaign Documents</h3>
           <p className="text-xs text-gray-400 mb-4">
-            Per-frontend documents. Each frontend can have its own RAG documents in addition to (or instead of) global documents.
+            Per-frontend documents. Each frontend can have its own RAG documents in addition to (or instead of) global documents, and its own glossary and organizations (or none).
           </p>
 
           <div className="space-y-3">
@@ -470,6 +499,15 @@ export default function RAGTab() {
                           <p className="text-xs text-gray-400 mt-1 pl-1">Managed from the Prompts panel (decouple the frontend from global first).</p>
                         </div>
                       )}
+                      <CampaignKnowledgePanel
+                        frontendId={fe.id}
+                        globalTerms={glossary}
+                        globalOrganizations={organizations}
+                        globalGlossaryEnabled={kbSettings.glossary_enabled}
+                        globalOrganizationsEnabled={kbSettings.organizations_enabled}
+                        onError={setError}
+                        onSuccess={flash}
+                      />
                     </div>
                   )}
                 </div>
@@ -487,6 +525,7 @@ export default function RAGTab() {
             <span className="text-sm font-normal text-gray-400 ml-2">({glossary.length} terms)</span>
           </h3>
           <div className="flex items-center gap-2">
+            {knowledgeToggle('glossary_enabled')}
             <button
               onClick={() => downloadJSON({ terms: glossary }, 'glossary.json')}
               className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50"
@@ -506,8 +545,8 @@ export default function RAGTab() {
           </div>
         </div>
         <p className="text-xs text-gray-400 mb-3">
-          Domain terms injected into every session for consistent terminology and translations.
-          Download the current file, edit it, and upload the updated version.
+          Domain terms added to sessions in other languages than English (only the session's language), for consistent terminology.
+          Download the current file, edit it, and upload the updated version. Each frontend can follow this list, switch it off or use its own (Campaign Documents).
         </p>
 
         {glossary.length > 0 && (
@@ -552,6 +591,7 @@ export default function RAGTab() {
             <span className="text-sm font-normal text-gray-400 ml-2">({organizations.length} entries)</span>
           </h3>
           <div className="flex items-center gap-2">
+            {knowledgeToggle('organizations_enabled')}
             <button
               onClick={() => downloadJSON({ organizations }, 'organizations.json')}
               className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50"
@@ -572,7 +612,7 @@ export default function RAGTab() {
         </div>
         <p className="text-xs text-gray-400 mb-3">
           Curated list of unions, federations, and institutions. The AI only references organizations from this list.
-          Download the current file, edit it, and upload the updated version.
+          Download the current file, edit it, and upload the updated version. Each frontend can follow this list, switch it off or use its own (Campaign Documents).
         </p>
 
         {organizations.length > 0 && (

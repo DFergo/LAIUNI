@@ -132,8 +132,8 @@ async def translate_branding(frontend_id: str, branding: dict[str, str], force: 
     glossary_terms: list[dict[str, Any]] = []
     if settings.get("translation_glossary_enabled"):
         try:
-            from src.api.v1.admin.knowledge import load_glossary
-            glossary_terms = load_glossary().get("terms", [])
+            from src.api.v1.admin.knowledge import effective_glossary
+            glossary_terms = effective_glossary(frontend_id)
         except Exception as e:
             logger.warning(f"Glossary load failed, translating without it: {e}")
 
