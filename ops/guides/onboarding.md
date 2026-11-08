@@ -14,6 +14,10 @@ Ask before recommending anything. A few questions at a time, in the user's langu
 - Should it be reachable from the Internet, or only inside the office network?
 - Roughly how many users at the same time (a few, dozens, more)?
 
+## 2b. Their organization
+- Name of the organization and a short name; what the tool should be called (the default is "HRDD Helper").
+- Brand colours (or the website to read them from) and their logo files. → guide `branding`, which also covers the prompt review when the organization is not UNI.
+
 ## 3. Machines
 - Run `check_machine` on this computer (explain what it checks).
 - Is this the machine that will run the backend? Will it stay on all the time? (A laptop that sleeps is fine to try, not for production.)

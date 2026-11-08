@@ -4,6 +4,7 @@ Log in first (`backend_connect`, `login`). `admin_api_reference filter="<area>"`
 
 | Area | Endpoints (prefix `/admin`) | Notes |
 |---|---|---|
+| Branding | `/branding`, `/branding/logo/{slot}`, `/branding/reset`, per frontend `/frontends/{id}/branding` (tokens) and `/{id}/branding/logo/{slot}` | guide `branding`. Names, colours and logos for the whole installation; a frontend can override any. |
 | Frontends | `/frontends`, `/frontends/{id}`, `/{id}/config`, `/{id}/branding`, `/{id}/branding/logo` | guide `frontends`. `DELETE /frontends/{id}` moves it to *deleted* (restorable: `/frontends/deleted`, `/{id}/restore`). |
 | Models | `/llm/connections`, `/llm/settings`, `/llm/health`, `/llm/models`, `/llm/capabilities`, `/llm/usage`, `/llm/embedding/reindex`, `/frontends/{id}/llm-settings` | guide `inference`. `/llm/usage` shows tokens and prompt-cache rate. |
 | Knowledge base | `/rag/documents`, `/rag/upload`, `/rag/documents/{name}`, `/rag/reindex`, `/rag/stats`, `/rag/campaign/{id}/config`, `/rag/reset-defaults` | Uploads: `admin_upload`. Reset restores the shipped documents (destructive). |

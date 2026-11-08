@@ -224,10 +224,11 @@ def _build_knowledge_section(survey: dict[str, Any] | None, language: str, front
     # Organizations directory
     org_list = effective_organizations(frontend_id)
     if org_list:
+        from src.services.branding_tokens import org_name
         lines = ["## Organizations Reference",  "",
                  "When naming an organization, use the exact name from this list. "
                  "Do not invent or approximate organization names. "
-                 "The correct escalation path is always: worker → national union → UNI Global Union.", ""]
+                 f"The correct escalation path is always: worker → national union → {org_name(frontend_id)}.", ""]
 
         for org in org_list:
             name = org.get("name", "")

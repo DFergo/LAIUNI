@@ -1,5 +1,16 @@
 # HRDD Helper — Changelog
 
+## Sprint 43 — Branding by tokens
+
+- **One catalog of tokens** replaces every hardcoded UNI value: organization name and short name, tool name, primary / text-on-primary / accent / dark colours, three logos (top bar, pages, chat background). Only the copyright line stays fixed.
+- **Global branding + per-frontend override**: Branding tab in the admin (live preview, readability warnings, logo upload per slot); Frontends → Branding shows each token as own / inherited. Existing installs look exactly as before; an old `app_title` or single logo keeps working.
+- **Colours without rebuild**: Tailwind classes renamed `uni-blue|red|dark` → `brand-primary|accent|dark` (+ `brand-on-primary`), driven by CSS variables.
+- **Texts**: i18n strings, default disclaimer/instructions and emails use `{{org_name}}`, `{{org_short_name}}`, `{{tool_name}}`; translations keep the placeholders (verified, one retry).
+- **API / MCP**: `/admin/branding` (+ `/logo/{slot}`, `/reset`, `/public`), tokens in the frontend branding; guide `branding` (including the prompt review when the organization is not UNI), configure/frontends/onboarding/overview updated.
+- Fixed on the way: the polling push of branding ignored role-only instructions when deciding if branding was custom; the escalation line in the organizations reference now names the organization token.
+- Tests: backend 12 + 14 new (tokens, API, translator placeholders, escalation), sidecar 5 new, MCP 2 new (25 in total); frontend and admin `tsc` + build clean. Not verified: visual rendering in a browser.
+- Prompts, knowledge base and organizations list are not tokenised (Daniel's decision): reviewed with the user by the setup agent.
+
 ## Sprint 42 — Remote servers, VPS path and domain checks for the setup agent
 
 - **Remote machines over SSH** (MCP v1.1.0): `remote_check` (OS, memory, Docker, Tailscale, listening ports; flags anything exposed beyond SSH and private addresses), `remote_install` (one fixed step per call: updates, docker, tailscale, tailscale_login that returns the login link, firewall), `remote_deploy` (copies `docker-compose.yml` and `.env` straight to the server with mode 0600; refuses to replace an existing `.env`), `remote_compose` (ps/logs; up/pull/restart/down need `apply`). Same gates as the local tools; hosts are validated as `user@address`, remote folders as plain relative paths, and nothing arbitrary can be run.

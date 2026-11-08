@@ -21,7 +21,7 @@ export function parseHeaders(text: string): Record<string, string> {
   return out
 }
 
-const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none'
+const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none'
 
 const MODE_LABEL: Record<FrontendAuthMode, string> = {
   signed: 'Signed (recommended)',
@@ -72,7 +72,7 @@ export function AccessFields({ draft, setDraft, globalSecret, secretHint }: {
       </div>
       <p className={`text-xs ${draft.mode === 'unsigned' ? 'text-amber-700' : 'text-gray-400'}`}>{MODE_HELP[draft.mode]}</p>
       {needsSecret && (
-        <p className="text-xs text-uni-red">No installation secret on this backend (HRDD_FRONTEND_SECRET). Enter a secret for this frontend, or set the variable and restart the backend.</p>
+        <p className="text-xs text-brand-accent">No installation secret on this backend (HRDD_FRONTEND_SECRET). Enter a secret for this frontend, or set the variable and restart the backend.</p>
       )}
       <details className="text-sm" open={!!draft.headers}>
         <summary className="cursor-pointer text-xs text-gray-500 select-none">Extra headers (optional, e.g. Cloudflare Access service token)</summary>
@@ -100,7 +100,7 @@ export function SigningBadge({ f }: { f: Frontend }) {
     <>
       {mode === 'signed' && (f.signing_enabled
         ? <span className={`${base} bg-green-50 text-green-700 border-green-200`}>signed{f.signing_source === 'own' ? ' · own secret' : ''}</span>
-        : <span className={`${base} bg-red-50 text-uni-red border-red-200`} title="No secret available">signed · no secret</span>)}
+        : <span className={`${base} bg-red-50 text-brand-accent border-red-200`} title="No secret available">signed · no secret</span>)}
       {mode === 'unsigned' && <span className={`${base} bg-amber-50 text-amber-700 border-amber-200`} title="Requests to this frontend are not signed">trusted network · unsigned</span>}
       {mode === 'legacy' && <span className={`${base} bg-gray-50 text-gray-500 border-gray-200`} title="Old frontend image, unsigned protocol">legacy</span>}
       {mode === 'signed' && f.surface_auth === 'trusted-network' && (
@@ -169,7 +169,7 @@ export default function FrontendSecurityPanel({ f, globalSecret, onSaved }: { f:
       )}
       <div className="flex gap-2">
         <button onClick={saveAll} disabled={busy || !dirty}
-          className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50">
+          className="bg-brand-primary text-brand-on-primary rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50">
           {busy ? '...' : 'Save'}
         </button>
         {!!f.extra_header_names?.length && (
@@ -184,7 +184,7 @@ export default function FrontendSecurityPanel({ f, globalSecret, onSaved }: { f:
         HRDD_BACKEND_SECRET_PREVIOUS, save it here (or change HRDD_FRONTEND_SECRET on the backend), then remove the previous one.
       </p>
       {msg && <p className="text-xs text-green-700">{msg}</p>}
-      {err && <p className="text-xs text-uni-red">{err}</p>}
+      {err && <p className="text-xs text-brand-accent">{err}</p>}
     </div>
   )
 }

@@ -12,6 +12,17 @@ import AuthPage from './components/AuthPage'
 import InstructionsPage from './components/InstructionsPage'
 import SurveyPage from './components/SurveyPage'
 import ChatShell from './components/ChatShell'
+import { applyBranding, brandTokens, resolveTokens } from './branding'
+
+function resolveBrandingTexts(b: BrandingConfig): BrandingConfig {
+  const out: BrandingConfig = { ...b }
+  for (const key of ['disclaimer_text', 'instructions_text', 'instructions_text_worker', 'instructions_text_representative',
+    'instructions_text_organizer', 'instructions_text_officer'] as const) {
+    const value = out[key]
+    if (typeof value === 'string') out[key] = resolveTokens(value)
+  }
+  return out
+}
 
 function App() {
   const [phase, setPhase] = useState<Phase>('loading')
@@ -64,6 +75,7 @@ function App() {
       const res = await fetch('/internal/config')
       if (res.ok) {
         const data: DeploymentConfig = await res.json()
+        applyBranding(data.branding?.tokens)
         setConfig(data)
         // A generic frontend that hasn't been configured from the backend yet
         if (data.configured === false) {
@@ -204,21 +216,23 @@ function App() {
   }
 
   // Merge base branding (app_title, logo_url) with translated text (disclaimer_text, instructions_text)
+  // The texts are templates ({{org_name}}...): resolve them with the tokens when shown.
   const mergedBranding: BrandingConfig | undefined = config?.branding
-    ? { ...config.branding, ...brandingText }
+    ? resolveBrandingTexts({ ...config.branding, ...brandingText })
     : undefined
 
   const showFooter = phase !== 'chat' && phase !== 'loading'
   const headerLg = headerLogo(mergedBranding)
+  const tokens = brandTokens()
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="bg-uni-blue text-white px-6 py-3 shadow-md flex items-center justify-between">
+      <header className="bg-brand-primary text-brand-on-primary px-6 py-3 shadow-md flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <img src={headerLg.src} alt="UNI" className={headerLg.invert ? 'h-8 brightness-0 invert' : 'h-8'} />
-          <h1 className="text-xl font-semibold">{mergedBranding?.app_title || 'HRDD Helper'}</h1>
+          <img src={headerLg.src} alt={tokens.org_short_name} className={`h-8 ${headerLg.filter}`.trim()} />
+          <h1 className="text-xl font-semibold">{tokens.tool_name}</h1>
         </div>
-        <span className="text-sm opacity-75">UNI Global Union</span>
+        <span className="text-sm opacity-75">{tokens.org_name}</span>
       </header>
 
       <main className="flex-1">
@@ -250,6 +264,7 @@ function App() {
             sessionToken={sessionToken}
             survey={survey}
             recoveryData={recoveryData}
+            branding={mergedBranding}
           />
         )}
       </main>

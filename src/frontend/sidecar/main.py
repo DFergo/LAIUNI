@@ -108,6 +108,29 @@ if (_BRANDING_DIR / "config.json").exists():
         pass
 
 
+# Sprint 43: branding tokens (organization / tool name, colours) pushed by the backend with every
+# branding update, stored apart from the custom texts so they survive "no custom text" resets.
+_tokens: dict[str, str] = {}
+_TOKENS_FILE = _BRANDING_DIR / "tokens.json"
+_LOGO_SLOTS = ("header", "page", "chat_bg")
+if _TOKENS_FILE.exists():
+    try:
+        _tokens = json.loads(_TOKENS_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        pass
+
+
+def _logo_file(slot: str, variant: str) -> Path:
+    """Stored logo of a slot. Before Sprint 43 there was one logo (logo_color.png /
+    logo_white.png) used on the top bar and the pages: still honoured until re-pushed."""
+    p = _BRANDING_DIR / f"logo_{slot}_{variant}.png"
+    if not p.exists() and slot in ("header", "page"):
+        legacy = _BRANDING_DIR / f"logo_{variant}.png"
+        if legacy.exists() and (_BRANDING_DIR / "logo_color.png").exists():
+            return legacy
+    return p
+
+
 # --- Frontend config (pushed by backend, persisted to disk) — Sprint 21 ---
 # A generic frontend starts unconfigured; the backend pushes its config
 # (profiles, auth, languages, ...) the same way it pushes branding.
@@ -139,12 +162,21 @@ async def update_branding(data: dict[str, Any]):
     """Backend pushes branding config + translations for this frontend."""
     global _branding, _branding_translations
 
+    global _tokens
     translations = data.pop("translations", None)
+    data.pop("logos", None)  # derived from the files on disk
     is_custom = data.get("custom", False)
+
+    # Tokens are kept whether or not there is custom text
+    _BRANDING_DIR.mkdir(parents=True, exist_ok=True)
+    if isinstance(data.get("tokens"), dict):
+        _tokens = {k: str(v) for k, v in data.pop("tokens").items()}
+        tk_tmp = _TOKENS_FILE.with_suffix(".tmp")
+        tk_tmp.write_text(json.dumps(_tokens, ensure_ascii=False, indent=2))
+        tk_tmp.rename(_TOKENS_FILE)
 
     # Store base branding
     _branding = data
-    _BRANDING_DIR.mkdir(parents=True, exist_ok=True)
 
     if is_custom:
         # Save base config to disk
@@ -188,42 +220,63 @@ async def get_branding_translation(lang_code: str):
 async def update_branding_logo(
     mode: str = Form("white"),
     clear: str = Form(""),
+    slot: str = Form(""),
     color: UploadFile | None = File(None),
     white: UploadFile | None = File(None),
 ):
-    """Backend pushes the processed logo variants + header mode (Sprint 33)."""
+    """Backend pushes the processed logo variants of one slot + the header mode (Sprint 33, slots Sprint 43).
+    Without `slot` (a backend from before Sprint 43) the logo serves the top bar and the pages."""
+    if slot and slot not in _LOGO_SLOTS:
+        raise HTTPException(status_code=400, detail="Unknown slot")
     _BRANDING_DIR.mkdir(parents=True, exist_ok=True)
-    color_path = _BRANDING_DIR / "logo_color.png"
-    white_path = _BRANDING_DIR / "logo_white.png"
+    slots = [slot] if slot else ["header", "page"]
 
     if clear:
-        for p in (color_path, white_path):
-            if p.exists():
-                p.unlink()
+        for sl in slots:
+            for variant in ("color", "white"):
+                (_BRANDING_DIR / f"logo_{sl}_{variant}.png").unlink(missing_ok=True)
+        if not slot:  # legacy files too
+            for variant in ("color", "white"):
+                (_BRANDING_DIR / f"logo_{variant}.png").unlink(missing_ok=True)
         (_BRANDING_DIR / "logo_meta.json").write_text(json.dumps({"mode": mode}))
-        logger.info("Branding logo cleared")
+        logger.info(f"Branding logo cleared ({', '.join(slots)})")
         return {"status": "ok"}
 
     if color is not None:
-        color_path.write_bytes(await color.read())
-        # white accompanies a fresh upload; drop any stale white if none was sent
-        if white is not None:
-            white_path.write_bytes(await white.read())
-        elif white_path.exists():
-            white_path.unlink()
+        color_bytes = await color.read()
+        white_bytes = await white.read() if white is not None else None
+        for sl in slots:
+            (_BRANDING_DIR / f"logo_{sl}_color.png").write_bytes(color_bytes)
+            if white_bytes is not None:
+                (_BRANDING_DIR / f"logo_{sl}_white.png").write_bytes(white_bytes)
+            else:  # white accompanies a fresh upload; drop any stale one
+                (_BRANDING_DIR / f"logo_{sl}_white.png").unlink(missing_ok=True)
+        if not slot:
+            for variant in ("color", "white"):
+                (_BRANDING_DIR / f"logo_{variant}.png").unlink(missing_ok=True)
     # meta always reflects the latest mode (mode-only toggles re-push here too)
     (_BRANDING_DIR / "logo_meta.json").write_text(json.dumps({"mode": mode}))
-    logger.info(f"Branding logo updated (mode={mode})")
+    logger.info(f"Branding logo updated ({', '.join(slots)}, mode={mode})")
     return {"status": "ok"}
+
+
+@app.get("/internal/branding-logo/{slot}/{variant}")
+async def get_branding_logo_slot(slot: str, variant: str):
+    """Serve a stored logo variant of a slot; 404 lets the React app fall back to logo_url/default."""
+    if slot not in _LOGO_SLOTS or variant not in ("color", "white"):
+        raise HTTPException(status_code=404, detail="Unknown logo")
+    p = _logo_file(slot, variant)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(p, media_type="image/png")
 
 
 @app.get("/internal/branding-logo/{variant}")
 async def get_branding_logo(variant: str):
-    """Serve a stored logo variant; 404 lets the React app fall back to logo_url/default."""
-    fname = {"color": "logo_color.png", "white": "logo_white.png"}.get(variant)
-    if not fname:
+    """Top-bar logo (route kept from before Sprint 43)."""
+    if variant not in ("color", "white"):
         raise HTTPException(status_code=404, detail="Unknown variant")
-    p = _BRANDING_DIR / fname
+    p = _logo_file("header", variant)
     if not p.exists():
         raise HTTPException(status_code=404, detail="Not found")
     return FileResponse(p, media_type="image/png")
@@ -250,8 +303,8 @@ async def get_config():
         cfg = {"role": "frontend", "configured": False}
     # Logo state is derived from disk (source of truth), so it survives restarts
     # and works even when there is no custom text branding.
-    logo_uploaded = (_BRANDING_DIR / "logo_color.png").exists()
-    logo_has_white = (_BRANDING_DIR / "logo_white.png").exists()
+    logos = {sl: {"uploaded": _logo_file(sl, "color").exists(), "has_white": _logo_file(sl, "white").exists()}
+             for sl in _LOGO_SLOTS}
     logo_mode = "white"
     meta = _BRANDING_DIR / "logo_meta.json"
     if meta.exists():
@@ -260,14 +313,16 @@ async def get_config():
         except (json.JSONDecodeError, OSError):
             pass
 
-    if _branding or logo_uploaded:
+    if _branding or _tokens or any(l["uploaded"] for l in logos.values()):
         cfg["branding"] = {
             "app_title": _branding.get("app_title", ""),
             "logo_url": _branding.get("logo_url", ""),
             "custom": _branding.get("custom", False),
             "logo_mode": logo_mode,
-            "logo_uploaded": logo_uploaded,
-            "logo_has_white": logo_has_white,
+            "logo_uploaded": logos["header"]["uploaded"],
+            "logo_has_white": logos["header"]["has_white"],
+            "logos": logos,
+            "tokens": _tokens,
         }
     return cfg
 

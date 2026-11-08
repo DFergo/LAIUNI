@@ -381,6 +381,34 @@ class McpTest(unittest.TestCase):
         self.assertFalse(err)
         self.assertFalse(json.loads(out)["resolves"])
 
+    def test_branding_is_reachable_through_the_gates(self):
+        """The agent sets names, colours and logos with admin_api / admin_upload, like any other area."""
+        self._login()
+        body = {"values": {"org_name": "Union X", "color_primary": "#0A7F3C"}}
+        err, out = self.call("admin_api", method="PUT", path="/admin/branding", body=body)
+        self.assertIn("planned", out)
+        self.assertFalse(any(r[0] == "PUT" for r in Fake.requests))
+        err, out = self.call("admin_api", method="PUT", path="/admin/branding", body=body, apply=True)
+        self.assertFalse(err, out)
+        self.assertEqual([r[1] for r in Fake.requests if r[0] == "PUT"], ["/admin/branding"])
+        err, _ = self.call("admin_api", method="POST", path="/admin/branding/reset", apply=True)
+        self.assertTrue(err)                                                      # reset needs confirm_destructive
+        logo = self.tmp / "logo.png"
+        logo.write_bytes(b"\x89PNG")
+        err, out = self.call("admin_upload", path="/admin/branding/logo/chat_bg", file=str(logo))
+        self.assertFalse(err, out)
+        self.assertIn("planned", out)
+
+    def test_the_branding_guide_names_every_token_and_the_prompt_review(self):
+        import re
+        guide = (OPS / "guides" / "branding.md").read_text()
+        catalog = (OPS.parent / "src/backend/services/branding_tokens.py").read_text()
+        for token in re.findall(r'"name": "([a-z_]+)", "kind"', catalog):
+            self.assertIn(f"`{token}`", guide, token)
+        for slot in ("header", "page", "chat_bg"):
+            self.assertIn(slot, guide)
+        self.assertIn("review the prompts", guide.lower())
+
     def test_configure_guide_names_every_admin_area(self):
         import re
         guide = (OPS / "guides" / "configure.md").read_text()

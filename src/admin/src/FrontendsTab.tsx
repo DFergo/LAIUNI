@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, retranslateBranding, uploadFrontendLogo, deleteFrontendLogo, fetchLogoVariant, listDeletedFrontends, restoreFrontend, exportGlobalConfig, importGlobalConfig, type Frontend, type BrandingConfig } from './api'
+import BrandingEditor from './BrandingEditor'
+import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, retranslateBranding, uploadBrandLogo, deleteBrandLogo, listDeletedFrontends, restoreFrontend, exportGlobalConfig, importGlobalConfig, type Frontend, type BrandingConfig } from './api'
 import FrontendSecurityPanel, { AccessFields, SigningBadge, draftToCredentials, type AccessDraft } from './FrontendSecurityPanel'
 import FrontendConfigPanel from './FrontendConfigPanel'
 import { DEFAULT_DISCLAIMER_MD, DEFAULT_INSTRUCTIONS_MD } from './brandingDefaults'
@@ -96,40 +97,12 @@ export default function FrontendsTab() {
   const [brandingSuccess, setBrandingSuccess] = useState('')
   const [translationStatus, setTranslationStatus] = useState<{ status: string; progress: number; total: number } | null>(null)
   const [configOpen, setConfigOpen] = useState<string | null>(null)
-  // Logo upload (Sprint 33)
-  const [logoBusy, setLogoBusy] = useState(false)
-  const [logoErr, setLogoErr] = useState('')
-  const [logoPreview, setLogoPreview] = useState<{ color: string | null; white: string | null }>({ color: null, white: null })
+  // Branding tokens (Sprint 43): pending changes to this frontend's own tokens (name -> value, '' = inherit)
+  const [brandEdits, setBrandEdits] = useState<Record<string, string>>({})
 
-  const loadLogoPreviews = async (fid: string) => {
-    const [color, white] = await Promise.all([fetchLogoVariant(fid, 'color'), fetchLogoVariant(fid, 'white')])
-    setLogoPreview({ color, white })
-  }
-
-  const handleLogoUpload = async (fid: string, file: File) => {
-    setLogoErr(''); setLogoBusy(true)
-    try {
-      const r = await uploadFrontendLogo(fid, file)
-      setBranding(b => b ? { ...b, logo_uploaded: r.logo_uploaded, logo_has_white: r.logo_has_white } : b)
-      await loadLogoPreviews(fid)
-    } catch (e) {
-      setLogoErr(e instanceof Error ? e.message : 'Upload failed')
-    } finally {
-      setLogoBusy(false)
-    }
-  }
-
-  const handleLogoDelete = async (fid: string) => {
-    setLogoErr(''); setLogoBusy(true)
-    try {
-      await deleteFrontendLogo(fid)
-      setBranding(b => b ? { ...b, logo_uploaded: false, logo_has_white: false } : b)
-      setLogoPreview({ color: null, white: null })
-    } catch (e) {
-      setLogoErr(e instanceof Error ? e.message : 'Delete failed')
-    } finally {
-      setLogoBusy(false)
-    }
+  const refreshCatalog = async (fid: string) => {
+    const data = await getFrontendBranding(fid)
+    setBranding(b => b ? { ...b, catalog: data.catalog } : data)
   }
 
   const startEdit = (f: Frontend) => {
@@ -161,17 +134,14 @@ export default function FrontendsTab() {
       setBrandingOpen(null)
       setBranding(null)
       setTranslationStatus(null)
-      setLogoPreview({ color: null, white: null })
-      setLogoErr('')
+      setBrandEdits({})
       return
     }
     try {
       const data = await getFrontendBranding(id)
       setBranding(data)
       setBrandingOpen(id)
-      setLogoErr('')
-      if (data.logo_uploaded) await loadLogoPreviews(id)
-      else setLogoPreview({ color: null, white: null })
+      setBrandEdits({})
     } catch {
       // ignore
     }
@@ -197,7 +167,9 @@ export default function FrontendsTab() {
     setBrandingSaving(true)
     setTranslationStatus(null)
     try {
-      const result = await updateFrontendBranding(brandingOpen, branding)
+      const result = await updateFrontendBranding(brandingOpen, { ...branding, tokens: brandEdits })
+      setBrandEdits({})
+      await refreshCatalog(brandingOpen)
       setBrandingSuccess('Branding saved and pushed to frontend')
       setTimeout(() => setBrandingSuccess(''), 3000)
 
@@ -246,7 +218,7 @@ export default function FrontendsTab() {
               value={newUrl}
               onChange={e => setNewUrl(e.target.value)}
               placeholder="Backend-port URL, e.g. http://10.0.0.20:8081 or https://hrdd-fe1-backend.example.org"
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none text-sm"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none text-sm"
               required
             />
           </div>
@@ -257,20 +229,20 @@ export default function FrontendsTab() {
               value={newName}
               onChange={e => setNewName(e.target.value)}
               placeholder="Worker #1"
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none text-sm"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none text-sm"
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="bg-uni-blue text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50"
+            className="bg-brand-primary text-brand-on-primary rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50"
           >
             {loading ? '...' : 'Register'}
           </button>
         </div>
         <AccessFields draft={newAccess} setDraft={setNewAccess} globalSecret={globalSecret} />
         </form>
-        {error && <p className="text-uni-red text-sm mt-2">{error}</p>}
+        {error && <p className="text-brand-accent text-sm mt-2">{error}</p>}
       </div>
 
       {/* Frontends list */}
@@ -295,7 +267,7 @@ export default function FrontendsTab() {
                               onChange={e => setEditName(e.target.value)}
                               onKeyDown={e => e.key === 'Enter' && saveEdit(f.id)}
                               placeholder="Name"
-                              className="border border-gray-300 rounded px-2 py-0.5 text-sm w-40 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                              className="border border-gray-300 rounded px-2 py-0.5 text-sm w-40 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
                               autoFocus
                             />
                             <input
@@ -304,19 +276,19 @@ export default function FrontendsTab() {
                               onChange={e => setEditUrl(e.target.value)}
                               onKeyDown={e => e.key === 'Enter' && saveEdit(f.id)}
                               placeholder="http://host:port"
-                              className="border border-gray-300 rounded px-2 py-0.5 text-sm w-64 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                              className="border border-gray-300 rounded px-2 py-0.5 text-sm w-64 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
                             />
-                            <button onClick={() => saveEdit(f.id)} className="text-xs text-uni-blue hover:underline">Save</button>
+                            <button onClick={() => saveEdit(f.id)} className="text-xs text-brand-primary hover:underline">Save</button>
                             <button onClick={() => setEditingId(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
                           </div>
-                          {editError && <p className="text-xs text-uni-red">{editError}</p>}
+                          {editError && <p className="text-xs text-brand-accent">{editError}</p>}
                         </div>
                       ) : (
                         <>
                           <div className="text-sm font-medium text-gray-800">
                             {f.name}
                             <SigningBadge f={f} />
-                            <button onClick={() => startEdit(f)} className="ml-2 text-xs text-gray-400 hover:text-uni-blue">edit</button>
+                            <button onClick={() => startEdit(f)} className="ml-2 text-xs text-gray-400 hover:text-brand-primary">edit</button>
                           </div>
                           <div className="text-xs text-gray-400">{f.url}</div>
                         </>
@@ -354,7 +326,7 @@ export default function FrontendsTab() {
                     </button>
                     <button
                       onClick={() => handleRemove(f)}
-                      className="text-xs px-3 py-1 rounded-lg border border-uni-red text-uni-red hover:bg-red-50 font-medium transition-colors"
+                      className="text-xs px-3 py-1 rounded-lg border border-brand-accent text-brand-accent hover:bg-red-50 font-medium transition-colors"
                     >
                       Remove
                     </button>
@@ -370,98 +342,55 @@ export default function FrontendsTab() {
                 {/* Branding editor */}
                 {brandingOpen === f.id && branding && (
                   <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
-                    <p className="text-xs text-gray-400">Custom branding for this frontend. Leave empty to use UNI defaults.</p>
+                    <p className="text-xs text-gray-400">Branding for this frontend. What you leave empty follows the global Branding tab.</p>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">App Title (header)</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Tool name (header, emails)</label>
                         <input
                           type="text"
                           value={branding.app_title}
                           onChange={e => setBranding({ ...branding, app_title: e.target.value })}
-                          placeholder="HRDD Helper"
-                          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                          placeholder={branding.catalog?.tokens.find(t => t.name === 'tool_name')?.inherited ?? ''}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Logo URL (optional)</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Logo URL (optional — used for the top bar and pages when no logo is uploaded)</label>
                         <input
                           type="text"
                           value={branding.logo_url}
                           onChange={e => setBranding({ ...branding, logo_url: e.target.value })}
                           placeholder="https://example.com/logo.png"
-                          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
                         />
                       </div>
                     </div>
 
-                    {/* Logo upload (overrides the URL when set) */}
-                    <div className="border border-gray-200 rounded-lg p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-medium text-gray-600">Logo image (PNG / WEBP / JPG, max 2 MB — overrides Logo URL)</label>
-                        <div className="flex items-center gap-2">
-                          <label className={`text-xs px-2 py-1 rounded-lg border cursor-pointer ${logoBusy ? 'opacity-50 pointer-events-none' : ''} border-uni-blue text-uni-blue hover:bg-blue-50`}>
-                            {branding.logo_uploaded ? 'Replace' : 'Upload'}
-                            <input type="file" accept=".png,.webp,.jpg,.jpeg" className="hidden"
-                              onChange={e => { const file = e.target.files?.[0]; if (file) handleLogoUpload(f.id, file); e.target.value = '' }} />
-                          </label>
-                          {branding.logo_uploaded && (
-                            <button type="button" disabled={logoBusy} onClick={() => handleLogoDelete(f.id)}
-                              className="text-xs px-2 py-1 rounded-lg border border-uni-red text-uni-red hover:bg-red-50 disabled:opacity-50">Remove</button>
-                          )}
-                        </div>
-                      </div>
-                      {logoErr && <p className="text-xs text-uni-red">{logoErr}</p>}
-                      {branding.logo_uploaded ? (
-                        <>
-                          <div className="flex items-end gap-4">
-                            <div>
-                              <p className="text-[11px] text-gray-400 mb-1">Colour</p>
-                              <div className="bg-gray-100 rounded-lg p-2 flex items-center justify-center h-16">
-                                {logoPreview.color && <img src={logoPreview.color} alt="colour" className="max-h-12 max-w-[140px] object-contain" />}
-                              </div>
-                            </div>
-                            <div>
-                              <p className="text-[11px] text-gray-400 mb-1">Header (blue bar)</p>
-                              <div className="bg-uni-blue rounded-lg p-2 flex items-center justify-center h-16">
-                                {(branding.logo_mode !== 'color' && branding.logo_has_white)
-                                  ? (logoPreview.white && <img src={logoPreview.white} alt="white" className="max-h-12 max-w-[140px] object-contain" />)
-                                  : (logoPreview.color && <img src={logoPreview.color} alt="colour on blue" className="max-h-12 max-w-[140px] object-contain" />)}
-                              </div>
-                            </div>
-                          </div>
-                          {branding.logo_has_white ? (
-                            <div className="flex items-center gap-4 text-xs text-gray-600">
-                              <span className="font-medium">Header logo:</span>
-                              <label className="flex items-center gap-1 cursor-pointer">
-                                <input type="radio" name={`logomode-${f.id}`} checked={branding.logo_mode !== 'color'}
-                                  onChange={() => setBranding({ ...branding, logo_mode: 'white' })} /> White
-                              </label>
-                              <label className="flex items-center gap-1 cursor-pointer">
-                                <input type="radio" name={`logomode-${f.id}`} checked={branding.logo_mode === 'color'}
-                                  onChange={() => setBranding({ ...branding, logo_mode: 'color' })} /> Original colour
-                              </label>
-                              <span className="text-gray-400">(applied on Save)</span>
-                            </div>
-                          ) : (
-                            <p className="text-[11px] text-gray-400">This image has no transparency, so the header shows it in colour. Upload a transparent PNG for a white header logo.</p>
-                          )}
-                        </>
-                      ) : (
-                        <p className="text-[11px] text-gray-400">No image uploaded — the frontend uses the Logo URL above, or the bundled UNI logo.</p>
-                      )}
-                    </div>
+                    {branding.catalog && (
+                      <BrandingEditor
+                        scope={f.id}
+                        catalog={branding.catalog}
+                        edits={brandEdits}
+                        onEdit={(name, value) => setBrandEdits(e => ({ ...e, [name]: value }))}
+                        onUploadLogo={async (slot, file) => { const c = await uploadBrandLogo(f.id, slot, file); setBranding(b => b ? { ...b, catalog: c } : b) }}
+                        onDeleteLogo={async slot => { const c = await deleteBrandLogo(f.id, slot); setBranding(b => b ? { ...b, catalog: c } : b) }}
+                        hideTokens={['tool_name']}
+                        headerLogoMode={branding.logo_mode}
+                        onHeaderLogoMode={mode => setBranding({ ...branding, logo_mode: mode })}
+                      />
+                    )}
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-xs font-medium text-gray-600">Disclaimer page (Markdown — whole page, headings included)</label>
                         <button type="button" onClick={() => setBranding({ ...branding, disclaimer_text: DEFAULT_DISCLAIMER_MD })}
-                          className="text-xs text-uni-blue hover:underline">Load default template</button>
+                          className="text-xs text-brand-primary hover:underline">Load default template</button>
                       </div>
                       <textarea
                         value={branding.disclaimer_text}
                         onChange={e => setBranding({ ...branding, disclaimer_text: e.target.value })}
                         rows={10}
                         placeholder="Leave empty for the default disclaimer page. Use ## for headings. [DATA_PROTECTION_EMAIL] is substituted at render time."
-                        className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
                       />
                     </div>
                     <div className="space-y-3">
@@ -471,14 +400,14 @@ export default function FrontendsTab() {
                           <div className="flex items-center justify-between mb-1">
                             <label className="block text-xs font-medium text-gray-600 capitalize">Instructions — {r}</label>
                             <button type="button" onClick={() => setBranding({ ...branding, [`instructions_text_${r}`]: DEFAULT_INSTRUCTIONS_MD } as BrandingConfig)}
-                              className="text-xs text-uni-blue hover:underline">Load default template</button>
+                              className="text-xs text-brand-primary hover:underline">Load default template</button>
                           </div>
                           <textarea
                             value={(branding as unknown as Record<string, string | undefined>)[`instructions_text_${r}`] || ''}
                             onChange={e => setBranding({ ...branding, [`instructions_text_${r}`]: e.target.value } as BrandingConfig)}
                             rows={6}
                             placeholder={`Leave empty for the default ${r} instructions page.`}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
                           />
                         </div>
                       ))}
@@ -487,7 +416,7 @@ export default function FrontendsTab() {
                       <button
                         onClick={handleBrandingSave}
                         disabled={brandingSaving}
-                        className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                        className="bg-brand-primary text-brand-on-primary rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
                       >
                         {brandingSaving ? 'Saving...' : 'Save Branding'}
                       </button>
@@ -511,7 +440,7 @@ export default function FrontendsTab() {
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-1.5">
                           <div
-                            className="bg-uni-blue h-1.5 rounded-full transition-all"
+                            className="bg-brand-primary h-1.5 rounded-full transition-all"
                             style={{ width: `${(translationStatus.progress / translationStatus.total) * 100}%` }}
                           />
                         </div>
@@ -556,7 +485,7 @@ export default function FrontendsTab() {
                 </div>
                 <button
                   onClick={() => handleRestore(f.id)}
-                  className="text-xs px-3 py-1 rounded-lg border border-uni-blue text-uni-blue hover:bg-blue-50 font-medium transition-colors"
+                  className="text-xs px-3 py-1 rounded-lg border border-brand-primary text-brand-primary hover:bg-blue-50 font-medium transition-colors"
                 >
                   Restore
                 </button>

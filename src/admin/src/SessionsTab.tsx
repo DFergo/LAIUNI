@@ -35,7 +35,7 @@ function statusBadge(status: string) {
   const colors: Record<string, string> = {
     active: 'bg-green-50 text-green-700',
     completed: 'bg-gray-100 text-gray-600',
-    flagged: 'bg-red-50 text-uni-red',
+    flagged: 'bg-red-50 text-brand-accent',
   }
   return (
     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors[status] || 'bg-gray-100 text-gray-500'}`}>
@@ -82,7 +82,7 @@ function MultiSelectFilter({ label, options, excluded, onChange }: {
       <button
         ref={btnRef}
         onClick={() => (open ? setOpen(false) : openMenu())}
-        className={`px-2 py-1 text-xs font-normal border rounded whitespace-nowrap ${active ? 'border-uni-blue text-uni-blue bg-blue-50' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+        className={`px-2 py-1 text-xs font-normal border rounded whitespace-nowrap ${active ? 'border-brand-primary text-brand-primary bg-blue-50' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
       >
         {label}{active ? ` (${includedCount}/${options.length})` : ''} ▾
       </button>
@@ -94,7 +94,7 @@ function MultiSelectFilter({ label, options, excluded, onChange }: {
             style={{ left: pos.left, top: pos.top }}
           >
             <div className="flex justify-between px-1 pb-1 mb-1 border-b border-gray-100 text-xs">
-              <button className="text-uni-blue hover:underline" onClick={() => onChange(new Set())}>All</button>
+              <button className="text-brand-primary hover:underline" onClick={() => onChange(new Set())}>All</button>
               <button className="text-gray-500 hover:underline" onClick={() => onChange(new Set(options))}>None</button>
             </div>
             {options.length === 0 && <div className="text-xs text-gray-400 px-1 py-1">No values</div>}
@@ -375,7 +375,7 @@ export default function SessionsTab() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setSelected(null)}
-            className="text-sm text-uni-blue hover:underline"
+            className="text-sm text-brand-primary hover:underline"
           >
             &larr; Back to list
           </button>
@@ -385,7 +385,7 @@ export default function SessionsTab() {
             onClick={() => handleFlag(selected.token)}
             className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
               selected.flagged
-                ? 'border-uni-red text-uni-red hover:bg-red-50'
+                ? 'border-brand-accent text-brand-accent hover:bg-red-50'
                 : 'border-gray-300 text-gray-500 hover:bg-gray-50'
             }`}
           >
@@ -439,7 +439,7 @@ export default function SessionsTab() {
                         {hasContent && (
                           <button
                             onClick={() => setExpandedDoc(isExpanded ? null : docType)}
-                            className="text-xs text-uni-blue hover:underline"
+                            className="text-xs text-brand-primary hover:underline"
                           >
                             {isExpanded ? 'Collapse' : 'View'}
                           </button>
@@ -450,7 +450,7 @@ export default function SessionsTab() {
                           className={`text-xs px-3 py-1 rounded-lg border transition-colors ${
                             isGenerating
                               ? 'border-gray-200 text-gray-400 bg-gray-50 cursor-wait'
-                              : 'border-uni-blue text-uni-blue hover:bg-blue-50'
+                              : 'border-brand-primary text-brand-primary hover:bg-blue-50'
                           }`}
                         >
                           {isGenerating ? 'Generating...' : hasContent ? 'Regenerate' : 'Generate'}
@@ -517,7 +517,7 @@ export default function SessionsTab() {
               onClick={() => setFilter(f)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 filter === f
-                  ? 'bg-uni-blue text-white'
+                  ? 'bg-brand-primary text-brand-on-primary'
                   : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-50'
               }`}
             >
@@ -529,7 +529,7 @@ export default function SessionsTab() {
           <button
             onClick={() => setShowArchived(v => !v)}
             className={`text-xs px-3 py-1 rounded-lg border transition-colors font-medium ${
-              showArchived ? 'border-uni-blue text-uni-blue bg-blue-50' : 'border-gray-300 text-gray-500 hover:bg-gray-50'
+              showArchived ? 'border-brand-primary text-brand-primary bg-blue-50' : 'border-gray-300 text-gray-500 hover:bg-gray-50'
             }`}
           >
             {showArchived ? 'Hide archived' : 'Show archived'}
@@ -537,7 +537,7 @@ export default function SessionsTab() {
           <button
             onClick={() => setShowLifecycle(!showLifecycle)}
             className={`text-xs px-3 py-1 rounded-lg border transition-colors font-medium ${
-              showLifecycle ? 'border-uni-blue text-uni-blue bg-blue-50' : 'border-gray-300 text-gray-500 hover:bg-gray-50'
+              showLifecycle ? 'border-brand-primary text-brand-primary bg-blue-50' : 'border-gray-300 text-gray-500 hover:bg-gray-50'
             }`}
           >
             Lifecycle Settings
@@ -568,7 +568,7 @@ export default function SessionsTab() {
                     onClick={() => selectFrontendLifecycle(f.id)}
                     className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                       selectedFrontend === f.id
-                        ? 'bg-uni-blue text-white'
+                        ? 'bg-brand-primary text-brand-on-primary'
                         : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-50'
                     }`}
                   >
@@ -590,7 +590,7 @@ export default function SessionsTab() {
                           onChange={e => setLifecycleForm({ ...lifecycleForm, auto_close_enabled: e.target.checked })}
                           className="sr-only peer"
                         />
-                        <div className="w-9 h-5 bg-gray-200 peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-uni-blue"></div>
+                        <div className="w-9 h-5 bg-gray-200 peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-primary"></div>
                       </label>
                     </div>
                     <div className="flex items-center gap-2">
@@ -622,7 +622,7 @@ export default function SessionsTab() {
                           onChange={e => setLifecycleForm({ ...lifecycleForm, auto_cleanup_enabled: e.target.checked })}
                           className="sr-only peer"
                         />
-                        <div className="w-9 h-5 bg-gray-200 peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-uni-blue"></div>
+                        <div className="w-9 h-5 bg-gray-200 peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-primary"></div>
                       </label>
                     </div>
                     <div className="flex items-center gap-2">
@@ -649,7 +649,7 @@ export default function SessionsTab() {
                 <button
                   onClick={saveLifecycle}
                   disabled={lifecycleSaving}
-                  className="px-4 py-1.5 bg-uni-blue text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  className="px-4 py-1.5 bg-brand-primary text-brand-on-primary text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                 >
                   {lifecycleSaving ? 'Saving...' : 'Save'}
                 </button>
@@ -657,7 +657,7 @@ export default function SessionsTab() {
                 <div className="flex-1" />
                 <button
                   onClick={handlePurge}
-                  className="px-3 py-1.5 border border-uni-red text-uni-red text-sm font-medium rounded-lg hover:bg-red-50 transition-colors"
+                  className="px-3 py-1.5 border border-brand-accent text-brand-accent text-sm font-medium rounded-lg hover:bg-red-50 transition-colors"
                   title="Permanently delete this frontend's completed/archived session files from disk"
                 >
                   Purge sessions
@@ -687,7 +687,7 @@ export default function SessionsTab() {
                     </div>
                   </div>
                 ))}
-                <button onClick={saveResumeWindows} className="px-4 py-1.5 bg-uni-blue text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">Save</button>
+                <button onClick={saveResumeWindows} className="px-4 py-1.5 bg-brand-primary text-brand-on-primary text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">Save</button>
                 {resumeMsg && <span className="text-xs text-green-600 font-medium">{resumeMsg}</span>}
               </div>
             </div>
@@ -695,7 +695,7 @@ export default function SessionsTab() {
         </div>
       )}
 
-      {error && <p className="text-sm text-uni-red">{error}</p>}
+      {error && <p className="text-sm text-brand-accent">{error}</p>}
 
       {displayRows.length === 0 ? (
         <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6 text-center">
@@ -713,7 +713,7 @@ export default function SessionsTab() {
                 {([['token', 'Token'], ['frontend_name', 'Frontend'], ['company', 'Company'], ['role', 'Role'], ['mode', 'Mode'], ['status', 'Status']] as [SortCol, string][]).map(([col, label]) => (
                   <th key={col} className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">
                     <button onClick={() => handleSort(col)} className="flex items-center hover:text-gray-900">
-                      {label}<span className="text-uni-blue">{sortArrow(col)}</span>
+                      {label}<span className="text-brand-primary">{sortArrow(col)}</span>
                     </button>
                   </th>
                 ))}
@@ -721,10 +721,10 @@ export default function SessionsTab() {
                 <th className="text-center px-3 py-3 font-medium text-gray-600 whitespace-nowrap" title="Internal Summary">Int</th>
                 <th className="text-center px-3 py-3 font-medium text-gray-600 whitespace-nowrap" title="Report">Rep</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600 whitespace-nowrap">
-                  <button onClick={() => handleSort('message_count')} className="hover:text-gray-900">Msgs<span className="text-uni-blue">{sortArrow('message_count')}</span></button>
+                  <button onClick={() => handleSort('message_count')} className="hover:text-gray-900">Msgs<span className="text-brand-primary">{sortArrow('message_count')}</span></button>
                 </th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600 whitespace-nowrap">
-                  <button onClick={() => handleSort('last_activity')} className="hover:text-gray-900">Last Activity<span className="text-uni-blue">{sortArrow('last_activity')}</span></button>
+                  <button onClick={() => handleSort('last_activity')} className="hover:text-gray-900">Last Activity<span className="text-brand-primary">{sortArrow('last_activity')}</span></button>
                 </th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600 whitespace-nowrap">Flag</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600"></th>
@@ -773,7 +773,7 @@ export default function SessionsTab() {
                       onClick={() => handleFlag(s.token)}
                       className={`text-xs px-2 py-0.5 rounded transition-colors ${
                         s.flagged
-                          ? 'bg-red-50 text-uni-red'
+                          ? 'bg-red-50 text-brand-accent'
                           : 'text-gray-300 hover:text-gray-500'
                       }`}
                     >
@@ -782,11 +782,11 @@ export default function SessionsTab() {
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
                     <div className="flex items-center gap-3 justify-end">
-                      <button onClick={() => viewSession(s.token)} className="text-xs text-uni-blue hover:underline">View</button>
+                      <button onClick={() => viewSession(s.token)} className="text-xs text-brand-primary hover:underline">View</button>
                       {s.archived
                         ? <button onClick={() => handleRestore(s.token)} className="text-xs text-gray-500 hover:underline">Restore</button>
                         : <button onClick={() => handleArchive(s.token)} className="text-xs text-gray-500 hover:underline">Archive</button>}
-                      <button onClick={() => handleHardDelete(s.token)} className="text-xs text-uni-red hover:underline">Delete</button>
+                      <button onClick={() => handleHardDelete(s.token)} className="text-xs text-brand-accent hover:underline">Delete</button>
                     </div>
                   </td>
                 </tr>

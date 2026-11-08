@@ -333,7 +333,7 @@ export default function RegisteredUsersTab() {
               <button
                 onClick={handleCopyFrom}
                 disabled={!copyFrom}
-                className="bg-uni-blue text-white text-sm px-3 py-1 rounded-lg disabled:opacity-50"
+                className="bg-brand-primary text-brand-on-primary text-sm px-3 py-1 rounded-lg disabled:opacity-50"
               >
                 Copy
               </button>
@@ -341,7 +341,7 @@ export default function RegisteredUsersTab() {
             {hasOverride && (
               <button
                 onClick={handleDeleteOverride}
-                className="ml-auto text-sm bg-uni-red text-white px-3 py-1 rounded-lg"
+                className="ml-auto text-sm bg-brand-accent text-white px-3 py-1 rounded-lg"
               >
                 Remove override
               </button>
@@ -357,13 +357,13 @@ export default function RegisteredUsersTab() {
             onChange={e => setFilter(e.target.value)}
             className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[200px]"
           />
-          <button onClick={addRow} className="text-sm bg-uni-blue text-white px-3 py-1.5 rounded-lg">
+          <button onClick={addRow} className="text-sm bg-brand-primary text-brand-on-primary px-3 py-1.5 rounded-lg">
             Add row
           </button>
           <button
             onClick={handleSave}
             disabled={saving || !dirty}
-            className="text-sm bg-uni-blue text-white px-3 py-1.5 rounded-lg disabled:opacity-50"
+            className="text-sm bg-brand-primary text-brand-on-primary px-3 py-1.5 rounded-lg disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -389,7 +389,7 @@ export default function RegisteredUsersTab() {
           />
         </div>
 
-        {error && <div className="bg-red-50 border border-red-200 text-uni-red text-sm rounded-lg p-2 mb-3">{error}</div>}
+        {error && <div className="bg-red-50 border border-red-200 text-brand-accent text-sm rounded-lg p-2 mb-3">{error}</div>}
         {info && <div className="bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg p-2 mb-3">{info}</div>}
 
         <div className="overflow-x-auto border border-gray-200 rounded-lg">
@@ -433,7 +433,7 @@ export default function RegisteredUsersTab() {
                   <td className="px-2 py-1 text-right">
                     <button
                       onClick={() => deleteRow(idx)}
-                      className="text-uni-red text-sm hover:underline"
+                      className="text-brand-accent text-sm hover:underline"
                     >
                       Delete
                     </button>

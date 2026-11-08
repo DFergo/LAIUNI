@@ -252,6 +252,12 @@ def save_authorized_emails(emails: list[str]):
 
 # --- Email Sending ---
 
+def _tool(frontend_id: str = "") -> str:
+    """The tool's name for emails (branding token; a frontend may have its own)."""
+    from src.services.branding_tokens import tool_name
+    return tool_name(frontend_id)
+
+
 async def send_email(to: str, subject: str, body: str) -> bool:
     """Send an email. Returns True on success, False on failure. Never raises."""
     cfg = _load_config()
@@ -304,8 +310,8 @@ async def test_connection() -> dict[str, str]:
             first = notify_emails[0]
             sent = await send_email(
                 first,
-                "HRDD Helper — SMTP Test",
-                "This is a test email from HRDD Helper. SMTP is working correctly."
+                f"{_tool()} — SMTP Test",
+                f"This is a test email from {_tool()}. SMTP is working correctly."
             )
             if sent:
                 return {"status": "ok", "message": f"Connected and test email sent to {first}"}
@@ -375,12 +381,13 @@ def get_pending_email(session_token: str) -> str | None:
     return None
 
 
-async def send_auth_code(email: str, code: str, language: str = "en") -> bool:
+async def send_auth_code(email: str, code: str, language: str = "en", frontend_id: str = "") -> bool:
     """Send an auth code email. Returns True on success."""
+    tool = _tool(frontend_id)
     subjects = {
-        "en": "HRDD Helper — Your verification code",
-        "es": "HRDD Helper — Tu código de verificación",
-        "fr": "HRDD Helper — Votre code de vérification",
+        "en": f"{tool} — Your verification code",
+        "es": f"{tool} — Tu código de verificación",
+        "fr": f"{tool} — Votre code de vérification",
     }
     bodies = {
         "en": f"Your verification code is: {code}\n\nThis code expires in 10 minutes.\nIf you did not request this code, please ignore this email.",
@@ -460,35 +467,37 @@ async def notify_admin_report(session_token: str, report_content: str, frontend_
     recipients = _resolve_notification_recipients(frontend_id)
     if not recipients:
         return
-    subject = f"HRDD Helper — Report generated for session {session_token}"
+    subject = f"{_tool(frontend_id)} — Report generated for session {session_token}"
     body = f"A report has been generated for session {session_token}.\n\n---\n\n{report_content}"
     for addr in recipients:
         await send_email(addr, subject, body)
 
 
-async def send_user_summary(email: str, session_token: str, summary: str, language: str = "en"):
+async def send_user_summary(email: str, session_token: str, summary: str, language: str = "en", frontend_id: str = ""):
     """Send session summary to user."""
     cfg = _load_config()
     if not cfg.get("send_summary_to_user"):
         return
+    tool = _tool(frontend_id)
     subjects = {
-        "en": f"HRDD Helper — Session summary ({session_token})",
-        "es": f"HRDD Helper — Resumen de sesión ({session_token})",
-        "fr": f"HRDD Helper — Résumé de session ({session_token})",
+        "en": f"{tool} — Session summary ({session_token})",
+        "es": f"{tool} — Resumen de sesión ({session_token})",
+        "fr": f"{tool} — Résumé de session ({session_token})",
     }
     subject = subjects.get(language, subjects["en"])
     await send_email(email, subject, summary)
 
 
-async def send_user_report(email: str, session_token: str, report: str, language: str = "en"):
+async def send_user_report(email: str, session_token: str, report: str, language: str = "en", frontend_id: str = ""):
     """Send report to user."""
     cfg = _load_config()
     if not cfg.get("send_report_to_user"):
         return
+    tool = _tool(frontend_id)
     subjects = {
-        "en": f"HRDD Helper — Session report ({session_token})",
-        "es": f"HRDD Helper — Informe de sesión ({session_token})",
-        "fr": f"HRDD Helper — Rapport de session ({session_token})",
+        "en": f"{tool} — Session report ({session_token})",
+        "es": f"{tool} — Informe de sesión ({session_token})",
+        "fr": f"{tool} — Rapport de session ({session_token})",
     }
     subject = subjects.get(language, subjects["en"])
     await send_email(email, subject, report)
@@ -530,7 +539,7 @@ async def notify_slot_failure(
         return
 
     if fallback_provider:
-        subject = f"[HRDD Helper] LLM slot \"{slot_name}\" degraded — falling back to {fallback_model}"
+        subject = f"[{_tool()}] LLM slot \"{slot_name}\" degraded — falling back to {fallback_model}"
         body = (
             f"The LLM slot \"{slot_name}\" has failed and the system is using a fallback.\n\n"
             f"Failed: {failed_provider} / {failed_model}\n"
@@ -541,7 +550,7 @@ async def notify_slot_failure(
             f"This email is rate-limited to 1 per hour per slot."
         )
     else:
-        subject = f"[HRDD Helper] LLM slot \"{slot_name}\" OFFLINE — no fallback available"
+        subject = f"[{_tool()}] LLM slot \"{slot_name}\" OFFLINE — no fallback available"
         body = (
             f"The LLM slot \"{slot_name}\" has failed and NO fallback is available.\n\n"
             f"Failed: {failed_provider} / {failed_model}\n"

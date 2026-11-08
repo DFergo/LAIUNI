@@ -19,7 +19,7 @@ const CONNECTION_TYPES: { value: ConnectionType; label: string }[] = [
   { value: 'ollama', label: 'Ollama (native)' },
 ]
 
-const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none'
+const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none'
 
 // Per-card field groups — each card saves only its own keys (partial PUT),
 // independently of every other card.
@@ -79,12 +79,12 @@ function SaveBar({
       <button
         onClick={save}
         disabled={!dirty || saving}
-        className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+        className="bg-brand-primary text-brand-on-primary rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {saving ? 'Saving...' : label}
       </button>
       {dirty && !saving && !msg && <span className="text-xs text-gray-400">Unsaved changes</span>}
-      {msg && <span className={`text-xs ${msg === 'Saved' ? 'text-green-600' : 'text-uni-red'}`}>{msg}</span>}
+      {msg && <span className={`text-xs ${msg === 'Saved' ? 'text-green-600' : 'text-brand-accent'}`}>{msg}</span>}
     </>
   )
 }
@@ -151,7 +151,7 @@ function SlotConfig({
   const resetLink = (key: keyof LLMSettings, globalLabel: string) =>
     isOverride ? (
       has(key)
-        ? <button onClick={() => onSet(key, null)} className="ml-2 text-xs text-gray-400 hover:text-uni-red">reset</button>
+        ? <button onClick={() => onSet(key, null)} className="ml-2 text-xs text-gray-400 hover:text-brand-accent">reset</button>
         : <span className="ml-2 text-xs text-gray-400">(global: {globalLabel})</span>
     ) : null
 
@@ -371,7 +371,7 @@ function ConnectionsCard({
         </div>
         <div className="flex items-center gap-2">
           <button onClick={refreshHealth} className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 font-medium">Refresh</button>
-          <button onClick={startNew} className="text-xs px-3 py-1 rounded-lg bg-uni-blue text-white font-medium hover:opacity-90">Add connection</button>
+          <button onClick={startNew} className="text-xs px-3 py-1 rounded-lg bg-brand-primary text-brand-on-primary font-medium hover:opacity-90">Add connection</button>
         </div>
       </div>
 
@@ -386,7 +386,7 @@ function ConnectionsCard({
                   <div>
                     <span className="text-sm font-medium text-gray-800">{c.id}</span>
                     <span className="text-xs text-gray-400 ml-2">{c.type} · {c.base_url}</span>
-                    {!c.enable && <span className="text-xs text-uni-red ml-2">disabled</span>}
+                    {!c.enable && <span className="text-xs text-brand-accent ml-2">disabled</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -394,7 +394,7 @@ function ConnectionsCard({
                     {h ? (h.status === 'online' ? `${h.models.length} model(s)` : (h.error ? 'offline' : 'offline')) : ''}
                   </span>
                   <button onClick={() => startEdit(c)} className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50">Edit</button>
-                  <button onClick={() => remove(c.id)} className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-400 hover:text-uni-red">Delete</button>
+                  <button onClick={() => remove(c.id)} className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-400 hover:text-brand-accent">Delete</button>
                 </div>
               </div>
 
@@ -408,7 +408,7 @@ function ConnectionsCard({
       </div>
 
       {editing === '__new__' && (
-        <div className="border border-uni-blue/40 rounded-lg px-4 py-3 mt-2">
+        <div className="border border-brand-primary/40 rounded-lg px-4 py-3 mt-2">
           <ConnForm draft={draft} setDraft={setDraft} onSave={save} onCancel={cancel} busy={busy} err={err} isNew />
         </div>
       )}
@@ -497,20 +497,20 @@ function ConnForm({
       )}
       <div className="flex items-center gap-3">
         <label className="flex items-center gap-2 cursor-pointer">
-          <div className={`relative w-10 h-5 rounded-full transition-colors ${draft.enable ? 'bg-uni-blue' : 'bg-gray-300'}`}
+          <div className={`relative w-10 h-5 rounded-full transition-colors ${draft.enable ? 'bg-brand-primary' : 'bg-gray-300'}`}
             onClick={() => set('enable', !draft.enable)}>
             <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${draft.enable ? 'translate-x-5' : 'translate-x-0.5'}`} />
           </div>
           <span className="text-xs text-gray-600">Enabled</span>
         </label>
         <div className="flex-1" />
-        {onRefreshModels && <button onClick={onRefreshModels} className="text-xs text-gray-400 hover:text-uni-blue">Test / fetch models</button>}
-        <button onClick={onSave} disabled={busy} className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50">
+        {onRefreshModels && <button onClick={onRefreshModels} className="text-xs text-gray-400 hover:text-brand-primary">Test / fetch models</button>}
+        <button onClick={onSave} disabled={busy} className="bg-brand-primary text-brand-on-primary rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50">
           {busy ? 'Saving...' : 'Save'}
         </button>
         <button onClick={onCancel} className="text-xs text-gray-400 hover:text-gray-600 px-2">Cancel</button>
       </div>
-      {err && <p className="text-xs text-uni-red">{err}</p>}
+      {err && <p className="text-xs text-brand-accent">{err}</p>}
     </div>
   )
 }
@@ -531,7 +531,7 @@ function RoutingField({ value, onChange }: { value: Record<string, unknown>; onC
       <label className="block text-xs font-medium text-gray-600 mb-1">OpenRouter routing (JSON)</label>
       <input value={text} onChange={e => setText(e.target.value)} onBlur={apply} spellCheck={false}
         placeholder='{"order": ["alibaba"], "allow_fallbacks": false}' className={`${inputCls} font-mono`} />
-      <p className={`text-xs mt-1 ${bad ? 'text-uni-red' : 'text-gray-400'}`}>
+      <p className={`text-xs mt-1 ${bad ? 'text-brand-accent' : 'text-gray-400'}`}>
         {bad ? 'Not a valid JSON object — not applied.'
           : 'Sent as OpenRouter\u2019s "provider" object. Pinning a session to one endpoint lets its prompt cache hit; without it OpenRouter may send each turn to a different provider.'}
       </p>
@@ -782,7 +782,7 @@ export default function LLMTab() {
   const statusDot = (status: string) => status === 'online' ? 'bg-green-500' : 'bg-red-500'
 
   const toggle = (on: boolean, onClick: () => void) => (
-    <div className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${on ? 'bg-uni-blue' : 'bg-gray-300'}`} onClick={onClick}>
+    <div className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${on ? 'bg-brand-primary' : 'bg-gray-300'}`} onClick={onClick}>
       <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
     </div>
   )
@@ -870,7 +870,7 @@ export default function LLMTab() {
           <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-800 mb-1">Reporter{slotBadge('reporter')}</h3>
             <p className="text-xs text-gray-400 mb-4">
-              Dedicated LLM for structured internal documents (case file + UNI summary). Use a model specialised for long, factual output.
+              Dedicated LLM for structured internal documents (case file + internal summary). Use a model specialised for long, factual output.
             </p>
             <SlotConfig slot="reporter" connections={connections} health={health} settings={settings} onSet={setField} />
             <div className="border-t border-gray-200 pt-4 mt-4">
@@ -970,17 +970,17 @@ export default function LLMTab() {
                 value={translatePrompt}
                 onChange={e => setTranslatePrompt(e.target.value)}
                 rows={12}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
               />
               <div className="flex items-center gap-3 mt-2">
                 <button
                   onClick={handleSaveTranslatePrompt}
                   disabled={translatePrompt === translatePromptSaved}
-                  className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                  className="bg-brand-primary text-brand-on-primary rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
                 >
                   Save Prompt
                 </button>
-                <button onClick={handleReloadTranslatePrompt} className="text-xs text-gray-500 hover:text-uni-blue" title="Re-read from disk (picks up edits made on the server)">Reload from disk</button>
+                <button onClick={handleReloadTranslatePrompt} className="text-xs text-gray-500 hover:text-brand-primary" title="Re-read from disk (picks up edits made on the server)">Reload from disk</button>
                 {translatePrompt !== translatePromptSaved && (
                   <button onClick={() => setTranslatePrompt(translatePromptSaved)} className="text-xs text-gray-400 hover:text-gray-600">Discard</button>
                 )}
@@ -1003,7 +1003,7 @@ export default function LLMTab() {
               <button
                 onClick={handleReindexEmbedding}
                 disabled={embedReindexing}
-                className="border border-uni-blue text-uni-blue rounded-lg px-4 py-1.5 text-sm font-medium hover:bg-uni-blue/5 disabled:opacity-50"
+                className="border border-brand-primary text-brand-primary rounded-lg px-4 py-1.5 text-sm font-medium hover:bg-brand-primary/5 disabled:opacity-50"
               >
                 {embedReindexing ? 'Reindexing...' : 'Reindex now'}
               </button>
@@ -1016,11 +1016,11 @@ export default function LLMTab() {
             <button onClick={handleDiscard} className="border border-gray-300 text-gray-600 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">
               Discard All Unsaved Changes
             </button>
-            <button onClick={handleReset} disabled={resetting} className="text-xs text-gray-400 hover:text-uni-red px-2 py-2 disabled:opacity-50">
+            <button onClick={handleReset} disabled={resetting} className="text-xs text-gray-400 hover:text-brand-accent px-2 py-2 disabled:opacity-50">
               {resetting ? 'Resetting...' : 'Reset to Defaults'}
             </button>
             {success && <span className="text-sm text-green-600">{success}</span>}
-            {error && <span className="text-sm text-uni-red">{error}</span>}
+            {error && <span className="text-sm text-brand-accent">{error}</span>}
           </div>
 
           <UsageCard />
@@ -1048,7 +1048,7 @@ export default function LLMTab() {
                         </div>
                         <div className="flex items-center gap-2">
                           {feOpen !== f.id && (hasOverride
-                            ? <span className="text-xs text-uni-blue font-medium">Custom LLM</span>
+                            ? <span className="text-xs text-brand-primary font-medium">Custom LLM</span>
                             : <span className="text-xs text-gray-400">Using global</span>)}
                           <button onClick={() => toggleFeOverride(f.id)}
                             className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium">
@@ -1074,7 +1074,7 @@ export default function LLMTab() {
                             <label className="block text-xs font-medium text-gray-600 mb-1">
                               Concurrent chat sessions
                               {override.max_concurrent_sessions != null
-                                ? <button onClick={() => setFeField(f.id, 'max_concurrent_sessions', null)} className="ml-2 text-xs text-gray-400 hover:text-uni-red">reset</button>
+                                ? <button onClick={() => setFeField(f.id, 'max_concurrent_sessions', null)} className="ml-2 text-xs text-gray-400 hover:text-brand-accent">reset</button>
                                 : <span className="ml-2 text-xs text-gray-400">(global: {settings.max_concurrent_sessions})</span>}
                             </label>
                             <input
@@ -1087,10 +1087,10 @@ export default function LLMTab() {
                           </div>
                           <div className="flex items-center gap-3">
                             <button onClick={() => handleFeSave(f.id)} disabled={feSaving}
-                              className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50">
+                              className="bg-brand-primary text-brand-on-primary rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50">
                               {feSaving ? 'Saving...' : 'Save Override'}
                             </button>
-                            <button onClick={() => handleFeReset(f.id)} className="text-xs text-gray-400 hover:text-uni-red px-2">
+                            <button onClick={() => handleFeReset(f.id)} className="text-xs text-gray-400 hover:text-brand-accent px-2">
                               Remove Override (use global)
                             </button>
                             {feSuccess && feOpen === f.id && <span className="text-xs text-green-600">{feSuccess}</span>}

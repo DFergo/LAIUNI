@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { t } from '../i18n'
-import type { LangCode, SurveyData, RecoveryData } from '../types'
+import { chatBackgroundLogo } from '../logo'
+import type { BrandingConfig, LangCode, SurveyData, RecoveryData } from '../types'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -26,9 +27,10 @@ interface Props {
   sessionToken: string
   survey: SurveyData
   recoveryData?: RecoveryData | null
+  branding?: BrandingConfig
 }
 
-export default function ChatShell({ lang, sessionToken, survey, recoveryData }: Props) {
+export default function ChatShell({ lang, sessionToken, survey, recoveryData, branding }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
@@ -468,9 +470,9 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
       {/* Session token */}
       <div className="text-center text-xs text-gray-400 py-2 font-mono">{sessionToken}</div>
 
-      {/* UNI watermark — centered behind chat bubbles */}
+      {/* Organization watermark — centered behind chat bubbles */}
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center z-0 opacity-[0.08]">
-        <img src="/uni-logo.png" alt="" className="w-72 max-w-[60%]" />
+        <img src={chatBackgroundLogo(branding)} alt="" className="w-72 max-w-[60%]" />
       </div>
 
       {/* Messages */}
@@ -479,7 +481,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
         {/* Recovery: previous session summary */}
         {recoverySummary && (
           <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 text-sm text-gray-700">
-            <div className="text-xs font-semibold text-uni-blue mb-2 uppercase tracking-wide">
+            <div className="text-xs font-semibold text-brand-primary mb-2 uppercase tracking-wide">
               Previous session summary ({recoveryData?.message_count} messages)
             </div>
             <div className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-p:text-gray-700 prose-li:text-gray-700 prose-strong:text-gray-800">
@@ -499,7 +501,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
                 <div
                   className={`max-w-[80%] rounded-lg px-3 py-2 text-sm opacity-75 ${
                     msg.role === 'user'
-                      ? 'bg-uni-blue/20 text-gray-700'
+                      ? 'bg-brand-primary/20 text-gray-700'
                       : 'bg-white border border-gray-200 text-gray-600'
                   }`}
                 >
@@ -530,7 +532,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
                 msg.isSummary
                   ? 'bg-green-50 border-2 border-green-300 text-gray-800'
                   : msg.role === 'user'
-                    ? 'bg-uni-blue text-white'
+                    ? 'bg-brand-primary text-brand-on-primary'
                     : 'bg-white border border-gray-200 text-gray-800'
               }`}
             >
@@ -567,7 +569,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
             <div className="max-w-[80%] rounded-lg px-4 py-3 bg-white border border-gray-200 text-gray-800">
               {queuePosition !== null && !streamingText && (
                 <div className="flex items-center gap-2 text-sm text-gray-400">
-                  <span className="inline-block w-2 h-2 bg-uni-blue rounded-full animate-pulse" />
+                  <span className="inline-block w-2 h-2 bg-brand-primary rounded-full animate-pulse" />
                   {queuePosition === 1
                     ? 'Processing...'
                     : `Position ${queuePosition} in queue...`}
@@ -575,7 +577,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
               )}
               {!streamingText && queuePosition === null && (
                 <div className="flex items-center gap-2 text-sm text-gray-400">
-                  <span className="inline-block w-2 h-2 bg-uni-blue rounded-full animate-pulse" />
+                  <span className="inline-block w-2 h-2 bg-brand-primary rounded-full animate-pulse" />
                   Preparing...
                 </div>
               )}
@@ -590,7 +592,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
 
         {error && (
           <div className="text-center">
-            <span className="text-sm text-uni-red">{error}</span>
+            <span className="text-sm text-brand-accent">{error}</span>
           </div>
         )}
 
@@ -605,7 +607,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
             <div className="flex gap-3 justify-center">
               <button
                 onClick={endSession}
-                className="bg-uni-red text-white rounded-lg px-5 py-2 text-sm font-medium transition-colors hover:opacity-90"
+                className="bg-brand-accent text-white rounded-lg px-5 py-2 text-sm font-medium transition-colors hover:opacity-90"
               >
                 {t('end_session_yes', lang)}
               </button>
@@ -655,13 +657,13 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
                     : 'attachment_error'
                   const statusColor =
                     chip.status === 'ready' ? 'text-green-600'
-                    : chip.status === 'error' ? 'text-uni-red'
+                    : chip.status === 'error' ? 'text-brand-accent'
                     : 'text-gray-500'
                   return (
                     <div
                       key={chip.id}
                       className={`inline-flex items-center gap-2 max-w-full bg-gray-50 border rounded-full pl-3 pr-1 py-1 text-sm ${
-                        chip.status === 'error' ? 'border-uni-red' : 'border-gray-300'
+                        chip.status === 'error' ? 'border-brand-accent' : 'border-gray-300'
                       }`}
                       title={chip.errorMsg || chip.filename}
                     >
@@ -669,7 +671,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
                       <span className="truncate max-w-[12rem] text-gray-800">{chip.filename}</span>
                       <span className={`shrink-0 text-xs ${statusColor} flex items-center gap-1`}>
                         {inFlight && (
-                          <span className="inline-block w-1.5 h-1.5 bg-uni-blue rounded-full animate-pulse" />
+                          <span className="inline-block w-1.5 h-1.5 bg-brand-primary rounded-full animate-pulse" />
                         )}
                         {t(statusKey, lang)}
                       </span>
@@ -698,13 +700,13 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
                 onKeyDown={handleKeyDown}
                 placeholder={t('chat_placeholder', lang)}
                 disabled={isStreaming}
-                className={`w-full border rounded-lg pl-4 pr-14 py-3 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none resize-none text-base disabled:opacity-50 min-h-[3rem] transition-colors ${
-                  isDragging ? 'border-uni-blue border-2 border-dashed bg-blue-50' : 'border-gray-300'
+                className={`w-full border rounded-lg pl-4 pr-14 py-3 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none resize-none text-base disabled:opacity-50 min-h-[3rem] transition-colors ${
+                  isDragging ? 'border-brand-primary border-2 border-dashed bg-blue-50' : 'border-gray-300'
                 }`}
               />
               {isDragging && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none rounded-lg">
-                  <span className="text-uni-blue text-sm font-medium bg-white/80 px-3 py-1 rounded">
+                  <span className="text-brand-primary text-sm font-medium bg-white/80 px-3 py-1 rounded">
                     {t('drop_files_here', lang)}
                   </span>
                 </div>
@@ -714,7 +716,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
                 disabled={!canSend}
                 title={hasInFlightChip ? t('attachment_send_blocked', lang) : undefined}
                 aria-label="Send"
-                className="absolute right-2 bottom-2 w-9 h-9 flex items-center justify-center bg-uni-blue text-white rounded-lg transition-colors hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="absolute right-2 bottom-2 w-9 h-9 flex items-center justify-center bg-brand-primary text-brand-on-primary rounded-lg transition-colors hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
@@ -727,7 +729,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isStreaming}
                 title={t('upload_button_title', lang)}
-                className="flex items-center gap-2 text-gray-500 hover:text-uni-blue transition-colors disabled:opacity-50 disabled:cursor-not-allowed px-3 py-2 min-h-[44px]"
+                className="flex items-center gap-2 text-gray-500 hover:text-brand-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed px-3 py-2 min-h-[44px]"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
@@ -737,7 +739,7 @@ export default function ChatShell({ lang, sessionToken, survey, recoveryData }: 
               {!isStreaming && (
                 <button
                   onClick={() => setShowEndConfirm(true)}
-                  className="border border-uni-red text-uni-red rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-red-50 min-h-[44px]"
+                  className="border border-brand-accent text-brand-accent rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-red-50 min-h-[44px]"
                 >
                   {t('end_session', lang)}
                 </button>

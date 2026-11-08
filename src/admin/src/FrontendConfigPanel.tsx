@@ -23,11 +23,11 @@ const LANGS: { code: string; name: string }[] = [
   { code: 'xh', name: 'Xhosa' },
 ].sort((a, b) => a.name.localeCompare(b.name))
 
-const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none'
+const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none'
 
 function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
   return (
-    <div className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 cursor-pointer ${on ? 'bg-uni-blue' : 'bg-gray-300'}`} onClick={onClick}>
+    <div className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 cursor-pointer ${on ? 'bg-brand-primary' : 'bg-gray-300'}`} onClick={onClick}>
       <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
     </div>
   )
@@ -113,7 +113,7 @@ export default function FrontendConfigPanel({ frontendId }: { frontendId: string
         <div className="flex flex-wrap gap-2">
           {PROFILES.map(p => (
             <button key={p} type="button" onClick={() => toggleProfile(p)}
-              className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${config.profiles.includes(p) ? 'bg-uni-blue text-white border-uni-blue' : 'border-gray-300 text-gray-600 hover:border-uni-blue'}`}>
+              className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${config.profiles.includes(p) ? 'bg-brand-primary text-brand-on-primary border-brand-primary' : 'border-gray-300 text-gray-600 hover:border-brand-primary'}`}>
               {p}
             </button>
           ))}
@@ -143,7 +143,7 @@ export default function FrontendConfigPanel({ frontendId }: { frontendId: string
                   const on = activeModes(p).includes(m)
                   return (
                     <div key={m} className="flex items-center gap-2">
-                      <input type="checkbox" checked={on} onChange={() => toggleMode(p, m)} className="accent-uni-blue" />
+                      <input type="checkbox" checked={on} onChange={() => toggleMode(p, m)} className="accent-brand-primary" />
                       <span className="text-xs text-gray-600 w-24 capitalize">{m}</span>
                       <input value={config.display_names.modes[m] || ''} onChange={e => setModeName(m, e.target.value)}
                         placeholder={`rename ${m}`} className={`${inputCls} flex-1`} />
@@ -163,7 +163,7 @@ export default function FrontendConfigPanel({ frontendId }: { frontendId: string
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
           {LANGS.map(l => (
             <label key={l.code} className="flex items-center gap-2 text-xs text-gray-600">
-              <input type="checkbox" checked={config.languages.includes(l.code)} onChange={() => toggleLang(l.code)} className="accent-uni-blue" />
+              <input type="checkbox" checked={config.languages.includes(l.code)} onChange={() => toggleLang(l.code)} className="accent-brand-primary" />
               {l.name}
             </label>
           ))}
@@ -204,7 +204,7 @@ export default function FrontendConfigPanel({ frontendId }: { frontendId: string
 
       <div className="flex items-center gap-3">
         <button onClick={save} disabled={saving}
-          className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50">
+          className="bg-brand-primary text-brand-on-primary rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50">
           {saving ? 'Saving…' : 'Save & activate'}
         </button>
         {config.configured && <span className="text-xs text-gray-400">configured</span>}

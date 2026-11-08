@@ -151,7 +151,7 @@ export default function SMTPTab() {
               value={config.host}
               onChange={e => updateField('host', e.target.value)}
               placeholder="smtp.example.com"
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
             />
           </div>
           <div>
@@ -160,7 +160,7 @@ export default function SMTPTab() {
               type="number"
               value={config.port}
               onChange={e => updateField('port', parseInt(e.target.value) || 587)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
             />
             <p className="text-xs text-gray-400 mt-1">587 for TLS, 465 for SSL, 25 for unencrypted</p>
           </div>
@@ -174,7 +174,7 @@ export default function SMTPTab() {
               value={config.username}
               onChange={e => updateField('username', e.target.value)}
               placeholder="user@example.com"
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
             />
           </div>
           <div>
@@ -183,7 +183,7 @@ export default function SMTPTab() {
               type="password"
               value={config.password}
               onChange={e => updateField('password', e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
             />
           </div>
         </div>
@@ -196,7 +196,7 @@ export default function SMTPTab() {
               value={config.from_address}
               onChange={e => updateField('from_address', e.target.value)}
               placeholder="hrdd@example.com"
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
             />
           </div>
           <div>
@@ -206,7 +206,7 @@ export default function SMTPTab() {
               value={config.data_protection_email}
               onChange={e => updateField('data_protection_email', e.target.value)}
               placeholder="blank = use From Address"
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
             />
             <p className="text-xs text-gray-400 mt-1">GDPR contact shown on the disclaimer. A frontend can override it in its config panel.</p>
           </div>
@@ -219,12 +219,12 @@ export default function SMTPTab() {
                 onChange={e => setNewNotifyEmail(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddNotifyEmail())}
                 placeholder="admin@example.com"
-                className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
               />
               <button
                 onClick={handleAddNotifyEmail}
                 disabled={!newNotifyEmail.trim()}
-                className="bg-uni-blue text-white rounded-lg px-3 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                className="bg-brand-primary text-brand-on-primary rounded-lg px-3 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
               >
                 Add
               </button>
@@ -234,7 +234,7 @@ export default function SMTPTab() {
                 {config.notification_emails.map(email => (
                   <span key={email} className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 border border-blue-200 rounded-full text-xs text-gray-700">
                     {email}
-                    <button onClick={() => handleRemoveNotifyEmail(email)} className="text-gray-400 hover:text-uni-red">&times;</button>
+                    <button onClick={() => handleRemoveNotifyEmail(email)} className="text-gray-400 hover:text-brand-accent">&times;</button>
                   </span>
                 ))}
               </div>
@@ -249,7 +249,7 @@ export default function SMTPTab() {
               type="checkbox"
               checked={config.use_tls}
               onChange={e => updateField('use_tls', e.target.checked)}
-              className="rounded border-gray-300 text-uni-blue focus:ring-uni-blue"
+              className="rounded border-gray-300 text-brand-primary focus:ring-brand-primary"
             />
             <span className="text-sm text-gray-700">Use TLS encryption</span>
           </label>
@@ -259,7 +259,7 @@ export default function SMTPTab() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="bg-uni-blue text-white rounded-lg px-5 py-2 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50"
+            className="bg-brand-primary text-brand-on-primary rounded-lg px-5 py-2 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50"
           >
             {saving ? 'Saving...' : 'Save Settings'}
           </button>
@@ -271,7 +271,7 @@ export default function SMTPTab() {
             {testing ? 'Testing...' : 'Test Connection'}
           </button>
           {success && <span className="text-sm text-green-600">{success}</span>}
-          {error && <span className="text-sm text-uni-red">{error}</span>}
+          {error && <span className="text-sm text-brand-accent">{error}</span>}
         </div>
 
         {testResult && (
@@ -298,7 +298,7 @@ export default function SMTPTab() {
               type="checkbox"
               checked={config.notify_on_report}
               onChange={e => updateField('notify_on_report', e.target.checked)}
-              className="rounded border-gray-300 text-uni-blue focus:ring-uni-blue"
+              className="rounded border-gray-300 text-brand-primary focus:ring-brand-primary"
             />
             <div>
               <span className="text-sm font-medium text-gray-700">Notify admin on report generation</span>
@@ -311,7 +311,7 @@ export default function SMTPTab() {
               type="checkbox"
               checked={config.send_summary_to_user}
               onChange={e => updateField('send_summary_to_user', e.target.checked)}
-              className="rounded border-gray-300 text-uni-blue focus:ring-uni-blue"
+              className="rounded border-gray-300 text-brand-primary focus:ring-brand-primary"
             />
             <div>
               <span className="text-sm font-medium text-gray-700">Send session summary to user</span>
@@ -324,7 +324,7 @@ export default function SMTPTab() {
               type="checkbox"
               checked={config.send_report_to_user}
               onChange={e => updateField('send_report_to_user', e.target.checked)}
-              className="rounded border-gray-300 text-uni-blue focus:ring-uni-blue"
+              className="rounded border-gray-300 text-brand-primary focus:ring-brand-primary"
             />
             <div>
               <span className="text-sm font-medium text-gray-700">Send report to user</span>
@@ -337,7 +337,7 @@ export default function SMTPTab() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="bg-uni-blue text-white rounded-lg px-5 py-2 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50"
+            className="bg-brand-primary text-brand-on-primary rounded-lg px-5 py-2 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50"
           >
             {saving ? 'Saving...' : 'Save Notification Settings'}
           </button>
@@ -349,7 +349,7 @@ export default function SMTPTab() {
         <h3 className="text-lg font-semibold text-gray-800 mb-1">Authorized Users</h3>
         <p className="text-xs text-gray-500">
           The whitelist of authorised emails is now managed in the{' '}
-          <span className="font-medium text-uni-blue">Registered Users</span> tab, where you can also store
+          <span className="font-medium text-brand-primary">Registered Users</span> tab, where you can also store
           extended contact details (name, organisation, country, sector) and configure per-frontend overrides.
         </p>
       </div>
@@ -375,12 +375,12 @@ export default function SMTPTab() {
                     onChange={e => setNewFeEmail(prev => ({ ...prev, [fe.id]: e.target.value }))}
                     onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddFeEmail(fe.id))}
                     placeholder="recipient@example.com"
-                    className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
                   />
                   <button
                     onClick={() => handleAddFeEmail(fe.id)}
                     disabled={feSaving[fe.id] || !(newFeEmail[fe.id] || '').trim()}
-                    className="bg-uni-blue text-white rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50"
+                    className="bg-brand-primary text-brand-on-primary rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50"
                   >
                     Add
                   </button>
@@ -393,7 +393,7 @@ export default function SMTPTab() {
                         <button
                           onClick={() => handleRemoveFeEmail(fe.id, email)}
                           disabled={feSaving[fe.id]}
-                          className="text-gray-400 hover:text-uni-red"
+                          className="text-gray-400 hover:text-brand-accent"
                         >
                           &times;
                         </button>

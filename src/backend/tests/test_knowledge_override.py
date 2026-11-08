@@ -56,6 +56,15 @@ class KnowledgeOverrideTest(unittest.TestCase):
         self.assertIn("CCOO Servicios", text)
         self.assertIn("Libertad sindical", text)
 
+    def test_escalation_path_names_the_organization_of_the_branding_tokens(self):
+        from src.services import branding_tokens
+        self.assertIn("national union → UNI Global Union.", self._prompt(self.fid))
+        branding_tokens.save_global({"org_name": "Union X"})
+        try:
+            self.assertIn("national union → Union X.", self._prompt(self.fid))
+        finally:
+            branding_tokens.save_global({})
+
     def test_global_switches_off(self):
         r = self.client.put("/admin/knowledge/settings", json={"organizations_enabled": False})
         self.assertEqual(r.json(), {"glossary_enabled": True, "organizations_enabled": False})

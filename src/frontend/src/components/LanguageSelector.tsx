@@ -1,3 +1,4 @@
+import { brandTokens } from '../branding'
 import { LANGUAGES } from '../i18n'
 import type { LangCode, BrandingConfig } from '../types'
 import { pageLogo } from '../logo'
@@ -20,7 +21,7 @@ export default function LanguageSelector({ onSelect, branding, languages }: Prop
     <div className="max-w-4xl mx-auto mt-8 p-6">
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
         <div className="flex justify-center mb-4">
-          <img src={pageLogo(branding)} alt="UNI Global Union" className="h-28" />
+          <img src={pageLogo(branding)} alt={brandTokens().org_name} className="h-28" />
         </div>
         <h2 className="text-xl font-semibold text-gray-800 mb-1 text-center">Select your language</h2>
         <p className="text-sm text-gray-400 mb-6 text-center">Choose your preferred language to continue</p>
@@ -29,7 +30,7 @@ export default function LanguageSelector({ onSelect, branding, languages }: Prop
             <button
               key={lang.code}
               onClick={() => onSelect(lang.code)}
-              className="flex flex-col items-center justify-center px-3 py-4 rounded-lg border border-gray-200 hover:border-uni-blue hover:bg-blue-50 transition-colors"
+              className="flex flex-col items-center justify-center px-3 py-4 rounded-lg border border-gray-200 hover:border-brand-primary hover:bg-blue-50 transition-colors"
             >
               <span className="text-sm font-medium text-gray-800">{lang.nativeName}</span>
               <span className="text-xs text-gray-400 mt-0.5">{lang.name}</span>

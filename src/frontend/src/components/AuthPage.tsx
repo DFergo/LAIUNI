@@ -125,15 +125,15 @@ export default function AuthPage({ lang, onVerified, onBack }: Props) {
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none transition-colors"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none transition-colors"
                 required
               />
             </div>
-            {error && <p className="text-uni-red text-sm">{error}</p>}
+            {error && <p className="text-brand-accent text-sm">{error}</p>}
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-uni-blue text-white rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-brand-primary text-brand-on-primary rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? '...' : t('auth_send_code', lang)}
             </button>
@@ -148,18 +148,18 @@ export default function AuthPage({ lang, onVerified, onBack }: Props) {
                 value={code}
                 onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 placeholder={t('auth_placeholder', lang)}
-                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-center text-2xl tracking-[0.5em] font-mono focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none transition-colors"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-center text-2xl tracking-[0.5em] font-mono focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none transition-colors"
                 maxLength={6}
                 required
                 autoFocus
                 disabled={retries >= MAX_RETRIES}
               />
             </div>
-            {error && <p className="text-uni-red text-sm">{error}</p>}
+            {error && <p className="text-brand-accent text-sm">{error}</p>}
             <button
               type="submit"
               disabled={loading || retries >= MAX_RETRIES}
-              className="w-full bg-uni-blue text-white rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-brand-primary text-brand-on-primary rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? '...' : t('auth_verify', lang)}
             </button>

@@ -1,3 +1,4 @@
+import { brandTokens } from '../branding'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { t } from '../i18n'
@@ -25,7 +26,7 @@ export default function InstructionsPage({ lang, role, onContinue, onBack, brand
     <div className="max-w-4xl mx-auto mt-8 p-6">
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
         <div className="flex justify-center mb-4">
-          <img src={pageLogo(branding)} alt="UNI Global Union" className="h-[7.5rem]" />
+          <img src={pageLogo(branding)} alt={brandTokens().org_name} className="h-[7.5rem]" />
         </div>
         {custom ? (
           <div className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-p:text-gray-600 prose-li:text-gray-600 prose-strong:text-gray-800 mb-6">
@@ -46,7 +47,7 @@ export default function InstructionsPage({ lang, role, onContinue, onBack, brand
         </div>
         <button
           onClick={onContinue}
-          className="w-full bg-uni-blue text-white rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90"
+          className="w-full bg-brand-primary text-brand-on-primary rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90"
         >
           {t('instructions_continue', lang)}
         </button>

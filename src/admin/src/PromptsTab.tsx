@@ -242,7 +242,7 @@ export default function PromptsTab() {
             <select
               value={scope}
               onChange={e => handleScopeChange(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
             >
               <option value="global">Global (shared default)</option>
               {frontends.map(fe => <option key={fe.id} value={fe.id}>{fe.name || fe.id}</option>)}
@@ -305,7 +305,7 @@ export default function PromptsTab() {
         </div>
       )}
 
-      {error && <p className="text-sm text-uni-red">{error}</p>}
+      {error && <p className="text-sm text-brand-accent">{error}</p>}
       {success && <p className="text-sm text-green-600">{success}</p>}
 
       {/* Prompt editor */}
@@ -319,7 +319,7 @@ export default function PromptsTab() {
                   key={file.name}
                   onClick={() => selectPrompt(file.name)}
                   className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                    selected === file.name ? 'bg-uni-blue text-white' : 'text-gray-700 hover:bg-gray-100'
+                    selected === file.name ? 'bg-brand-primary text-brand-on-primary' : 'text-gray-700 hover:bg-gray-100'
                   }`}
                 >
                   <div className="font-medium">{file.name}</div>
@@ -336,13 +336,13 @@ export default function PromptsTab() {
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-lg font-semibold text-gray-800">{selected}
                   {readOnly && <span className="ml-2 text-xs font-normal text-gray-400">(read-only — using global)</span>}
-                  {previewOn && <span className="ml-2 text-xs font-normal text-uni-blue">(assembled preview)</span>}
+                  {previewOn && <span className="ml-2 text-xs font-normal text-brand-primary">(assembled preview)</span>}
                 </h3>
                 <div className="flex items-center gap-3">
                   {dirty && !readOnly && !previewOn && <span className="text-xs text-gray-400">Unsaved changes</span>}
                   <button
                     onClick={togglePreview}
-                    className={`border rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-gray-50 ${previewOn ? 'border-uni-blue text-uni-blue' : 'border-gray-300 text-gray-600'}`}
+                    className={`border rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-gray-50 ${previewOn ? 'border-brand-primary text-brand-primary' : 'border-gray-300 text-gray-600'}`}
                     title="Show the prompt with its {{module_*}} slots resolved — exactly what the LLM receives"
                   >
                     {previewOn ? 'Edit template' : 'Assembled preview'}
@@ -357,7 +357,7 @@ export default function PromptsTab() {
                   <button
                     onClick={handleSave}
                     disabled={saving || !dirty || readOnly || previewOn}
-                    className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                    className="bg-brand-primary text-brand-on-primary rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
                   >
                     {saving ? 'Saving...' : 'Save'}
                   </button>
@@ -367,7 +367,7 @@ export default function PromptsTab() {
                 <textarea
                   value={previewContent}
                   readOnly
-                  className="flex-1 border border-uni-blue/40 rounded-lg p-4 font-mono text-sm resize-none bg-blue-50/40 text-gray-700 outline-none"
+                  className="flex-1 border border-brand-primary/40 rounded-lg p-4 font-mono text-sm resize-none bg-blue-50/40 text-gray-700 outline-none"
                   spellCheck={false}
                 />
               ) : (
@@ -375,7 +375,7 @@ export default function PromptsTab() {
                   value={content}
                   onChange={e => setContent(e.target.value)}
                   readOnly={readOnly}
-                  className={`flex-1 border border-gray-300 rounded-lg p-4 font-mono text-sm resize-none focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none ${readOnly ? 'bg-gray-100 text-gray-500' : ''}`}
+                  className={`flex-1 border border-gray-300 rounded-lg p-4 font-mono text-sm resize-none focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none ${readOnly ? 'bg-gray-100 text-gray-500' : ''}`}
                   spellCheck={false}
                 />
               )}
@@ -429,7 +429,7 @@ export default function PromptsTab() {
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={() => setResetModal(null)} className="border border-gray-300 text-gray-600 rounded-lg px-3 py-1.5 text-sm hover:bg-gray-50">Cancel</button>
-              <button onClick={confirmReset} className="bg-uni-red text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90">
+              <button onClick={confirmReset} className="bg-brand-accent text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90">
                 Reset {resetSelection.size > 0 ? `${resetSelection.size} prompt(s)` : 'all'}
               </button>
             </div>

@@ -3,6 +3,7 @@ import { getAdminStatus, verifyToken } from './api'
 import SetupPage from './SetupPage'
 import LoginPage from './LoginPage'
 import Dashboard from './Dashboard'
+import { loadBrand } from './brand'
 
 type Phase = 'loading' | 'setup' | 'login' | 'dashboard'
 
@@ -10,7 +11,7 @@ function App() {
   const [phase, setPhase] = useState<Phase>('loading')
 
   useEffect(() => {
-    checkState()
+    loadBrand().then(checkState)   // the panel wears the organization's colours from the first screen
   }, [])
 
   async function checkState() {

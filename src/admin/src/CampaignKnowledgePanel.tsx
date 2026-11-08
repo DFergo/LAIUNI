@@ -119,7 +119,7 @@ export default function CampaignKnowledgePanel(props: Props) {
             >
               Download JSON
             </button>
-            <label className="bg-uni-blue text-white rounded-lg px-2 py-1 hover:opacity-90 cursor-pointer">
+            <label className="bg-brand-primary text-brand-on-primary rounded-lg px-2 py-1 hover:opacity-90 cursor-pointer">
               Upload JSON
               <input
                 ref={el => { uploadRefs.current[kind] = el }}

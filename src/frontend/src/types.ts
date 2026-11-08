@@ -17,6 +17,9 @@ export interface BrandingConfig {
   instructions_text_representative?: string
   instructions_text_organizer?: string
   instructions_text_officer?: string
+  // Sprint 43
+  tokens?: Record<string, string>
+  logos?: Partial<Record<'header' | 'page' | 'chat_bg', { uploaded: boolean; has_white: boolean }>>
 }
 
 export interface DeploymentConfig {

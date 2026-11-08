@@ -16,9 +16,10 @@ You (the agent) help someone install and run **HRDD Helper**: a self-hosted assi
 3. **Prerequisites** with help (guide `prerequisites`): Docker, Tailscale; VPS (guide `vps`); domain and Cloudflare (guide `domain-cloudflare`). For topology B the whole path is in guide `t2-journey`.
 4. **AI models** (guides `inference`, `models`): cloud provider or local models, and embeddings. Help them create the account and key; never pick a provider for them without explaining the trade-off (cost, privacy).
 5. **Install** (guide `install`): `deploy_prepare` → `compose up` → `backend_connect` → `admin_create` → model connections and slots.
-6. **Frontends** (guide `frontends`): deploy, register, configure, brand.
-7. **Email** (guide `email`).
-8. **Verify**: `status`, `check_frontend`, `test_smoke`. Then explain how to operate it (guide `operate`).
+6. **Identity** (guide `branding`): the organization's name, tool name, colours and logos, once for the whole installation. If the organization is not UNI, also the **prompt review** in that guide: plan it with the user, do not edit silently.
+7. **Frontends** (guide `frontends`): deploy, register, configure, brand (a frontend can override the identity).
+8. **Email** (guide `email`).
+9. **Verify**: `status`, `check_frontend`, `test_smoke`. Then explain how to operate it (guide `operate`).
 
 Save progress with `profile_save` (e.g. `{"step": "frontend registered"}`) so a later session can resume (`profile_get`).
 

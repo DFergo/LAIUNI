@@ -77,8 +77,8 @@ export default function SurveyPage({ lang, config, role, onSubmit, onBack }: Pro
                     onClick={() => setMode(m)}
                     className={`px-3 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
                       mode === m
-                        ? 'bg-uni-blue text-white border-uni-blue'
-                        : 'border-gray-300 text-gray-700 hover:border-uni-blue hover:bg-blue-50'
+                        ? 'bg-brand-primary text-brand-on-primary border-brand-primary'
+                        : 'border-gray-300 text-gray-700 hover:border-brand-primary hover:bg-blue-50'
                     }`}
                   >
                     {config.display_names?.modes?.[m] || t(`mode_${m}` as Parameters<typeof t>[0], lang)}
@@ -101,80 +101,80 @@ export default function SurveyPage({ lang, config, role, onSubmit, onBack }: Pro
           {/* Name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('survey_name', lang)}{identityRequired && <span className="text-uni-red ml-0.5">*</span>}
+              {t('survey_name', lang)}{identityRequired && <span className="text-brand-accent ml-0.5">*</span>}
             </label>
             <input type="text" value={name} onChange={e => setName(e.target.value)}
               required={identityRequired}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none" />
           </div>
 
           {/* Position */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('survey_position', lang)}{identityRequired && <span className="text-uni-red ml-0.5">*</span>}
+              {t('survey_position', lang)}{identityRequired && <span className="text-brand-accent ml-0.5">*</span>}
             </label>
             <input type="text" value={position} onChange={e => setPosition(e.target.value)}
               required={identityRequired}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none" />
           </div>
 
           {/* Union */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('survey_union', lang)}{identityRequired && <span className="text-uni-red ml-0.5">*</span>}
+              {t('survey_union', lang)}{identityRequired && <span className="text-brand-accent ml-0.5">*</span>}
             </label>
             <input type="text" value={union} onChange={e => setUnion(e.target.value)}
               required={identityRequired}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none" />
           </div>
 
           {/* Email */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('survey_email', lang)}{identityRequired && <span className="text-uni-red ml-0.5">*</span>}
+              {t('survey_email', lang)}{identityRequired && <span className="text-brand-accent ml-0.5">*</span>}
             </label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)}
               required={identityRequired}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none" />
           </div>
 
           {/* Company */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('survey_company', lang)}{companyRequired && <span className="text-uni-red ml-0.5">*</span>}
+              {t('survey_company', lang)}{companyRequired && <span className="text-brand-accent ml-0.5">*</span>}
             </label>
             <input type="text" value={company} onChange={e => setCompany(e.target.value)}
               required={companyRequired}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none" />
           </div>
 
           {/* Country/Region */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('survey_country', lang)}<span className="text-uni-red ml-0.5">*</span>
+              {t('survey_country', lang)}<span className="text-brand-accent ml-0.5">*</span>
             </label>
             <input type="text" value={countryRegion} onChange={e => setCountryRegion(e.target.value)}
               required
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none" />
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none" />
           </div>
 
           {/* Situation description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('survey_description', lang)}<span className="text-uni-red ml-0.5">*</span>
+              {t('survey_description', lang)}<span className="text-brand-accent ml-0.5">*</span>
             </label>
             <textarea
               value={description}
               onChange={e => setDescription(e.target.value)}
               rows={4}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none resize-none"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none resize-none"
               required
             />
           </div>
 
           <button
             type="submit"
-            className="w-full bg-uni-blue text-white rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90"
+            className="w-full bg-brand-primary text-brand-on-primary rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90"
           >
             {t('survey_submit', lang)}
           </button>

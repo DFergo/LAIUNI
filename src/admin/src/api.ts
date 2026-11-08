@@ -638,14 +638,15 @@ export interface BrandingConfig {
   app_title: string
   logo_url: string
   logo_mode?: 'white' | 'color'
-  logo_uploaded?: boolean
-  logo_has_white?: boolean
   disclaimer_text: string
   instructions_text: string
   instructions_text_worker?: string
   instructions_text_representative?: string
   instructions_text_organizer?: string
   instructions_text_officer?: string
+  // Sprint 43: this frontend's own tokens (name -> value, '' = inherit) and the resolved catalog (read only)
+  tokens?: Record<string, string>
+  catalog?: BrandingCatalog
 }
 
 export async function getFrontendBranding(frontendId: string): Promise<BrandingConfig> {
@@ -667,11 +668,47 @@ export async function retranslateBranding(frontendId: string): Promise<{ transla
   return request(`/admin/frontends/${frontendId}/branding/retranslate`, { method: 'POST' });
 }
 
-export async function uploadFrontendLogo(frontendId: string, file: File): Promise<{ logo_uploaded: boolean; logo_has_white: boolean }> {
+// --- Branding tokens (Sprint 43) ---
+
+export interface BrandToken {
+  name: string
+  kind: 'text' | 'color'
+  label: string
+  used_in: string
+  default: string
+  value: string
+  inherited: string   // what it becomes when this level sets nothing (the global value, or the default)
+  source: 'default' | 'global' | 'frontend'
+}
+
+export interface BrandLogo {
+  description: string
+  source: 'none' | 'global' | 'frontend'
+  uploaded: boolean
+  has_white: boolean
+}
+
+export interface BrandingCatalog {
+  tokens: BrandToken[]
+  logos: Record<string, BrandLogo>
+  fixed: { name: string; value: string; note: string }[]
+  warnings: string[]
+}
+
+export const getGlobalBranding = (): Promise<BrandingCatalog> => request('/admin/branding');
+export const updateGlobalBranding = (values: Record<string, string>): Promise<BrandingCatalog> =>
+  request('/admin/branding', { method: 'PUT', body: JSON.stringify({ values }) });
+export const resetGlobalBranding = (): Promise<BrandingCatalog> => request('/admin/branding/reset', { method: 'POST' });
+
+// scope: a frontend id, or null for the global catalog
+const logoPath = (scope: string | null, slot: string) =>
+  scope ? `/admin/frontends/${scope}/branding/logo/${slot}` : `/admin/branding/logo/${slot}`;
+
+export async function uploadBrandLogo(scope: string | null, slot: string, file: File): Promise<BrandingCatalog> {
   const token = localStorage.getItem('hrdd_admin_token');
   const formData = new FormData();
   formData.append('file', file);
-  const res = await fetch(`/admin/frontends/${frontendId}/branding/logo`, {
+  const res = await fetch(logoPath(scope, slot), {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: formData,
@@ -683,14 +720,13 @@ export async function uploadFrontendLogo(frontendId: string, file: File): Promis
   return res.json();
 }
 
-export async function deleteFrontendLogo(frontendId: string): Promise<{ logo_uploaded: boolean }> {
-  return request(`/admin/frontends/${frontendId}/branding/logo`, { method: 'DELETE' });
-}
+export const deleteBrandLogo = (scope: string | null, slot: string): Promise<BrandingCatalog> =>
+  request(logoPath(scope, slot), { method: 'DELETE' });
 
 /** Fetch a processed logo variant as an object URL for preview (null if absent). */
-export async function fetchLogoVariant(frontendId: string, variant: 'color' | 'white'): Promise<string | null> {
+export async function fetchBrandLogo(scope: string | null, slot: string, variant: 'color' | 'white'): Promise<string | null> {
   const token = localStorage.getItem('hrdd_admin_token');
-  const res = await fetch(`/admin/frontends/${frontendId}/branding/logo/${variant}`, {
+  const res = await fetch(`${logoPath(scope, slot)}/${variant}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return null;

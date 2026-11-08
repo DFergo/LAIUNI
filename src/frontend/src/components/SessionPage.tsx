@@ -47,7 +47,7 @@ export default function SessionPage({ lang, onNewSession, onRecover, onBack }: P
           <div className="space-y-3">
             <button
               onClick={handleNew}
-              className="w-full bg-uni-blue text-white rounded-lg px-4 py-3 font-medium transition-colors hover:opacity-90"
+              className="w-full bg-brand-primary text-brand-on-primary rounded-lg px-4 py-3 font-medium transition-colors hover:opacity-90"
             >
               {t('session_new', lang)}
             </button>
@@ -70,12 +70,12 @@ export default function SessionPage({ lang, onNewSession, onRecover, onBack }: P
           <div className="text-center space-y-4">
             <p className="text-sm text-gray-500">{t('session_token_label', lang)}</p>
             <div className="bg-gray-50 rounded-lg px-6 py-4 border border-gray-200">
-              <span className="text-2xl font-mono font-bold text-uni-blue tracking-wider">{newToken}</span>
+              <span className="text-2xl font-mono font-bold text-brand-primary tracking-wider">{newToken}</span>
             </div>
             <p className="text-sm text-gray-400">{t('session_token_save', lang)}</p>
             <button
               onClick={() => onNewSession(newToken)}
-              className="w-full bg-uni-blue text-white rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90"
+              className="w-full bg-brand-primary text-brand-on-primary rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90"
             >
               {t('session_continue', lang)}
             </button>
@@ -91,14 +91,14 @@ export default function SessionPage({ lang, onNewSession, onRecover, onBack }: P
                 onChange={e => setRecoverToken(e.target.value)}
                 placeholder={t('session_recover_placeholder', lang)}
                 disabled={recovering}
-                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none font-mono uppercase disabled:opacity-50"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none font-mono uppercase disabled:opacity-50"
               />
-              {recoverError && <p className="text-uni-red text-sm mt-1">{recoverError}</p>}
+              {recoverError && <p className="text-brand-accent text-sm mt-1">{recoverError}</p>}
             </div>
             <button
               onClick={handleRecover}
               disabled={recovering}
-              className="w-full bg-uni-blue text-white rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90 disabled:opacity-50"
+              className="w-full bg-brand-primary text-brand-on-primary rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90 disabled:opacity-50"
             >
               {recovering ? 'Recovering...' : t('session_recover_button', lang)}
             </button>

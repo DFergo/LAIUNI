@@ -1,3 +1,13 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  /* Defaults until the backend's branding tokens are applied (src/brand.ts) */
+  :root {
+    --brand-primary: 0 48 135;
+    --brand-on-primary: 255 255 255;
+    --brand-accent: 227 24 55;
+    --brand-dark: 26 26 46;
+  }
+}

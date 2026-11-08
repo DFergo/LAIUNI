@@ -86,7 +86,7 @@ export default function ModelCombobox({
             skipBlur.current = false
           }}
           onKeyDown={onKeyDown}
-          className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+          className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none"
         />
       </div>
       {open && options.length > 0 && (
@@ -98,7 +98,7 @@ export default function ModelCombobox({
               aria-selected={i === active}
               onMouseDown={e => { e.preventDefault(); commit(o.id) }}
               onMouseEnter={() => setActive(i)}
-              className={`px-3 py-1.5 cursor-pointer flex items-center justify-between gap-2 ${i === active ? 'bg-gray-100' : ''} ${o.id === value ? 'font-medium text-uni-blue' : 'text-gray-700'}`}
+              className={`px-3 py-1.5 cursor-pointer flex items-center justify-between gap-2 ${i === active ? 'bg-gray-100' : ''} ${o.id === value ? 'font-medium text-brand-primary' : 'text-gray-700'}`}
             >
               <span className="truncate">{o.id}</span>
               {o.note && <span className="shrink-0 text-xs text-gray-400">{o.note}</span>}

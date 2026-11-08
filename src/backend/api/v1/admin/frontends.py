@@ -302,6 +302,9 @@ class BrandingRequest(BaseModel):
     instructions_text_representative: str = ""
     instructions_text_organizer: str = ""
     instructions_text_officer: str = ""
+    # Sprint 43: this frontend's own tokens (org_name, tool_name, colours...). None = keep what is
+    # saved; a token with an empty value is removed (it inherits the global one).
+    tokens: dict[str, str] | None = None
 
 
 def _branding_path(frontend_id: str) -> Path:
@@ -318,6 +321,7 @@ async def get_branding(frontend_id: str, _: dict = Depends(require_admin)):
             data.setdefault("logo_mode", "white")
             data.setdefault("logo_uploaded", False)
             data.setdefault("logo_has_white", False)
+            data["catalog"] = _token_catalog(frontend_id)
             return data
         except (json.JSONDecodeError, OSError):
             pass
@@ -325,7 +329,13 @@ async def get_branding(frontend_id: str, _: dict = Depends(require_admin)):
             "logo_uploaded": False, "logo_has_white": False,
             "disclaimer_text": "", "instructions_text": "",
             "instructions_text_worker": "", "instructions_text_representative": "",
-            "instructions_text_organizer": "", "instructions_text_officer": ""}
+            "instructions_text_organizer": "", "instructions_text_officer": "",
+            "catalog": _token_catalog(frontend_id)}
+
+
+def _token_catalog(frontend_id: str) -> dict:
+    from src.services import branding_tokens
+    return branding_tokens.catalog(frontend_id)
 
 
 @router.put("/{frontend_id}/branding")
@@ -334,10 +344,14 @@ async def update_branding(frontend_id: str, req: BrandingRequest, _: dict = Depe
     from src.services.branding_translator import translate_branding, delete_translations, load_translations
     from src.services.polling import invalidate_branding_cache
 
+    from src.api.v1.admin.branding import merge_overrides
+    from src.services import branding_tokens
+
     data = req.model_dump()
     # Save to disk
     path = _branding_path(frontend_id)
     path.parent.mkdir(parents=True, exist_ok=True)
+    prev: dict = {}
     # Preserve server-managed logo flags (set by the upload endpoint, not the admin form)
     if path.exists():
         try:
@@ -346,6 +360,8 @@ async def update_branding(frontend_id: str, req: BrandingRequest, _: dict = Depe
             data["logo_has_white"] = prev.get("logo_has_white", False)
         except (json.JSONDecodeError, OSError):
             pass
+    own = {k: v for k, v in (prev.get("tokens") or {}).items()}
+    data["tokens"] = merge_overrides(own, req.tokens) if req.tokens is not None else own
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2))
     tmp.rename(path)
@@ -381,32 +397,14 @@ async def update_branding(frontend_id: str, req: BrandingRequest, _: dict = Depe
 
 
 async def _push_branding_to_sidecar(frontend_id: str):
-    """Push branding config + translations to the sidecar."""
-    from src.services.branding_translator import load_translations
-
-    path = _branding_path(frontend_id)
-    if not path.exists():
-        return
-
-    try:
-        data = json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return
-
-    # Include translations if available
-    translations = load_translations(frontend_id)
-    has_custom_text = _has_custom_branding_text(data)
-    payload = {
-        **data,
-        "custom": has_custom_text,
-        "translations": translations,
-    }
+    """Push branding config (tokens, texts) + translations to the sidecar."""
+    from src.services.branding_push import build_payload
 
     fe = registry.get(frontend_id)
     if fe and fe.get("enabled"):
         try:
             async with frontend_client.AsyncClient(timeout=10.0) as client:
-                await client.post(f"{fe['url']}/internal/branding", json=payload)
+                await client.post(f"{fe['url']}/internal/branding", json=build_payload(frontend_id))
                 logger.info(f"Branding pushed to {fe['url']}")
         except Exception as e:
             logger.warning(f"Failed to push branding to {fe['url']}: {e}")
@@ -564,36 +562,57 @@ async def delete_logo(frontend_id: str, _: dict = Depends(require_admin)):
 
 
 async def _push_logo_to_sidecar(frontend_id: str):
-    """Push logo image variants + mode to the sidecar (multipart). When no logo is
-    uploaded, sends a clear flag so the sidecar drops any stored images."""
+    """Push the logos (every slot, inherited ones included) to the sidecar. A slot without a
+    logo is sent with a clear flag so the sidecar drops anything stored."""
+    from src.services.branding_push import push_logos
+
     fe = registry.get(frontend_id)
     if not (fe and fe.get("enabled")):
         return
-
-    d = _logo_dir(frontend_id)
-    color = d / "logo_color.png"
-    white = d / "logo_white.png"
-
-    mode = "white"
-    path = _branding_path(frontend_id)
-    if path.exists():
-        try:
-            mode = json.loads(path.read_text()).get("logo_mode", "white")
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    data = {"mode": mode}
-    files = {}
-    if color.exists():
-        files["color"] = ("logo_color.png", color.read_bytes(), "image/png")
-        if white.exists():
-            files["white"] = ("logo_white.png", white.read_bytes(), "image/png")
-    else:
-        data["clear"] = "1"
-
     try:
         async with frontend_client.AsyncClient(timeout=10.0) as client:
-            await client.post(f"{fe['url']}/internal/branding-logo", data=data, files=files or None)
-            logger.info(f"Logo pushed to {fe['url']} (mode={mode}, clear={'clear' in data})")
+            await push_logos(client, fe["url"], frontend_id)
+            logger.info(f"Logos pushed to {fe['url']}")
     except Exception as e:
-        logger.warning(f"Failed to push logo to {fe['url']}: {e}")
+        logger.warning(f"Failed to push logos to {fe['url']}: {e}")
+
+
+# --- Logo slots (Sprint 43): header, page, chat_bg — each its own upload, inheriting the global one ---
+
+@router.post("/{frontend_id}/branding/logo/{slot}")
+async def upload_slot_logo(frontend_id: str, slot: str, file: UploadFile = File(...), _: dict = Depends(require_admin)):
+    from src.api.v1.admin.branding import read_logo_upload
+    from src.services import branding_tokens
+
+    if slot not in branding_tokens.LOGO_SLOTS:
+        raise HTTPException(status_code=404, detail=f"Unknown slot. Slots: {', '.join(branding_tokens.LOGO_SLOTS)}")
+    color_png, white_png = read_logo_upload(await file.read(), file.filename or "")
+    branding_tokens.save_logo(frontend_id, slot, color_png, white_png)
+    await _push_logo_to_sidecar(frontend_id)
+    return branding_tokens.catalog(frontend_id)
+
+
+@router.delete("/{frontend_id}/branding/logo/{slot}")
+async def delete_slot_logo(frontend_id: str, slot: str, _: dict = Depends(require_admin)):
+    """Remove this frontend's own logo for the slot; it goes back to the global one."""
+    from src.services import branding_tokens
+
+    if slot not in branding_tokens.LOGO_SLOTS:
+        raise HTTPException(status_code=404, detail=f"Unknown slot. Slots: {', '.join(branding_tokens.LOGO_SLOTS)}")
+    branding_tokens.delete_logo(frontend_id, slot)
+    await _push_logo_to_sidecar(frontend_id)
+    return branding_tokens.catalog(frontend_id)
+
+
+@router.get("/{frontend_id}/branding/logo/{slot}/{variant}")
+async def get_slot_logo(frontend_id: str, slot: str, variant: str, _: dict = Depends(require_admin)):
+    """The logo this frontend shows for the slot (own or inherited), for the admin preview."""
+    from fastapi.responses import FileResponse
+    from src.services import branding_tokens
+
+    if slot not in branding_tokens.LOGO_SLOTS or variant not in ("color", "white"):
+        raise HTTPException(status_code=404, detail="Unknown logo")
+    p = branding_tokens.effective_logo(frontend_id, slot)[variant]
+    if not p:
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(p, media_type="image/png")

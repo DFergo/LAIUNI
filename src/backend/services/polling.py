@@ -90,21 +90,14 @@ def _append_to_last_user(messages: list[dict[str, Any]], text: str):
 
 
 async def _push_branding_if_needed(client: httpx.AsyncClient, url: str, fid: str):
-    """Push branding config + translations to sidecar (once per session, or on change)."""
+    """Push branding (tokens, texts, translations, logos) to the sidecar once per session,
+    or again after a change (invalidate_branding_cache) — survives sidecar restarts."""
     if fid in _branding_pushed:
         return
-    branding_path = Path(f"/app/data/campaigns/{fid}/branding.json")
-    if not branding_path.exists():
-        _branding_pushed.add(fid)
-        return
     try:
-        data = json.loads(branding_path.read_text())
-        has_custom_text = bool(data.get("disclaimer_text") or data.get("instructions_text"))
-        # Include translations if available
-        from src.services.branding_translator import load_translations
-        translations = load_translations(fid)
-        payload = {**data, "custom": has_custom_text, "translations": translations}
-        await client.post(f"{url}/internal/branding", json=payload)
+        from src.services.branding_push import build_payload, push_logos
+        await client.post(f"{url}/internal/branding", json=build_payload(fid))
+        await push_logos(client, url, fid)
         logger.info(f"Branding pushed to {fid}")
     except Exception as e:
         logger.debug(f"Branding push to {fid} failed: {e}")
@@ -776,9 +769,9 @@ async def _generate_internal_documents(
                 with open(summary_path) as sf:
                     summary_text = sf.read()
             if summary_text:
-                await send_user_summary(user_email, session_token, summary_text, language)
+                await send_user_summary(user_email, session_token, summary_text, language, frontend_id)
             if report_content:
-                await send_user_report(user_email, session_token, report_content, language)
+                await send_user_report(user_email, session_token, report_content, language, frontend_id)
     except Exception as e:
         logger.warning(f"Email notification failed for {session_token}: {e}")
 
@@ -1019,7 +1012,7 @@ async def _handle_auth_request(client: httpx.AsyncClient, frontend_url: str, aut
                 logger.warning(f"Auth request but SMTP not configured")
             else:
                 code = generate_auth_code(session_token, email)
-                sent = await send_auth_code(email, code, language)
+                sent = await send_auth_code(email, code, language, frontend_id)
                 if sent:
                     result = {
                         "session_token": session_token,

@@ -326,7 +326,7 @@ export default function RAGTab() {
   const knowledgeToggle = (key: keyof KnowledgeSettings) => (
     <label className="flex items-center gap-2 cursor-pointer mr-2" onClick={() => toggleKnowledge(key)}>
       <span className="text-xs text-gray-500">Use in sessions</span>
-      <div className={`relative w-8 h-4 rounded-full transition-colors ${kbSettings[key] ? 'bg-uni-blue' : 'bg-gray-300'}`}>
+      <div className={`relative w-8 h-4 rounded-full transition-colors ${kbSettings[key] ? 'bg-brand-primary' : 'bg-gray-300'}`}>
         <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${kbSettings[key] ? 'translate-x-4' : 'translate-x-0.5'}`} />
       </div>
     </label>
@@ -366,7 +366,7 @@ export default function RAGTab() {
                 {doc.locked ? (
                   <span className="text-xs text-gray-300" title="Belongs to an active module — disable it in the Prompts panel to remove">locked</span>
                 ) : (
-                  <button onClick={() => onDelete(doc.name)} className="text-xs text-uni-red hover:underline">
+                  <button onClick={() => onDelete(doc.name)} className="text-xs text-brand-accent hover:underline">
                     Delete
                   </button>
                 )}
@@ -382,7 +382,7 @@ export default function RAGTab() {
 
   return (
     <div className="space-y-6">
-      {error && <p className="text-sm text-uni-red">{error}</p>}
+      {error && <p className="text-sm text-brand-accent">{error}</p>}
       {success && <p className="text-sm text-green-600">{success}</p>}
 
       {/* Global RAG Documents */}
@@ -402,7 +402,7 @@ export default function RAGTab() {
             >
               Reindex
             </button>
-            <label className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium transition-colors hover:opacity-90 cursor-pointer">
+            <label className="bg-brand-primary text-brand-on-primary rounded-lg px-4 py-1.5 text-sm font-medium transition-colors hover:opacity-90 cursor-pointer">
               {uploading === 'global' ? 'Uploading...' : 'Upload Document'}
               <input
                 ref={fileInputRef}
@@ -445,14 +445,14 @@ export default function RAGTab() {
                       <span className="text-sm text-gray-500">{campaign.expanded ? '▼' : '▶'}</span>
                       <span className="font-medium text-gray-800">{fe.name || fe.id}</span>
                       {docCount > 0 && (
-                        <span className="bg-uni-blue text-white text-xs px-2 py-0.5 rounded-full">{docCount}</span>
+                        <span className="bg-brand-primary text-brand-on-primary text-xs px-2 py-0.5 rounded-full">{docCount}</span>
                       )}
                     </div>
                     <div className="flex items-center gap-3" onClick={e => e.stopPropagation()}>
                       <label className="flex items-center gap-2 cursor-pointer">
                         <span className="text-xs text-gray-500">Include Global RAG</span>
                         <div
-                          className={`relative w-8 h-4 rounded-full transition-colors ${campaign.includeGlobal ? 'bg-uni-blue' : 'bg-gray-300'}`}
+                          className={`relative w-8 h-4 rounded-full transition-colors ${campaign.includeGlobal ? 'bg-brand-primary' : 'bg-gray-300'}`}
                           onClick={() => handleToggleGlobal(fe.id)}
                         >
                           <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${campaign.includeGlobal ? 'translate-x-4' : 'translate-x-0.5'}`} />
@@ -471,7 +471,7 @@ export default function RAGTab() {
                         >
                           Reindex
                         </button>
-                        <label className="bg-uni-blue text-white rounded-lg px-3 py-1 text-xs font-medium transition-colors hover:opacity-90 cursor-pointer">
+                        <label className="bg-brand-primary text-brand-on-primary rounded-lg px-3 py-1 text-xs font-medium transition-colors hover:opacity-90 cursor-pointer">
                           {uploading === fe.id ? 'Uploading...' : 'Upload'}
                           <input
                             ref={el => { campaignFileRefs.current[fe.id] = el }}
@@ -532,7 +532,7 @@ export default function RAGTab() {
             >
               Download JSON
             </button>
-            <label className="bg-uni-blue text-white rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:opacity-90 cursor-pointer">
+            <label className="bg-brand-primary text-brand-on-primary rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:opacity-90 cursor-pointer">
               Upload JSON
               <input
                 ref={glossaryUploadRef}
@@ -553,7 +553,7 @@ export default function RAGTab() {
           <>
             <button
               onClick={() => setGlossaryExpanded(!glossaryExpanded)}
-              className="text-xs text-uni-blue hover:underline mb-2"
+              className="text-xs text-brand-primary hover:underline mb-2"
             >
               {glossaryExpanded ? 'Hide terms' : `Show all ${glossary.length} terms`}
             </button>
@@ -598,7 +598,7 @@ export default function RAGTab() {
             >
               Download JSON
             </button>
-            <label className="bg-uni-blue text-white rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:opacity-90 cursor-pointer">
+            <label className="bg-brand-primary text-brand-on-primary rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:opacity-90 cursor-pointer">
               Upload JSON
               <input
                 ref={orgsUploadRef}
@@ -619,7 +619,7 @@ export default function RAGTab() {
           <>
             <button
               onClick={() => setOrgsExpanded(!orgsExpanded)}
-              className="text-xs text-uni-blue hover:underline mb-2"
+              className="text-xs text-brand-primary hover:underline mb-2"
             >
               {orgsExpanded ? 'Hide organizations' : `Show all ${organizations.length} organizations`}
             </button>

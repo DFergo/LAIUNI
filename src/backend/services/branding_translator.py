@@ -51,6 +51,16 @@ def get_translation_status(frontend_id: str) -> dict[str, Any]:
     return _translation_status.get(frontend_id, {"status": "idle", "progress": 0, "total": 0})
 
 
+PLACEHOLDER = re.compile(r"\{\{\s*[a-z_]+\s*\}\}")
+
+
+def _keeps_placeholders(source: str, translated: str) -> bool:
+    """Every placeholder of the source appears in the translation, as many times, unchanged."""
+    from collections import Counter
+    norm = lambda t: Counter(re.sub(r"\s+", "", m) for m in PLACEHOLDER.findall(t))
+    return norm(source) == norm(translated)
+
+
 def _strip_think_blocks(text: str) -> str:
     """Remove <think>...</think> blocks from LLM output."""
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
@@ -87,14 +97,23 @@ async def _translate_text(
     """
     from src.services.llm_provider import build_fallback_chain
 
+    # Sprint 43: the texts are templates ({{org_name}}, {{tool_name}}...) resolved when shown, so a
+    # translation must carry every placeholder untouched. Asked for in the request; checked afterwards.
+    placeholders = PLACEHOLDER.findall(text)
+    rule = ("\n\nKeep every placeholder written between double curly braces, such as {{org_name}}, exactly as it is: "
+            "do not translate, rename, spell out or remove it.") if placeholders else ""
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Target language: {target_name}.\n\nTranslate the following text into {target_name}:\n\n{text}"},
+        {"role": "user", "content": f"Target language: {target_name}.{rule}\n\nTranslate the following text into {target_name}:\n\n{text}"},
     ]
     try:
         chain = build_fallback_chain(settings, "translation")
-        result = await llm.chat_with_fallback(messages, chain)
-        return _strip_think_blocks(result)
+        for attempt in (1, 2):
+            result = _strip_think_blocks(await llm.chat_with_fallback(messages, chain))
+            if not placeholders or _keeps_placeholders(text, result):
+                return result
+            logger.warning(f"Translation to {target_name} changed a placeholder (attempt {attempt})")
+        return ""  # left empty: filled by the next save, never published with a broken placeholder
     except Exception as e:
         logger.warning(f"Translation to {target_name} failed: {e}")
         return ""

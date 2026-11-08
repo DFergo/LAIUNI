@@ -32,11 +32,12 @@ Ask the user what the site is for and propose a config; explain each choice in o
 Who may log in: `admin_api GET /admin/contacts`, then `PUT /admin/contacts/global` or `PUT /admin/contacts/frontend/<id>` (see `admin_api_reference filter="contacts"` for fields).
 
 ## Branding
+Names, colours and logos: guide `branding` (global defaults for every frontend, overrides per frontend). Texts:
 ```
 admin_api GET /admin/frontends/<id>/branding
-admin_api PUT /admin/frontends/<id>/branding
-  {"app_title": "...", "disclaimer_text": "...", "instructions_text_worker": "...", "logo_mode": "white"}
-admin_upload path="/admin/frontends/<id>/branding/logo" file="~/logo.png"
+admin_api PUT /admin/frontends/<id>/branding            (the whole object from the GET, with your changes)
+  {"app_title": "...", "disclaimer_text": "...", "instructions_text_worker": "...", "logo_mode": "white", "tokens": {...}}
+admin_upload path="/admin/frontends/<id>/branding/logo/header" file="~/logo.png"
 ```
 Texts are written in English and translated by the translation model into the frontend's languages (`GET .../branding/translation-status`).
 

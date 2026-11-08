@@ -7,9 +7,11 @@ export default {
   theme: {
     extend: {
       colors: {
-        'uni-blue': '#003087',
-        'uni-red': '#E31837',
-        'uni-dark': '#1a1a2e',
+        // Branding tokens (Sprint 43): CSS variables set from the backend's catalog (src/branding.ts)
+        'brand-primary': 'rgb(var(--brand-primary) / <alpha-value>)',
+        'brand-on-primary': 'rgb(var(--brand-on-primary) / <alpha-value>)',
+        'brand-accent': 'rgb(var(--brand-accent) / <alpha-value>)',
+        'brand-dark': 'rgb(var(--brand-dark) / <alpha-value>)',
       },
     },
   },

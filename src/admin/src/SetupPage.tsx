@@ -48,7 +48,7 @@ export default function SetupPage({ onComplete }: Props) {
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none transition-colors"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none transition-colors"
               placeholder="Minimum 8 characters"
               required
             />
@@ -59,20 +59,20 @@ export default function SetupPage({ onComplete }: Props) {
               type="password"
               value={confirm}
               onChange={e => setConfirm(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none transition-colors"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:border-transparent outline-none transition-colors"
               placeholder="Repeat password"
               required
             />
           </div>
 
           {error && (
-            <p className="text-uni-red text-sm">{error}</p>
+            <p className="text-brand-accent text-sm">{error}</p>
           )}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-uni-blue text-white rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-brand-primary text-brand-on-primary rounded-lg px-4 py-2.5 font-medium transition-colors hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Creating...' : 'Create Account'}
           </button>
