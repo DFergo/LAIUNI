@@ -266,5 +266,128 @@ class McpTest(unittest.TestCase):
         self.assertEqual(queued["survey"]["role"], "worker")
 
 
+    # ------------------------------------------------------------ remote hosts (fake ssh / scp / tailscale)
+
+    def _shims(self, ssh_out="", tailscale_out=""):
+        """Put fake ssh, scp and tailscale first in PATH; they log their arguments and print canned output."""
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        self.log = self.tmp / "calls.log"
+        for name, out in (("ssh", ssh_out), ("scp", ""), ("tailscale", tailscale_out)):
+            f = bin_dir / name
+            f.write_text(f"#!/bin/sh\necho \"{name} $*\" >> '{self.log}'\ncat <<'EOF'\n{out}\nEOF\n")
+            f.chmod(0o755)
+        old = os.environ["PATH"]
+        os.environ["PATH"] = f"{bin_dir}:{old}"
+        self.addCleanup(lambda: os.environ.__setitem__("PATH", old))
+
+    def _calls(self):
+        return self.log.read_text().splitlines() if self.log.exists() else []
+
+    def test_remote_host_must_look_like_user_at_address(self):
+        self._shims()
+        for bad in ("-oProxyCommand=x@y", "root@a;rm -rf /", "justhost", "root@"):
+            err, _ = self.call("remote_check", host=bad)
+            self.assertTrue(err, bad)
+        self.assertEqual(self._calls(), [])
+
+    def test_remote_check_reads_the_machine_and_flags_exposed_ports(self):
+        self._shims("os=Ubuntu 24.04\narch=x86_64\nuser=root\nsudo=yes\ndocker=Docker version 27\ncompose=\n"
+                    "tailscale=\ntailscale_ip=\nmem_mb=3900\nlistening=0.0.0.0:22 0.0.0.0:8081 127.0.0.53:53")
+        err, out = self.call("remote_check", host="root@203.0.113.7")
+        self.assertFalse(err, out)
+        info = json.loads(out)
+        self.assertEqual(info["listening_ports"], ["22", "53", "8081"])
+        self.assertEqual(info["listening_beyond_ssh_and_private"], ["0.0.0.0:8081"])
+        self.assertIn("remote_install tailscale", info["next"])
+        self.assertIn("BatchMode=yes", self._calls()[0])
+
+    def test_remote_install_is_planned_until_apply_and_runs_only_fixed_scripts(self):
+        self._shims("Docker installed")
+        err, out = self.call("remote_install", host="ubuntu@203.0.113.7", action="docker")
+        self.assertFalse(err)
+        self.assertIn("planned", out)
+        self.assertEqual(self._calls(), [])
+        self.assertTrue(self.call("remote_install", host="ubuntu@203.0.113.7", action="rm -rf /", apply=True)[0])
+        err, out = self.call("remote_install", host="ubuntu@203.0.113.7", action="docker", apply=True)
+        self.assertFalse(err, out)
+        self.assertIn("get.docker.com | sudo sh", self._calls()[0])            # not root → sudo
+        self.call("remote_install", host="root@203.0.113.7", action="firewall", port=2222, apply=True)
+        self.assertIn("ufw allow 2222/tcp", self._calls()[-1])
+        self.assertNotIn("sudo", self._calls()[-1])
+
+    def test_tailscale_login_returns_the_link(self):
+        self._shims("To authenticate, visit:\n\n\thttps://login.tailscale.com/a/abc123def\n")
+        err, out = self.call("remote_install", host="root@203.0.113.7", action="tailscale_login", apply=True)
+        self.assertFalse(err, out)
+        self.assertEqual(json.loads(out)["login_link"], "https://login.tailscale.com/a/abc123def")
+
+    def test_remote_deploy_sends_files_directly_and_never_shows_secrets(self):
+        self._shims("")
+        folder = self.tmp / "fe"
+        self.call("deploy_prepare", topology="t2-vps-tailscale", folder=str(folder),
+                  values={"TAILSCALE_IP": "100.64.0.5", "HRDD_BACKEND_SECRET": "s" * 40, "TUNNEL_TOKEN": "eyJ-tunnel-token"},
+                  apply=True)
+        err, out = self.call("remote_deploy", host="root@203.0.113.7", folder=str(folder))
+        self.assertFalse(err, out)
+        self.assertIn("planned", out)
+        self.assertNotIn("eyJ-tunnel-token", out)
+        self.assertFalse(any(c.startswith("scp") for c in self._calls()))
+        err, out = self.call("remote_deploy", host="root@203.0.113.7", folder=str(folder), apply=True)
+        self.assertFalse(err, out)
+        calls = self._calls()
+        self.assertEqual(sum(c.startswith("scp") for c in calls), 2)
+        self.assertTrue(any("chmod 600 hrdd-frontend/.env" in c for c in calls))
+        self.assertNotIn("eyJ-tunnel-token", out)
+
+    def test_remote_deploy_refuses_to_replace_an_existing_env(self):
+        self._shims("exists")
+        folder = self.tmp / "fe2"
+        self.call("deploy_prepare", topology="t2-vps-tailscale", folder=str(folder),
+                  values={"TAILSCALE_IP": "100.64.0.5", "HRDD_BACKEND_SECRET": "s" * 40, "TUNNEL_TOKEN": "t"}, apply=True)
+        err, out = self.call("remote_deploy", host="root@203.0.113.7", folder=str(folder), apply=True)
+        self.assertTrue(err)
+        self.assertIn("already exists", out)
+        self.assertFalse(any(c.startswith("scp") for c in self._calls()))
+        self.assertTrue(self.call("remote_deploy", host="root@h.example", folder=str(folder),
+                                  remote_folder="../etc", apply=True)[0])
+
+    def test_remote_compose_changes_need_apply(self):
+        self._shims("ok")
+        err, out = self.call("remote_compose", host="root@203.0.113.7", action="up")
+        self.assertFalse(err)
+        self.assertIn("planned", out)
+        self.assertEqual(self._calls(), [])
+        self.call("remote_compose", host="root@203.0.113.7", action="ps")
+        self.assertIn("docker compose ps", self._calls()[0])
+        self.assertTrue(self.call("remote_compose", host="root@203.0.113.7", action="ps", service="x; rm -rf /")[0])
+        err, out = self.call("remote_compose", host="root@203.0.113.7", action="down")
+        self.assertNotIn(" -v", json.loads(out)["planned"])                   # never removes volumes
+
+    def test_tailscale_status_lists_peers(self):
+        self._shims(tailscale_out=json.dumps({
+            "BackendState": "Running",
+            "Self": {"HostName": "studio", "TailscaleIPs": ["100.64.0.1", "fd7a::1"], "Online": True},
+            "Peer": {"k": {"HostName": "vps", "TailscaleIPs": ["100.64.0.5"], "Online": True, "OS": "linux"}}}))
+        err, out = self.call("tailscale_status")
+        self.assertFalse(err, out)
+        st = json.loads(out)
+        self.assertEqual(st["this_machine"]["ip"], "100.64.0.1")
+        self.assertEqual(st["peers"][0]["ip"], "100.64.0.5")
+
+    def test_check_public_site_rejects_odd_names_and_reports_unresolved(self):
+        self.assertTrue(self.call("check_public_site", hostname="x; curl evil")[0])
+        err, out = self.call("check_public_site", hostname="no-such-host.invalid")
+        self.assertFalse(err)
+        self.assertFalse(json.loads(out)["resolves"])
+
+    def test_configure_guide_names_every_admin_area(self):
+        import re
+        guide = (OPS / "guides" / "configure.md").read_text()
+        for f in (OPS.parent / "src/backend/api/v1/admin").glob("*.py"):
+            for prefix in re.findall(r'APIRouter\(prefix="(/admin/[a-z-]+)"', f.read_text()):
+                self.assertIn(prefix.removeprefix("/admin"), guide, f"{prefix} ({f.name}) is not in guides/configure.md")
+
+
 if __name__ == "__main__":
     unittest.main()

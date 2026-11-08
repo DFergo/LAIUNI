@@ -22,6 +22,7 @@ Human/CI use without an agent:  python3 hrdd_mcp.py call <tool> '<json arguments
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import platform
@@ -42,7 +43,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SERVER_NAME = "hrdd-helper"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "1.1.0"
 PROTOCOL_VERSION = "2025-06-18"
 
 REPO = Path(__file__).resolve().parent.parent
@@ -419,6 +420,237 @@ def compose(folder: str, action: str, service: str = "", apply: bool = False) ->
         return _plan(" ".join(cmd) + f"  (in {dest})")
     code, out = _run(cmd, timeout=1800 if action in ("up", "pull") else 120, cwd=dest)
     return {"command": " ".join(cmd), "exit_code": code, "output": out[-6000:]}
+
+
+# ----- remote hosts (a VPS or another office machine, over SSH)
+
+_HOST = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.:-]*$")
+_RDIR = re.compile(r"^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._/-]*$")
+_SERVICE = re.compile(r"^[A-Za-z0-9_.-]*$")
+_HOST_PROPS = {
+    "host": {"type": "string", "description": "user@address of the machine, e.g. root@203.0.113.7 or ubuntu@100.64.0.5"},
+    "port": {"type": "integer", "description": "SSH port if not 22"},
+    "identity": {"type": "string", "description": "Path to the SSH private key if not the default one"},
+}
+
+
+def _ssh_target(host: str, port: int | None = None, identity: str = "", scp: bool = False) -> tuple[str, list[str]]:
+    if not _HOST.match(host or ""):
+        raise ToolError("host must look like user@address (letters, digits, dots, dashes).")
+    opts = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"]
+    if port:
+        opts += ["-P" if scp else "-p", str(int(port))]
+    if identity:
+        opts += ["-i", str(Path(identity).expanduser())]
+    return host, opts
+
+
+def _remote(host: str, command: str, port: int | None = None, identity: str = "", timeout: float = 120) -> str:
+    host, opts = _ssh_target(host, port, identity)
+    code, out = _run(["ssh", *opts, host, command], timeout=timeout)
+    if code == 255 or code == 127:
+        raise ToolError(f"Cannot open an SSH connection to {host}: {out[-300:] or 'ssh not found'}. Check the address, "
+                        "that the SSH key is added to the server (provider panel or ~/.ssh/authorized_keys) and "
+                        "that port 22 is open to this machine.")
+    if code == 124:
+        raise ToolError(f"The command on {host} timed out.")
+    return out if code == 0 else f"[exit {code}] {out}"
+
+
+def _remote_dir(remote_folder: str) -> str:
+    if not _RDIR.match(remote_folder or ""):
+        raise ToolError("remote_folder must be a simple relative path such as hrdd-frontend.")
+    return remote_folder
+
+
+_REMOTE_CHECK = (
+    'echo "os=$(. /etc/os-release 2>/dev/null; echo $PRETTY_NAME)"; echo "arch=$(uname -m)"; '
+    'echo "user=$(id -un)"; echo "sudo=$(sudo -n true 2>/dev/null && echo yes || echo no)"; '
+    'echo "docker=$(docker --version 2>/dev/null)"; echo "compose=$(docker compose version 2>/dev/null)"; '
+    'echo "tailscale=$(tailscale version 2>/dev/null | head -1)"; '
+    'echo "tailscale_ip=$(tailscale ip -4 2>/dev/null | head -1)"; '
+    'echo "ufw=$(sudo -n ufw status 2>/dev/null | head -1)"; '
+    'echo "disk_free_gb=$(df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc 0-9)"; '
+    'echo "mem_mb=$(awk \'/MemTotal/{print int($2/1024)}\' /proc/meminfo 2>/dev/null)"; '
+    'echo "listening=$(ss -ltn 2>/dev/null | awk \'NR>1{print $4}\' | tr \'\\n\' \' \')"'
+)
+
+
+@tool("remote_check", "Read-only check of a remote machine over SSH (a VPS, or another office computer): OS, "
+      "architecture, memory, disk, whether Docker / Docker Compose / Tailscale / the firewall are there, its Tailscale "
+      "IP and which ports are listening. Use it first, and again after each remote_install.",
+      _HOST_PROPS, ["host"])
+def remote_check(host: str, port: int | None = None, identity: str = "") -> dict[str, Any]:
+    out = _remote(host, _REMOTE_CHECK, port, identity, timeout=60)
+    info = {k: v.strip() for k, v in (l.split("=", 1) for l in out.splitlines() if "=" in l)}
+    ports = sorted({x.rsplit(":", 1)[-1] for x in info.get("listening", "").split() if ":" in x})
+    exposed = [x for x in info.get("listening", "").split()
+               if x.rsplit(":", 1)[-1] not in ("22",) and not x.startswith(("127.", "[::1]", "100.", "[fd7a"))]
+    return {**{k: v or None for k, v in info.items() if k != "listening"}, "listening_ports": ports,
+            "listening_beyond_ssh_and_private": exposed,
+            "next": ("Docker missing: remote_install docker. " if not info.get("docker") else "")
+                    + ("Tailscale missing: remote_install tailscale. " if not info.get("tailscale") else "")
+                    + ("Tailscale installed but not logged in: remote_install tailscale_login. "
+                       if info.get("tailscale") and not info.get("tailscale_ip") else "")}
+
+
+_INSTALL_ACTIONS = {
+    "updates": ("system updates and automatic security updates",
+                "{S}apt-get update -y && {S}env DEBIAN_FRONTEND=noninteractive apt-get upgrade -y && "
+                "{S}env DEBIAN_FRONTEND=noninteractive apt-get install -y unattended-upgrades curl ca-certificates"),
+    "docker": ("Docker (official script from get.docker.com) and add the SSH user to the docker group",
+               "curl -fsSL https://get.docker.com | {S}sh && {S}usermod -aG docker \"$(id -un)\""),
+    "tailscale": ("Tailscale (official script from tailscale.com/install.sh); it still has to be logged in",
+                  "curl -fsSL https://tailscale.com/install.sh | {S}sh"),
+    "tailscale_login": ("start the Tailscale login and return the link the user must open in their browser",
+                        "{S}timeout 20 tailscale up 2>&1; true"),
+    "firewall": ("firewall (ufw): deny incoming, allow SSH on port {ssh_port}, enable. A wrong SSH port locks you "
+                 "out: the provider's panel is the way back in",
+                 "{S}apt-get install -y ufw && {S}ufw default deny incoming && {S}ufw default allow outgoing && "
+                 "{S}ufw allow {ssh_port}/tcp && {S}ufw --force enable"),
+}
+
+
+@tool("remote_install", "Prepare a remote Linux machine (Ubuntu/Debian) over SSH with one fixed, explained step: "
+      "updates, docker, tailscale, tailscale_login (returns the login link for the user), firewall. Nothing else can "
+      "be run through it. Needs apply=true after the user agreed; the plan shows the exact action.",
+      {**_HOST_PROPS, "action": {"type": "string", "enum": list(_INSTALL_ACTIONS)}, "apply": APPLY},
+      ["host", "action"])
+def remote_install(host: str, action: str, port: int | None = None, identity: str = "", apply: bool = False):
+    if action not in _INSTALL_ACTIONS:
+        raise ToolError(f"Unknown action. Use one of: {', '.join(_INSTALL_ACTIONS)}")
+    what, script = _INSTALL_ACTIONS[action]
+    ssh_port = int(port or 22)
+    what = what.format(ssh_port=ssh_port)
+    if not apply:
+        return _plan(f"on {host}: {what}")
+    root = host.split("@", 1)[0] == "root"
+    out = _remote(host, script.format(S="" if root else "sudo ", ssh_port=ssh_port), port, identity, timeout=1500)
+    result: dict[str, Any] = {"done": what, "output": out[-3000:]}
+    if action == "tailscale_login":
+        link = re.search(r"https://login\.tailscale\.com/\S+", out)
+        result["login_link"] = link.group(0) if link else None
+        result["next"] = ("Ask the user to open the link and sign in, then run remote_check: tailscale_ip should "
+                          "appear." if link else "No link: Tailscale may already be logged in — run remote_check.")
+    return result
+
+
+@tool("remote_deploy", "Copy a prepared deployment folder (docker-compose.yml and .env, from deploy_prepare) to a "
+      "remote machine over SSH, directly: the secrets in the .env never pass through the chat. The .env on the "
+      "remote machine gets mode 0600. Does not start anything (use remote_compose up). Refuses to replace an "
+      "existing remote .env unless overwrite_env=true.",
+      {**_HOST_PROPS, "folder": {"type": "string", "description": "Local prepared folder"},
+       "remote_folder": {"type": "string", "description": "Folder on the remote machine, relative to its home. "
+                                                          "Default hrdd-frontend"},
+       "overwrite_env": {"type": "boolean"}, "apply": APPLY}, ["host", "folder"])
+def remote_deploy(host: str, folder: str, remote_folder: str = "hrdd-frontend", port: int | None = None,
+                  identity: str = "", overwrite_env: bool = False, apply: bool = False):
+    src = Path(folder).expanduser().resolve()
+    for name in ("docker-compose.yml", ".env"):
+        if not (src / name).exists():
+            raise ToolError(f"{src}/{name} is missing: prepare the folder with deploy_prepare first.")
+    rdir = _remote_dir(remote_folder)
+    existing = "exists" in _remote(host, f"test -e {rdir}/.env && echo exists; true", port, identity, timeout=60)
+    if existing and not overwrite_env:
+        raise ToolError(f"{host}:{rdir}/.env already exists, so this machine already has a deployment. Choose "
+                        "another remote_folder, or pass overwrite_env=true after the user agreed to replace it.")
+    if not apply:
+        return _plan(f"copy docker-compose.yml and .env from {src} to {host}:{rdir}/ (the .env holds secrets; it is "
+                     "sent directly, not through the chat) and set it to mode 0600",
+                     {"replaces_existing_env": existing, "env": _mask_env(src / ".env")})
+    _remote(host, f"mkdir -p {rdir} && chmod 700 {rdir}", port, identity, timeout=60)
+    host, opts = _ssh_target(host, port, identity, scp=True)
+    for name in ("docker-compose.yml", ".env"):
+        code, out = _run(["scp", *opts, str(src / name), f"{host}:{rdir}/{name}"], timeout=120)
+        if code != 0:
+            raise ToolError(f"Copying {name} failed: {out[-300:]}")
+    _remote(host, f"chmod 600 {rdir}/.env", port, identity, timeout=60)
+    st = _state()
+    st.setdefault("remote_deployments", {})[f"{host}:{rdir}"] = {"from": str(src), "copied": time.strftime("%Y-%m-%d %H:%M")}
+    _save_state(st)
+    return {"copied": ["docker-compose.yml", ".env"], "to": f"{host}:{rdir}", "next": "remote_compose action=up"}
+
+
+@tool("remote_compose", "Run docker compose in a deployment folder on a remote machine over SSH. Actions: ps, logs "
+      "(read-only); up, pull, restart, down (change things: need apply=true). Never removes data volumes.",
+      {**_HOST_PROPS, "remote_folder": {"type": "string"},
+       "action": {"type": "string", "enum": ["ps", "logs", "up", "pull", "restart", "down"]},
+       "service": {"type": "string"}, "apply": APPLY}, ["host", "action"])
+def remote_compose(host: str, action: str, remote_folder: str = "hrdd-frontend", service: str = "",
+                   port: int | None = None, identity: str = "", apply: bool = False) -> dict[str, Any]:
+    rdir = _remote_dir(remote_folder)
+    if not _SERVICE.match(service):
+        raise ToolError("service must be a plain service name.")
+    args = {"ps": "ps", "logs": "logs --tail 80", "up": "up -d", "pull": "pull", "restart": "restart",
+            "down": "down"}.get(action)
+    if args is None:
+        raise ToolError("action must be ps, logs, up, pull, restart or down.")
+    cmd = f"cd {rdir} && docker compose {args}" + (f" {service}" if service else "")
+    if action not in ("ps", "logs") and not apply:
+        return _plan(f"on {host}: {cmd}")
+    out = _remote(host, cmd, port, identity, timeout=1800 if action in ("up", "pull") else 120)
+    return {"command": cmd, "host": host, "output": out[-6000:]}
+
+
+@tool("tailscale_status", "Read-only: this machine's Tailscale state, its IPv4 address and the other machines on the "
+      "same tailnet (name, address, online). Use it to confirm that the backend machine and the VPS see each other.")
+def tailscale_status() -> dict[str, Any]:
+    code, out = _run(["tailscale", "status", "--json"], timeout=15)
+    if code == 127:
+        return {"installed": False, "next": "Install Tailscale on this machine (guide 'prerequisites')."}
+    try:
+        data = json.loads(out)
+    except ValueError:
+        return {"installed": True, "running": False, "detail": out[-300:],
+                "next": "Open the Tailscale app or run 'tailscale up' and sign in."}
+    me = data.get("Self") or {}
+
+    def brief(n: dict[str, Any]) -> dict[str, Any]:
+        ips = [ip for ip in n.get("TailscaleIPs") or [] if "." in ip]
+        return {"name": n.get("HostName"), "ip": ips[0] if ips else None, "online": n.get("Online"), "os": n.get("OS")}
+
+    return {"installed": True, "state": data.get("BackendState"), "this_machine": brief(me),
+            "peers": [brief(n) for n in (data.get("Peer") or {}).values()]}
+
+
+_CLOUDFLARE_NETS = [ipaddress.ip_network(n) for n in (
+    "173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 "
+    "190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 "
+    "104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 "
+    "2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32").split()]
+
+
+@tool("check_public_site", "Read-only check of a public hostname (the Cloudflare Tunnel's): does the name resolve, "
+      "does it point to Cloudflare, is the HTTPS certificate valid and for how long. Run it after adding the "
+      "hostname to the tunnel; DNS can take minutes to a few hours when a domain's nameservers were just moved. "
+      "The Cloudflare check compares against Cloudflare's published ranges (cloudflare.com/ips) and is a hint.",
+      {"hostname": {"type": "string", "description": "e.g. workers.union-reports.org"}}, ["hostname"])
+def check_public_site(hostname: str) -> dict[str, Any]:
+    hostname = hostname.strip().lower().removeprefix("https://").split("/")[0]
+    if not re.match(r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$", hostname) or "." not in hostname:
+        raise ToolError("hostname must be a name such as workers.example.org.")
+    result: dict[str, Any] = {"hostname": hostname}
+    try:
+        addrs = sorted({a[4][0] for a in socket.getaddrinfo(hostname, 443, proto=socket.IPPROTO_TCP)})
+    except socket.gaierror:
+        return {**result, "resolves": False, "ready": False,
+                "hint": "The name does not resolve yet: the public hostname is not in the tunnel, the domain is not "
+                        "on Cloudflare yet (nameservers), or DNS has not propagated. Check again in a few minutes."}
+    result.update(resolves=True, addresses=addrs,
+                  points_to_cloudflare=any(ipaddress.ip_address(a) in net for a in addrs for net in _CLOUDFLARE_NETS))
+    try:
+        with socket.create_connection((hostname, 443), timeout=10) as raw:
+            with ssl.create_default_context().wrap_socket(raw, server_hostname=hostname) as tls:
+                cert = tls.getpeercert()
+        expires = ssl.cert_time_to_seconds(cert["notAfter"])
+        result.update(https_ok=True, certificate_days_left=int((expires - time.time()) // 86400))
+    except (OSError, ssl.SSLError) as e:
+        result.update(https_ok=False, https_error=str(e)[:200])
+    result["ready"] = bool(result.get("https_ok"))
+    result["next"] = "check_frontend with https://" + hostname if result["ready"] else (
+        "Resolves but HTTPS fails: the tunnel may be down (remote_compose ps → cloudflared) or the certificate is "
+        "still being issued; see guide 'troubleshoot'.")
+    return result
 
 
 # ----- checks and tests

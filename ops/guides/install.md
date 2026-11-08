@@ -27,7 +27,7 @@ The backend ships with a default knowledge base (international frameworks). Show
 ## 4. Frontend(s)
 - **T3**: already running in the same folder. Register `http://hrdd-frontend:8080` (guide `frontends`).
 - **T1 (other office machine)**: `deploy_prepare topology="t1-lan"` with `HRDD_BACKEND_SECRET="env:~/hrdd/backend/.env#HRDD_FRONTEND_SECRET"` and `BACKEND_BIND=<that machine's LAN IP>`, prepared locally then copied (`scp -r`) to that machine and started there.
-- **T2 (VPS)**: `t2-vps-tailscale`, same secret reference, `TAILSCALE_IP=<VPS tailscale IP>`, `TUNNEL_TOKEN` from the tunnel (guide `domain-cloudflare`). Prepare locally, copy to the VPS, start there (guide `vps`).
+- **T2 (VPS)**: follow guide `t2-journey` (VPS preparation with `remote_install`, `deploy_prepare` for `t2-vps-tailscale`, `remote_deploy`, `remote_compose`, `check_public_site`).
 Then register and configure (guide `frontends`).
 
 ## 5. Email

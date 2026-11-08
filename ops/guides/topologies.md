@@ -15,6 +15,7 @@ The deployment folders are in `deploy/` of the repo; `deploy_prepare` copies one
 - Users reach the frontend through a **Cloudflare Tunnel** (no inbound ports on the VPS). The backend reaches the frontend's backend port over **Tailscale** (a private network between your machines; only outgoing connections). Signed mode.
 - Register the frontend with `http://<VPS Tailscale IP>:8081`.
 - Needs: a VPS (guide `vps`), a domain on Cloudflare (guide `domain-cloudflare`), Tailscale on both machines.
+- The whole path, step by step with its checks: guide `t2-journey`.
 - Alternative without Tailscale: `t2-vps` (the backend reaches the frontend through a second, Cloudflare Access-protected hostname with a service token). More Cloudflare configuration; use only if Tailscale is not an option. See `docs/INSTALL.md` section 6.
 
 ## To try it out

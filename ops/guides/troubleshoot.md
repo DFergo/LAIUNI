@@ -4,7 +4,7 @@ Read-only checks first, then explain, then propose a fix (and ask).
 
 ## First look
 - `status` — frontends (online/offline, mode badge), model health, embeddings, knowledge base, email.
-- `compose action="ps"` / `action="logs"` in the backend folder (and the frontend's, if local).
+- `compose action="ps"` / `action="logs"` in the backend folder (and the frontend's, if local); `remote_compose action="ps"` / `"logs"` for a frontend on a VPS.
 - `check_frontend` with the public URL (and backend-port URL if reachable from here).
 
 ## Symptoms
@@ -20,6 +20,9 @@ Read-only checks first, then explain, then propose a fix (and ask).
 | Knowledge base answers poor after a model change | Embeddings changed without reindex | `POST /admin/llm/embedding/reindex`. |
 | No login codes by email | SMTP not configured / failing; address not authorised | `POST /admin/smtp/test`; contacts (guide `frontends`). |
 | Tunnel site down (Cloudflare error 1033/502) | `cloudflared` not running or wrong service in the hostname | `compose ps` on the VPS; the hostname must point to `http://hrdd-frontend:80`. |
+| Cannot reach the VPS over SSH | Key not on the server, wrong address, provider firewall on port 22 | `remote_check` shows the SSH error; add the key in the provider's panel; check the address; try the provider's web console. |
+| `check_public_site` does not resolve | Hostname not in the tunnel, domain not on Cloudflare yet, DNS not propagated | Check the tunnel's public hostname; domain status in Cloudflare; wait and repeat. |
+| Backend cannot reach the VPS (frontend offline) | Tailscale down or key expired on either machine | `tailscale_status` here; `remote_check` shows the VPS's `tailscale_ip` (does it match `TAILSCALE_IP` in the `.env`?); re-login with `remote_install tailscale_login`. |
 | T2 frontend container does not start after reboot | Tailscale IP not up yet when Docker started | `docker compose up -d` again; ensure Tailscale starts at boot (`systemctl enable tailscaled`). |
 | Backend does not start / is killed | Not enough memory or disk | ≥ 8 GB RAM (the backend container is limited to 3 GB), ≥ 10 GB free disk; `compose logs`. |
 

@@ -1,5 +1,13 @@
 # HRDD Helper — Changelog
 
+## Sprint 42 — Remote servers, VPS path and domain checks for the setup agent
+
+- **Remote machines over SSH** (MCP v1.1.0): `remote_check` (OS, memory, Docker, Tailscale, listening ports; flags anything exposed beyond SSH and private addresses), `remote_install` (one fixed step per call: updates, docker, tailscale, tailscale_login that returns the login link, firewall), `remote_deploy` (copies `docker-compose.yml` and `.env` straight to the server with mode 0600; refuses to replace an existing `.env`), `remote_compose` (ps/logs; up/pull/restart/down need `apply`). Same gates as the local tools; hosts are validated as `user@address`, remote folders as plain relative paths, and nothing arbitrary can be run.
+- **Checks:** `tailscale_status` (peers of this machine) and `check_public_site` (DNS, Cloudflare, HTTPS certificate of the tunnel's hostname).
+- **Guides:** new `t2-journey` (backend at the union + frontend on a VPS, in order, with a check after each step); `vps`, `prerequisites`, `domain-cloudflare`, `install`, `overview` and `troubleshoot` updated to the new tools.
+- **Tests:** 10 new MCP tests (23 in total) with fake `ssh`/`scp`/`tailscale`, including one that fails if an admin area of the API is missing from `configure.md`.
+- Not verified live: a real VPS with Cloudflare and Tailscale (the acceptance run with a fresh agent is still to do).
+
 ## Maintenance — Glossary and organizations: on/off and per frontend
 
 - **RAG → Glossary / Organizations Directory:** a *Use in sessions* switch for each list.

@@ -26,7 +26,7 @@ A private network between the union's machines, encrypted, with no open ports. U
 2. Install on each machine:
    - macOS: the Tailscale app (https://tailscale.com/download), sign in.
    - Linux/VPS: `curl -fsSL https://tailscale.com/install.sh | sh` then `sudo tailscale up` (opens a login link).
-3. Check: `tailscale status` lists both machines; `tailscale ip -4` gives each machine's address (100.x.y.z).
+3. On the VPS you can do the install and login with `remote_install` (`tailscale`, then `tailscale_login`, which returns the link the user opens). Check: `tailscale_status` (this machine) lists the VPS as an online peer and `remote_check` shows the VPS's address; or `tailscale status` lists both machines; `tailscale ip -4` gives each machine's address (100.x.y.z).
 4. Recommended: in the Tailscale admin console, disable **key expiry** for the server machines (otherwise they drop off after the expiry period). Optional: an ACL allowing only the backend machine to reach the VPS port 8081.
 
 ## Git and Python

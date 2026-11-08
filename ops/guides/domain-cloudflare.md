@@ -28,7 +28,7 @@ The user buys and pays; help them pick a name that is neutral and easy to type.
    **Map only the public port (80).** Never the backend port.
    Adding the hostname creates the DNS record automatically when the domain is on Cloudflare.
 3. **Connector token**: get the tunnel's token and put it in the frontend's `.env` as `TUNNEL_TOKEN` without showing it in chat — e.g. the user pastes it into the `.env` on the VPS, or you write it with `env_set` from a local file reference. Then `docker compose up -d` on the frontend machine.
-4. Check: the tunnel shows **healthy** in Cloudflare; `check_frontend` with `https://<hostname>` passes.
+4. Check: the tunnel shows **healthy** in Cloudflare; `check_public_site hostname=<hostname>` says `ready` (resolves, points to Cloudflare, valid HTTPS certificate); `check_frontend` with `https://<hostname>` passes. A new domain's nameservers can take from minutes to a few hours: repeat the check, do not change anything meanwhile.
 
 ## Optional hardening
 - Cloudflare **Access** in front of internal frontends (organisers/officers): only listed email addresses can open the site.
