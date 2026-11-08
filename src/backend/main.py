@@ -9,6 +9,8 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from src.core.spa import resolve_spa_file
+
 # Sprint 24: migrate the on-disk layout into config/ BEFORE any registry/service
 # loads its files (the registries read at import time, just below).
 from src.core.paths import migrate_layout
@@ -94,7 +96,9 @@ if ADMIN_DIST.exists():
     @app.get("/{full_path:path}")
     async def serve_admin_spa(full_path: str):
         """Serve admin SPA for all non-API routes."""
-        file_path = ADMIN_DIST / full_path
-        if file_path.is_file():
+        if full_path.startswith("api/"):  # unknown API URL: a 404, not the SPA page
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        file_path = resolve_spa_file(ADMIN_DIST, full_path)
+        if file_path:
             return FileResponse(file_path)
         return FileResponse(ADMIN_DIST / "index.html")

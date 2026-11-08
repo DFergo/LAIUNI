@@ -1,5 +1,11 @@
 # HRDD Helper — Changelog
 
+## Security — Path traversal in the admin SPA route (2026-11-08)
+
+- **Fixed:** the catch-all route that serves the admin panel built `ADMIN_DIST / full_path` without checking that the result stayed inside the folder. With an encoded `..%2f`, anyone who could reach the backend port, without logging in, could read any file in the container (verified in production with `/etc/hostname`; it also exposed `/app/data/.jwt_secret`, the key that signs admin sessions). `core/spa.py` `resolve_spa_file()` resolves the path and rejects anything outside the SPA folder (`..`, encoded paths, absolute paths, symlinks); the route then serves `index.html`. Unknown URLs under `/api/` return a JSON 404 instead of the SPA page. Same fix as Translator (commit `2d6ddd3`).
+- Test: `src/backend/tests/test_spa_path.py`.
+- Exposure in UNI's production: the backend listens only on `127.0.0.1` and the UNI-Backend-M4's Tailscale address, so only Daniel's tailnet devices could reach it.
+
 ## Sprint 43 — Branding by tokens
 
 - **One catalog of tokens** replaces every hardcoded UNI value: organization name and short name, tool name, primary / text-on-primary / accent / dark colours, three logos (top bar, pages, chat background). Only the copyright line stays fixed.
