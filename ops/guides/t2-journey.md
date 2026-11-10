@@ -18,7 +18,7 @@ What the user does (accounts, payments, clicking links): VPS account and server,
    - `docker`
    - `tailscale`, then `tailscale_login` → give the user the **login_link**; they open it and approve the machine.
    - `firewall` (optional here: only if the provider has no firewall; the frontend needs no inbound port).
-4. `remote_check` again. **Check:** `docker` and `compose` present, `tailscale_ip` is a `100.x.y.z` address, and `listening_beyond_ssh_and_private` is empty.
+4. `remote_check` again, and `remote_inventory`. If the VPS already runs containers, the frontend goes into its layout: guide `existing-host` replaces §4 below. **Check:** `docker` and `compose` present, `tailscale_ip` is a `100.x.y.z` address, and `listening_beyond_ssh_and_private` is empty.
 5. `tailscale_status` on the backend machine. **Check:** the VPS appears as a peer and is `online`. In the Tailscale console, disable key expiry for both machines (guide `prerequisites`). Save `{"step": "vps ready", "vps_tailscale_ip": "..."}`.
 
 ## 3. Domain and tunnel
@@ -33,8 +33,8 @@ Guide `domain-cloudflare`: a **new dedicated domain** on Cloudflare, a remotely-
              "TUNNEL_TOKEN": "env:~/.config/hrdd-ops/keys.env#TUNNEL_TOKEN"}
    ```
    Show the plan, ask, then `apply=true`.
-2. `remote_deploy host=user@address folder="~/hrdd/frontend-<site>"` → plan → ask → `apply=true`. The `.env` is copied straight to the VPS with mode 0600.
-3. `remote_compose host=… action="up"` (plan → ask → `apply=true`; the first pull takes a few minutes), then `action="ps"`. **Check:** `hrdd-frontend` and `cloudflared` are *running*; `action="logs" service="cloudflared"` shows the tunnel registered.
+2. `remote_deploy host=user@address folder="~/hrdd/frontend-<site>" remote_folder="hrdd-frontend-<site>"` (ask the user where stacks should live on the VPS; any plain folder works) → plan → ask → `apply=true`. The `.env` is copied straight to the VPS with mode 0600.
+3. `remote_compose host=… remote_folder="hrdd-frontend-<site>" action="up"` (plan → ask → `apply=true`; the first pull takes a few minutes), then `action="ps"`. **Check:** `hrdd-frontend` and `cloudflared` are *running*; `action="logs" service="cloudflared"` shows the tunnel registered.
 4. `check_public_site hostname="workers.<domain>"`. **Check:** `ready: true`. If it does not resolve yet, wait a few minutes (nameservers) and repeat; if HTTPS fails, see `troubleshoot`.
 5. `check_frontend public_url="https://workers.<domain>" backend_port_url="http://<vps tailscale ip>:8081"` from the backend machine. **Check:** `all_ok`: the site answers, backend routes are hidden on the public port, and the backend port answers 401 (signed mode) over Tailscale.
 Save `{"step": "frontend running"}`.

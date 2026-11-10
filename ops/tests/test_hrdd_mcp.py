@@ -269,13 +269,19 @@ class McpTest(unittest.TestCase):
     # ------------------------------------------------------------ remote hosts (fake ssh / scp / tailscale)
 
     def _shims(self, ssh_out="", tailscale_out=""):
-        """Put fake ssh, scp and tailscale first in PATH; they log their arguments and print canned output."""
+        """Put fake ssh, scp and tailscale first in PATH; they log their arguments and print canned output.
+        ssh_out may be a dict {text in the command: output} to answer each remote command differently."""
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()
         self.log = self.tmp / "calls.log"
         for name, out in (("ssh", ssh_out), ("scp", ""), ("tailscale", tailscale_out)):
             f = bin_dir / name
-            f.write_text(f"#!/bin/sh\necho \"{name} $*\" >> '{self.log}'\ncat <<'EOF'\n{out}\nEOF\n")
+            if isinstance(out, dict):
+                cases = "".join(f"  *'{k}'*) cat <<'EOF'\n{v}\nEOF\n  ;;\n" for k, v in out.items())
+                body = f"case \"$*\" in\n{cases}esac\n"
+            else:
+                body = f"cat <<'EOF'\n{out}\nEOF\n"
+            f.write_text(f"#!/bin/sh\necho \"{name} $*\" >> '{self.log}'\n{body}")
             f.chmod(0o755)
         old = os.environ["PATH"]
         os.environ["PATH"] = f"{bin_dir}:{old}"
@@ -328,40 +334,154 @@ class McpTest(unittest.TestCase):
         self.call("deploy_prepare", topology="t2-vps-tailscale", folder=str(folder),
                   values={"TAILSCALE_IP": "100.64.0.5", "HRDD_BACKEND_SECRET": "s" * 40, "TUNNEL_TOKEN": "eyJ-tunnel-token"},
                   apply=True)
-        err, out = self.call("remote_deploy", host="root@203.0.113.7", folder=str(folder))
+        err, out = self.call("remote_deploy", host="root@203.0.113.7", folder=str(folder), remote_folder="hrdd/fe")
         self.assertFalse(err, out)
         self.assertIn("planned", out)
         self.assertNotIn("eyJ-tunnel-token", out)
         self.assertFalse(any(c.startswith("scp") for c in self._calls()))
-        err, out = self.call("remote_deploy", host="root@203.0.113.7", folder=str(folder), apply=True)
+        err, out = self.call("remote_deploy", host="root@203.0.113.7", folder=str(folder), remote_folder="hrdd/fe",
+                             apply=True)
         self.assertFalse(err, out)
         calls = self._calls()
         self.assertEqual(sum(c.startswith("scp") for c in calls), 2)
-        self.assertTrue(any("chmod 600 hrdd-frontend/.env" in c for c in calls))
+        self.assertTrue(any("chmod 600 hrdd/fe/.env" in c for c in calls))
         self.assertNotIn("eyJ-tunnel-token", out)
 
-    def test_remote_deploy_refuses_to_replace_an_existing_env(self):
-        self._shims("exists")
+    def test_remote_folder_has_no_default_and_must_be_a_plain_path(self):
+        self._shims("")
+        folder = self.tmp / "fe0"
+        self.call("deploy_prepare", topology="t2-vps", folder=str(folder), values={"TUNNEL_TOKEN": "t"}, apply=True)
+        self.assertTrue(self.call("remote_deploy", host="root@h.example", folder=str(folder))[0])
+        self.assertTrue(self.call("remote_compose", host="root@h.example", action="ps")[0])
+        for bad in ("../etc", "a b", "x;rm -rf /", "$(id)"):
+            self.assertTrue(self.call("remote_deploy", host="root@h.example", folder=str(folder),
+                                      remote_folder=bad, apply=True)[0], bad)
+        self.assertEqual(self._calls(), [])
+        self.assertFalse(self.call("remote_compose", host="root@h.example", action="ps",
+                                   remote_folder="/home/admin/stacks/hrdd")[0])   # absolute paths are fine
+
+    def test_remote_deploy_refuses_to_replace_an_existing_stack(self):
+        self._shims("docker-compose.yml\n.env")
         folder = self.tmp / "fe2"
         self.call("deploy_prepare", topology="t2-vps-tailscale", folder=str(folder),
                   values={"TAILSCALE_IP": "100.64.0.5", "HRDD_BACKEND_SECRET": "s" * 40, "TUNNEL_TOKEN": "t"}, apply=True)
-        err, out = self.call("remote_deploy", host="root@203.0.113.7", folder=str(folder), apply=True)
+        err, out = self.call("remote_deploy", host="root@203.0.113.7", folder=str(folder), remote_folder="fe",
+                             apply=True)
         self.assertTrue(err)
-        self.assertIn("already exists", out)
+        self.assertIn("already holds a stack", out)
         self.assertFalse(any(c.startswith("scp") for c in self._calls()))
-        self.assertTrue(self.call("remote_deploy", host="root@h.example", folder=str(folder),
-                                  remote_folder="../etc", apply=True)[0])
+
+    def test_remote_deploy_keeps_the_machine_s_compose_file_name(self):
+        self._shims("compose.yaml\n.env")
+        folder = self.tmp / "fe3"
+        self.call("deploy_prepare", topology="t2-vps", folder=str(folder), values={"TUNNEL_TOKEN": "t"}, apply=True)
+        err, out = self.call("remote_deploy", host="root@h.example", folder=str(folder), remote_folder="stacks/hrdd",
+                             replace_existing=True, apply=True)
+        self.assertTrue(err)
+        self.assertIn("uses compose.yaml", out)
+
+    def test_replacing_a_stack_shows_the_changes_masked_and_keeps_a_backup(self):
+        old = "services:\n  fe-a:\n    image: x\n"
+        self._shims({"for f in": "compose.yaml\n.env", "cat ": old + "    environment:\n      - API_KEY=sk-old-literal\n"})
+        folder = self.tmp / "fetched"
+        folder.mkdir()
+        (folder / "compose.yaml").write_text(old + "  fe-b:\n    image: x\n    environment:\n"
+                                             "      - HRDD_BACKEND_SECRET=${HRDD_BACKEND_SECRET}\n"
+                                             "      - TUNNEL_TOKEN=eyJ-literal-in-compose\n")
+        m._write_private(folder / ".env", "HRDD_BACKEND_SECRET=" + "z" * 40 + "\n")
+        err, out = self.call("remote_deploy", host="admin@h.example", folder=str(folder), remote_folder="stacks/hrdd",
+                             replace_existing=True)
+        self.assertFalse(err, out)
+        changes = json.loads(out)["details"]["compose_changes"]
+        self.assertIn("+  fe-b:", changes)
+        self.assertIn("${HRDD_BACKEND_SECRET}", changes)                       # variables are kept
+        for secret in ("eyJ-literal-in-compose", "sk-old-literal", "z" * 40):
+            self.assertNotIn(secret, out)
+        self.assertIn("(set, 40 chars)", out)                                  # masked once, true length
+        self.assertFalse(any(c.startswith("scp") for c in self._calls()))
+        err, out = self.call("remote_deploy", host="admin@h.example", folder=str(folder), remote_folder="stacks/hrdd",
+                             replace_existing=True, apply=True)
+        self.assertFalse(err, out)
+        self.assertTrue(any("cp -p compose.yaml compose.yaml.bak-" in c and "cp -p .env .env.bak-" in c
+                            for c in self._calls()))
+        self.assertTrue(any(c.startswith("scp") and "compose.yaml" in c for c in self._calls()))
+
+    def test_remote_fetch_copies_a_stack_locally_without_showing_secrets(self):
+        self._shims({"for f in": "compose.yaml\n.env"})
+        dest = self.tmp / "copy"
+        err, out = self.call("remote_fetch", host="admin@h.example", remote_folder="stacks/hrdd", folder=str(dest))
+        self.assertFalse(err, out)
+        self.assertIn("planned", out)
+        self.assertFalse(dest.exists())
+        err, out = self.call("remote_fetch", host="admin@h.example", remote_folder="stacks/hrdd", folder=str(dest),
+                             apply=True)
+        self.assertFalse(err, out)
+        scps = [c for c in self._calls() if c.startswith("scp")]
+        self.assertEqual(len(scps), 2)
+        self.assertIn("admin@h.example:stacks/hrdd/.env", scps[1])
+        self.assertEqual(stat.S_IMODE((dest / ".env").stat().st_mode), 0o600)
+        self.assertTrue(self.call("remote_fetch", host="admin@h.example", remote_folder="stacks/hrdd",
+                                  folder=str(dest), apply=True)[0])               # never into a non-empty folder
+
+    def test_remote_inventory_describes_the_machine_s_layout(self):
+        ps = [
+            {"Names": "edge-cloudflared-1", "Image": "cloudflare/cloudflared:latest", "State": "running",
+             "Networks": "net-a,net-b", "Labels": "com.docker.compose.project=edge,com.docker.compose.service=cloudflared,"
+                                                  "com.docker.compose.project.config_files=/srv/stacks/edge/compose.yaml"},
+            {"Names": "hrdd-fe-a-1", "Image": "ghcr.io/dfergo/laiuni-frontend:latest", "State": "running",
+             "Networks": "net-a", "Labels": "com.docker.compose.project=hrdd,com.docker.compose.service=fe-a"},
+            {"Names": "hrdd-fe-c-1", "Image": "ghcr.io/dfergo/laiuni-frontend:latest", "State": "running",
+             "Networks": "hrdd_default", "Labels": "com.docker.compose.project=hrdd,com.docker.compose.service=fe-c"},
+            {"Names": "tr-fe-1", "Image": "ghcr.io/dfergo/laiuni-translator-frontend:latest", "State": "running",
+             "Networks": "net-b", "Labels": "com.docker.compose.project=translator,com.docker.compose.service=fe"},
+            {"Names": "portainer", "Image": "portainer/portainer-ce", "State": "running", "Networks": "bridge",
+             "Labels": ""},
+        ]
+        ls = [{"Name": "edge", "Status": "running(1)", "ConfigFiles": "/srv/stacks/edge/compose.yaml"},
+              {"Name": "hrdd", "Status": "running(2)", "ConfigFiles": "/srv/stacks/hrdd/compose.yaml"},
+              {"Name": "translator", "Status": "running(1)", "ConfigFiles": "/srv/stacks/translator/compose.yaml"}]
+        nets = [{"Name": "bridge", "Labels": ""}, {"Name": "net-a", "Labels": ""},
+                {"Name": "hrdd_default", "Labels": "com.docker.compose.network=default,com.docker.compose.project=hrdd"}]
+        self._shims(json.dumps(ls) + "\n@@\n" + "\n".join(json.dumps(r) for r in ps) + "\n@@\n"
+                    + "\n".join(json.dumps(n) for n in nets))
+        err, out = self.call("remote_inventory", host="admin@h.example")
+        self.assertFalse(err, out)
+        inv = json.loads(out)
+        self.assertEqual([s["folder"] for s in inv["stacks"]], ["/srv/stacks/edge", "/srv/stacks/hrdd",
+                                                                "/srv/stacks/translator"])
+        self.assertEqual(inv["tunnel"][0]["stack"], "edge")
+        self.assertEqual({f["service"]: f["reachable_by_tunnel"] for f in inv["app_frontends"]},
+                         {"fe-a": True, "fe-c": False})                         # translator's image is not this app's
+        self.assertEqual([c["container"] for c in inv["containers_outside_stacks"]], ["portainer"])
+        self.assertEqual({n["name"]: n["created_by"] for n in inv["networks"]},
+                         {"net-a": "by hand (external)", "hrdd_default": "stack hrdd"})
+        self.assertIn("reuse it", inv["next"])
+        self.assertIn("/srv/stacks", inv["next"])
+
+    def test_remote_inventory_of_an_empty_machine_points_to_the_templates(self):
+        self._shims("[]\n@@\n@@\n")
+        inv = json.loads(self.call("remote_inventory", host="root@h.example")[1])
+        self.assertIn("deploy_prepare", inv["next"])
+
+    def test_local_compose_finds_the_folder_s_own_compose_file(self):
+        folder = self.tmp / "own"
+        folder.mkdir()
+        (folder / "compose.yaml").write_text("services: {}\n")
+        err, out = self.call("compose", folder=str(folder), action="up")
+        self.assertFalse(err, out)
+        self.assertIn("-f compose.yaml", json.loads(out)["planned"])
 
     def test_remote_compose_changes_need_apply(self):
         self._shims("ok")
-        err, out = self.call("remote_compose", host="root@203.0.113.7", action="up")
+        err, out = self.call("remote_compose", host="root@203.0.113.7", action="up", remote_folder="fe")
         self.assertFalse(err)
         self.assertIn("planned", out)
         self.assertEqual(self._calls(), [])
-        self.call("remote_compose", host="root@203.0.113.7", action="ps")
-        self.assertIn("docker compose ps", self._calls()[0])
-        self.assertTrue(self.call("remote_compose", host="root@203.0.113.7", action="ps", service="x; rm -rf /")[0])
-        err, out = self.call("remote_compose", host="root@203.0.113.7", action="down")
+        self.call("remote_compose", host="root@203.0.113.7", action="ps", remote_folder="fe")
+        self.assertIn("cd fe && docker compose ps", self._calls()[0])
+        self.assertTrue(self.call("remote_compose", host="root@203.0.113.7", action="ps", remote_folder="fe",
+                                  service="x; rm -rf /")[0])
+        err, out = self.call("remote_compose", host="root@203.0.113.7", action="down", remote_folder="fe")
         self.assertNotIn(" -v", json.loads(out)["planned"])                   # never removes volumes
 
     def test_tailscale_status_lists_peers(self):

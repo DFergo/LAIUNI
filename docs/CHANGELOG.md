@@ -1,5 +1,15 @@
 # HRDD Helper — Changelog
 
+## Sprint 44 — The setup agent fits the app into the machine's own layout
+
+- **No imposed layout** (MCP v1.2.0): the topologies in `deploy/` are now templates for an empty machine only. On a machine that already runs containers the agent reads its layout and adds the frontend to it, instead of dropping a template (with its own `cloudflared`) next to it. Found on UNI's VPS, which runs one stack per service and a shared tunnel.
+- **New tools:** `remote_inventory` (read-only: stacks with folder and files, containers outside stacks, networks by stack or by hand, the running tunnel and its networks, this app's frontends and whether the tunnel reaches each) and `remote_fetch` (copies a stack's compose file and `.env` to a new local folder, `.env` 0600 from the first byte, values never shown).
+- **`remote_deploy`**: any compose file name (`compose.yaml`, `docker-compose.yml`…); `remote_folder` required (no `hrdd-frontend` default), relative or absolute; replacing an existing stack needs `replace_existing=true`, the plan shows the compose diff with literal secrets masked, and the current files are kept as `<file>.bak-<date>`; refuses if the machine's stack uses another compose file name. `overwrite_env` is gone.
+- **`remote_compose`**: `remote_folder` required, absolute paths allowed. **`compose`** (local): finds the folder's own compose file instead of requiring `docker-compose.yml`.
+- **Guides:** new `existing-host` (look first, the frontend contract, add to an existing stack or as a new one, route and register, what never to do); `vps`, `t2-journey`, `topologies`, `overview`, `domain-cloudflare`, `troubleshoot` updated.
+- Fixed on the way: plans masked secrets twice and showed the length of the mask instead of the secret's (`(set, 19 chars)`).
+- Tests: 9 new MCP tests (32 in total). Live, read-only, on UNI's VPS: `remote_inventory` found the 5 stacks, the shared tunnel and the 6 HRDD frontends; `remote_fetch` of `stacks/hrdd` and a `remote_deploy` plan with its diff (not applied).
+
 ## Security — Path traversal in the admin SPA route (2026-11-08)
 
 - **Fixed:** the catch-all route that serves the admin panel built `ADMIN_DIST / full_path` without checking that the result stayed inside the folder. With an encoded `..%2f`, anyone who could reach the backend port, without logging in, could read any file in the container (verified in production with `/etc/hostname`; it also exposed `/app/data/.jwt_secret`, the key that signs admin sessions). `core/spa.py` `resolve_spa_file()` resolves the path and rejects anything outside the SPA folder (`..`, encoded paths, absolute paths, symlinks); the route then serves `index.html`. Unknown URLs under `/api/` return a JSON 404 instead of the SPA page. Same fix as Translator (commit `2d6ddd3`).

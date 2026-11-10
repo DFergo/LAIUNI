@@ -22,6 +22,7 @@ Human/CI use without an agent:  python3 hrdd_mcp.py call <tool> '<json arguments
 
 from __future__ import annotations
 
+import difflib
 import ipaddress
 import json
 import os
@@ -43,7 +44,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SERVER_NAME = "hrdd-helper"
-SERVER_VERSION = "1.1.0"
+SERVER_VERSION = "1.2.0"
 PROTOCOL_VERSION = "2025-06-18"
 
 REPO = Path(__file__).resolve().parent.parent
@@ -59,6 +60,8 @@ TOPOLOGIES = {
     "t2-vps": "A frontend on a VPS without Tailscale: backend through a Cloudflare Access-protected hostname.",
 }
 SECRET_KEYS = re.compile(r"(secret|password|api_key|apikey|token|authorization|cf-access-client)", re.I)
+COMPOSE_FILES = ("compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml")  # Docker's own order
+APP_FRONTEND_IMAGE = re.compile(r"/laiuni-frontend(:|@|$)")
 CONTENT_PATHS = re.compile(r"^/admin/sessions/(?!lifecycle|resume-windows|purge)[^/?]+(/documents)?/?(\?.*)?$"
                            r"|^/admin/export/")
 DESTRUCTIVE_PATHS = re.compile(r"(purge|reset|delete|import)", re.I)
@@ -96,12 +99,16 @@ def _mask(value: Any, key: str = "") -> Any:
         return {k: _mask(v, k) for k, v in value.items()}
     if isinstance(value, list):
         return [_mask(v, key) for v in value]
-    if isinstance(value, str) and value and SECRET_KEYS.search(key):
+    if isinstance(value, str) and value and SECRET_KEYS.search(key) and not value.startswith("•••"):
         return "•••" + (f" (set, {len(value)} chars)" if not value.startswith("env:") else f" ({value})")
     return value
 
 
 # --------------------------------------------------------------------------- env files
+
+def _compose_file(folder: Path) -> str | None:
+    return next((n for n in COMPOSE_FILES if (folder / n).exists()), None)
+
 
 def _read_env(path: Path) -> dict[str, str]:
     out: dict[str, str] = {}
@@ -316,7 +323,9 @@ def check_machine() -> dict[str, Any]:
 
 @tool("deploy_prepare", "Create a deployment folder for a topology: copies its compose file and writes .env "
       "(mode 0600). Empty *SECRET values are generated; values can be given (use 'env:/path/.env#KEY' to copy a "
-      "secret from another .env without showing it). Topologies: "
+      "secret from another .env without showing it). The topologies are templates for a machine that runs nothing "
+      "yet; on a machine that already runs containers, check it with remote_inventory and fit the app into its "
+      "layout instead (guide 'existing-host'). Topologies: "
       + "; ".join(f"{k} — {v}" for k, v in TOPOLOGIES.items()),
       {"topology": {"type": "string", "enum": list(TOPOLOGIES)},
        "folder": {"type": "string", "description": "Where to create it, e.g. ~/hrdd/backend"},
@@ -408,9 +417,10 @@ def secret_reveal(folder: str, key: str, confirm_reveal: bool = False) -> str:
        "service": {"type": "string"}, "apply": APPLY}, ["folder", "action"])
 def compose(folder: str, action: str, service: str = "", apply: bool = False) -> dict[str, Any]:
     dest = Path(folder).expanduser().resolve()
-    if not (dest / "docker-compose.yml").exists():
-        raise ToolError(f"No docker-compose.yml in {dest}")
-    files = ["-f", "docker-compose.yml"] + (["-f", "build-from-source.yml"] if (dest / "build-from-source.yml").exists() else [])
+    main = _compose_file(dest)
+    if not main:
+        raise ToolError(f"No compose file in {dest} ({', '.join(COMPOSE_FILES)})")
+    files = ["-f", main] + (["-f", "build-from-source.yml"] if (dest / "build-from-source.yml").exists() else [])
     args = {"ps": ["ps"], "logs": ["logs", "--tail", "80"], "up": ["up", "-d"], "pull": ["pull"],
             "restart": ["restart"], "down": ["down"]}[action]
     if action == "up" and "build-from-source.yml" in files:
@@ -425,7 +435,7 @@ def compose(folder: str, action: str, service: str = "", apply: bool = False) ->
 # ----- remote hosts (a VPS or another office machine, over SSH)
 
 _HOST = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.:-]*$")
-_RDIR = re.compile(r"^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._/-]*$")
+_RDIR = re.compile(r"^(?!.*\.\.)/?[A-Za-z0-9_][A-Za-z0-9._/-]*$")
 _SERVICE = re.compile(r"^[A-Za-z0-9_.-]*$")
 _HOST_PROPS = {
     "host": {"type": "string", "description": "user@address of the machine, e.g. root@203.0.113.7 or ubuntu@100.64.0.5"},
@@ -459,8 +469,137 @@ def _remote(host: str, command: str, port: int | None = None, identity: str = ""
 
 def _remote_dir(remote_folder: str) -> str:
     if not _RDIR.match(remote_folder or ""):
-        raise ToolError("remote_folder must be a simple relative path such as hrdd-frontend.")
-    return remote_folder
+        raise ToolError("remote_folder must be a plain path, relative to the SSH user's home or absolute "
+                        "(e.g. stacks/hrdd or /srv/hrdd). There is no default: use the folder that machine uses "
+                        "(remote_inventory shows them).")
+    return remote_folder.rstrip("/")
+
+
+def _remote_files(host: str, rdir: str, port: int | None, identity: str) -> list[str]:
+    """Which compose file and .env a remote folder already has (names only)."""
+    names = " ".join((*COMPOSE_FILES, ".env"))
+    out = _remote(host, f"cd {rdir} 2>/dev/null && for f in {names}; do test -e $f && echo $f; done; true",
+                  port, identity, timeout=60)
+    return [l.strip() for l in out.splitlines() if l.strip() in (*COMPOSE_FILES, ".env")]
+
+
+_SECRET_LINE = re.compile(r"(?i)(\b[\w-]*(?:secret|password|api_key|apikey|token)[\w-]*\s*[:=]\s*)(?!\$\{)(\S+)")
+
+
+def _mask_text(text: str) -> str:
+    """Hide literal secret values written inside a compose file (variables like ${X} are kept)."""
+    return _SECRET_LINE.sub(lambda m: m.group(1) + "•••", text)
+
+
+def _labels(raw: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    last = ""
+    for part in (raw or "").split(","):
+        if "=" in part:
+            last, value = part.split("=", 1)
+            out[last] = value
+        elif last:  # a value that itself contained a comma
+            out[last] += "," + part
+    return out
+
+
+_INVENTORY = ("docker compose ls --all --format json 2>&1; echo '@@'; "
+              "docker ps -a --no-trunc --format '{{json .}}' 2>&1; echo '@@'; "
+              "docker network ls --format '{{json .}}' 2>&1")
+
+
+@tool("remote_inventory", "Read-only: what already runs on a remote machine over SSH — its compose stacks (folder, "
+      "files, services), containers outside stacks, networks (created by a stack or by hand), any Cloudflare tunnel "
+      "(cloudflared) and which networks it joins, and the app's frontends already there. Use it before installing on "
+      "a machine that is not empty, and fit the app into the layout it shows (guide 'existing-host').",
+      _HOST_PROPS, ["host"])
+def remote_inventory(host: str, port: int | None = None, identity: str = "") -> dict[str, Any]:
+    out = _remote(host, _INVENTORY, port, identity, timeout=60)
+    if "permission denied" in out.lower() and "docker" in out.lower():
+        raise ToolError(f"{host} cannot use Docker. Connect as the user that runs the containers (in the docker "
+                        "group), usually the one that owns the stack folders.")
+    parts = (out.split("@@") + ["", ""])[:3]
+    try:
+        stacks_raw = json.loads(parts[0].strip() or "[]")
+    except ValueError:
+        raise ToolError(f"Unexpected answer from docker compose ls: {parts[0][-300:]}") from None
+    rows = [json.loads(l) for l in parts[1].splitlines() if l.strip().startswith("{")]
+    nets = [json.loads(l) for l in parts[2].splitlines() if l.strip().startswith("{")]
+
+    stacks = {s["Name"]: {"name": s["Name"], "status": s.get("Status"), "config_files": s.get("ConfigFiles"),
+                          "folder": str(Path(s.get("ConfigFiles", "").split(",")[0]).parent) if s.get("ConfigFiles") else None,
+                          "services": []} for s in stacks_raw}
+    loose, tunnel, frontends = [], [], []
+    for r in rows:
+        lab = _labels(r.get("Labels", ""))
+        c = {"container": r.get("Names"), "image": r.get("Image"), "state": r.get("State"),
+             "networks": sorted(n for n in (r.get("Networks") or "").split(",") if n)}
+        project, service = lab.get("com.docker.compose.project"), lab.get("com.docker.compose.service")
+        if project:
+            c = {"service": service, **c}
+            stacks.setdefault(project, {"name": project, "status": None, "config_files": None,
+                                        "folder": lab.get("com.docker.compose.project.working_dir"), "services": []})
+            stacks[project]["services"].append(c)
+        else:
+            loose.append(c)
+        where = {"stack": project, **c}
+        if "cloudflared" in (r.get("Image") or ""):
+            tunnel.append(where)
+        if APP_FRONTEND_IMAGE.search(r.get("Image") or ""):
+            frontends.append(where)
+    tunnel_nets = {n for t in tunnel for n in t["networks"]}
+    for f in frontends:
+        f["reachable_by_tunnel"] = bool(tunnel_nets & set(f["networks"]))
+    networks = [{"name": n["Name"],
+                 "created_by": (f"stack {_labels(n.get('Labels', '')).get('com.docker.compose.project')}"
+                                if "com.docker.compose.project" in (n.get("Labels") or "") else "by hand (external)")}
+                for n in nets if n.get("Name") not in ("bridge", "host", "none")]
+    folders = sorted({s["folder"] for s in stacks.values() if s["folder"]})
+    parents = sorted({str(Path(f).parent) for f in folders})
+    if not stacks and not loose:
+        hint = "Nothing runs here yet: a template from deploy_prepare fits (guide 'topologies')."
+    else:
+        hint = ("This machine already has its own layout: do not deploy a template next to it. Fit the frontend into "
+                "it (guide 'existing-host')"
+                + ("; a tunnel already runs here — reuse it, do not start a second cloudflared" if tunnel else "")
+                + (f"; stack folders live under {', '.join(parents)}" if parents else "") + ".")
+    return {"stacks": list(stacks.values()), "containers_outside_stacks": loose, "networks": networks,
+            "tunnel": tunnel, "app_frontends": frontends, "next": hint}
+
+
+@tool("remote_fetch", "Copy a stack's compose file and .env from a remote machine to a new local folder (the .env "
+      "gets mode 0600 and its values are never shown), so it can be edited here — e.g. to add a frontend to a stack "
+      "that already exists — and sent back with remote_deploy. Changes nothing on the remote machine.",
+      {**_HOST_PROPS, "remote_folder": {"type": "string", "description": "The stack's folder on the remote machine"},
+       "folder": {"type": "string", "description": "New local folder for the copy"}, "apply": APPLY},
+      ["host", "remote_folder", "folder"])
+def remote_fetch(host: str, remote_folder: str, folder: str, port: int | None = None, identity: str = "",
+                 apply: bool = False) -> dict[str, Any]:
+    rdir = _remote_dir(remote_folder)
+    dest = Path(folder).expanduser().resolve()
+    if dest.exists() and any(dest.iterdir()):
+        raise ToolError(f"{dest} is not empty: choose a new folder for the copy.")
+    found = _remote_files(host, rdir, port, identity)
+    if not any(f in COMPOSE_FILES for f in found):
+        raise ToolError(f"No compose file in {host}:{rdir}. remote_inventory shows the stack folders.")
+    if not apply:
+        return _plan(f"copy {', '.join(found)} from {host}:{rdir}/ to {dest} (the .env with mode 0600; its values "
+                     "are not shown). Nothing changes on the remote machine")
+    _private_dir(dest)
+    host_, opts = _ssh_target(host, port, identity, scp=True)
+    for name in found:
+        if name == ".env":
+            _write_private(dest / name, "")  # scp keeps the mode of an existing file: 0600 from the first byte
+        code, out = _run(["scp", *opts, f"{host_}:{rdir}/{name}", str(dest / name)], timeout=120)
+        if code != 0:
+            raise ToolError(f"Copying {name} failed: {out[-300:]}")
+    st = _state()
+    st.setdefault("fetched", {})[str(dest)] = {"from": f"{host}:{rdir}", "files": found,
+                                                "fetched": time.strftime("%Y-%m-%d %H:%M")}
+    _save_state(st)
+    return {"copied": found, "to": str(dest), "env": _mask_env(dest / ".env"),
+            "next": "Edit the compose file here (guide 'existing-host'), env_set for new variables, then "
+                    "remote_deploy with replace_existing=true."}
 
 
 _REMOTE_CHECK = (
@@ -535,48 +674,68 @@ def remote_install(host: str, action: str, port: int | None = None, identity: st
     return result
 
 
-@tool("remote_deploy", "Copy a prepared deployment folder (docker-compose.yml and .env, from deploy_prepare) to a "
-      "remote machine over SSH, directly: the secrets in the .env never pass through the chat. The .env on the "
-      "remote machine gets mode 0600. Does not start anything (use remote_compose up). Refuses to replace an "
-      "existing remote .env unless overwrite_env=true.",
-      {**_HOST_PROPS, "folder": {"type": "string", "description": "Local prepared folder"},
-       "remote_folder": {"type": "string", "description": "Folder on the remote machine, relative to its home. "
-                                                          "Default hrdd-frontend"},
-       "overwrite_env": {"type": "boolean"}, "apply": APPLY}, ["host", "folder"])
-def remote_deploy(host: str, folder: str, remote_folder: str = "hrdd-frontend", port: int | None = None,
-                  identity: str = "", overwrite_env: bool = False, apply: bool = False):
+@tool("remote_deploy", "Copy a local stack folder (its compose file and .env — from deploy_prepare, or fetched and "
+      "edited with remote_fetch) to a folder on a remote machine over SSH, directly: the secrets in the .env never "
+      "pass through the chat. The .env on the remote machine gets mode 0600. Does not start anything (use "
+      "remote_compose up). If the remote folder already holds a stack, it refuses unless replace_existing=true; then "
+      "the plan shows what changes and the current files are kept as <file>.bak-<date>.",
+      {**_HOST_PROPS, "folder": {"type": "string", "description": "Local stack folder"},
+       "remote_folder": {"type": "string", "description": "Folder on the remote machine, relative to the SSH user's "
+                                                          "home or absolute; follow the machine's layout"},
+       "replace_existing": {"type": "boolean"}, "apply": APPLY}, ["host", "folder", "remote_folder"])
+def remote_deploy(host: str, folder: str, remote_folder: str, port: int | None = None, identity: str = "",
+                  replace_existing: bool = False, apply: bool = False):
     src = Path(folder).expanduser().resolve()
-    for name in ("docker-compose.yml", ".env"):
-        if not (src / name).exists():
-            raise ToolError(f"{src}/{name} is missing: prepare the folder with deploy_prepare first.")
+    main = _compose_file(src)
+    if not main:
+        raise ToolError(f"No compose file in {src}: prepare it with deploy_prepare or remote_fetch first.")
+    files = [main] + ([".env"] if (src / ".env").exists() else [])
     rdir = _remote_dir(remote_folder)
-    existing = "exists" in _remote(host, f"test -e {rdir}/.env && echo exists; true", port, identity, timeout=60)
-    if existing and not overwrite_env:
-        raise ToolError(f"{host}:{rdir}/.env already exists, so this machine already has a deployment. Choose "
-                        "another remote_folder, or pass overwrite_env=true after the user agreed to replace it.")
+    existing = _remote_files(host, rdir, port, identity)
+    other = [f for f in existing if f in COMPOSE_FILES and f != main]
+    if other:
+        raise ToolError(f"{host}:{rdir} uses {other[0]}; name the local file the same so the stack keeps one "
+                        "compose file.")
+    if existing and not replace_existing:
+        raise ToolError(f"{host}:{rdir} already holds a stack ({', '.join(existing)}). To change it: remote_fetch, "
+                        "edit, then replace_existing=true after the user agreed. To add a new stack, choose another "
+                        "remote_folder.")
     if not apply:
-        return _plan(f"copy docker-compose.yml and .env from {src} to {host}:{rdir}/ (the .env holds secrets; it is "
-                     "sent directly, not through the chat) and set it to mode 0600",
-                     {"replaces_existing_env": existing, "env": _mask_env(src / ".env")})
-    _remote(host, f"mkdir -p {rdir} && chmod 700 {rdir}", port, identity, timeout=60)
-    host, opts = _ssh_target(host, port, identity, scp=True)
-    for name in ("docker-compose.yml", ".env"):
-        code, out = _run(["scp", *opts, str(src / name), f"{host}:{rdir}/{name}"], timeout=120)
+        details: dict[str, Any] = {"files": files, "replaces": existing}
+        if main in existing:
+            old = _remote(host, f"cat {rdir}/{main}", port, identity, timeout=60).splitlines()
+            diff = difflib.unified_diff(old, (src / main).read_text().splitlines(), "remote", "local", lineterm="")
+            details["compose_changes"] = _mask_text("\n".join(diff)) or "none"
+        if ".env" in files:
+            details["env"] = _mask_env(src / ".env")
+        return _plan(f"copy {', '.join(files)} from {src} to {host}:{rdir}/"
+                     + (" (the .env holds secrets; it is sent directly, not through the chat, with mode 0600)"
+                        if ".env" in files else "")
+                     + (f"; the current {', '.join(existing)} kept as .bak-<date>" if existing else ""), details)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    backup = "".join(f" && cp -p {f} {f}.bak-{stamp}" for f in existing)
+    _remote(host, f"mkdir -p {rdir} && chmod 700 {rdir} && cd {rdir}{backup}", port, identity, timeout=60)
+    host_, opts = _ssh_target(host, port, identity, scp=True)
+    for name in files:
+        code, out = _run(["scp", *opts, str(src / name), f"{host_}:{rdir}/{name}"], timeout=120)
         if code != 0:
             raise ToolError(f"Copying {name} failed: {out[-300:]}")
-    _remote(host, f"chmod 600 {rdir}/.env", port, identity, timeout=60)
+    if ".env" in files:
+        _remote(host, f"chmod 600 {rdir}/.env", port, identity, timeout=60)
     st = _state()
     st.setdefault("remote_deployments", {})[f"{host}:{rdir}"] = {"from": str(src), "copied": time.strftime("%Y-%m-%d %H:%M")}
     _save_state(st)
-    return {"copied": ["docker-compose.yml", ".env"], "to": f"{host}:{rdir}", "next": "remote_compose action=up"}
+    return {"copied": files, "to": f"{host}:{rdir}", "backups": [f"{f}.bak-{stamp}" for f in existing],
+            "next": "remote_compose action=up"}
 
 
-@tool("remote_compose", "Run docker compose in a deployment folder on a remote machine over SSH. Actions: ps, logs "
+@tool("remote_compose", "Run docker compose in a stack folder on a remote machine over SSH. Actions: ps, logs "
       "(read-only); up, pull, restart, down (change things: need apply=true). Never removes data volumes.",
-      {**_HOST_PROPS, "remote_folder": {"type": "string"},
+      {**_HOST_PROPS, "remote_folder": {"type": "string", "description": "The stack's folder (remote_inventory "
+                                                                         "shows them)"},
        "action": {"type": "string", "enum": ["ps", "logs", "up", "pull", "restart", "down"]},
-       "service": {"type": "string"}, "apply": APPLY}, ["host", "action"])
-def remote_compose(host: str, action: str, remote_folder: str = "hrdd-frontend", service: str = "",
+       "service": {"type": "string"}, "apply": APPLY}, ["host", "remote_folder", "action"])
+def remote_compose(host: str, action: str, remote_folder: str, service: str = "",
                    port: int | None = None, identity: str = "", apply: bool = False) -> dict[str, Any]:
     rdir = _remote_dir(remote_folder)
     if not _SERVICE.match(service):
